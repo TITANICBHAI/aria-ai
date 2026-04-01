@@ -115,6 +115,17 @@ What IS built from zero is:
 5. **First training cycle.** After enough data, the first LoRA adapter is computed during idle charging. The policy network gets its first update.
 6. **Flywheel begins.** Each task generates better data. Each training cycle makes the agent more accurate. Edge cases get stored and recalled.
 
+### Core Feasibility Strategy — "Collect-then-Train"
+
+> The feasibility of this entire system hinges on the **collect-then-train** strategy:
+> separate data collection (during active use) from model training (during idle charging).
+>
+> - **Active use:** agent collects experience tuples (screen_state, action, reward). No training.
+> - **Idle + charging:** training runs — RL policy update, LoRA fine-tune, IRL processing.
+>
+> This overcomes the Exynos 9611's performance limits. Training and inference never compete for RAM
+> or CPU at the same time. Without this separation, sustained performance is not feasible on 6GB hardware.
+
 ---
 
 ## Phase 0 — Foundation (Monorepo + JS UI Shell)
@@ -175,10 +186,26 @@ What IS built from zero is:
   ```
 - [x] Add `models/llama/` and `models/adapters/` dirs (empty, in `.gitignore`)
 
-### 0.2 React Native New Architecture
+### 0.2 React Native New Architecture — JSI Bridge
+
+#### Why JSI Instead of the Legacy Bridge
+> The legacy React Native bridge serialized all JS↔Kotlin communication as **async JSON messages**.
+> This introduced non-trivial latency — every call crossed a thread boundary via a serialization queue.
+> For an AI agent, this meant every `runInference()` or `captureScreen()` call had measurable overhead
+> before it even reached Kotlin.
+>
+> **JSI (JavaScript Interface)** eliminates this by allowing the Hermes JS engine to hold **direct
+> references to Kotlin/C++ host objects**. There is no serialization. There is no async queue.
+> The call is synchronous at the C++ layer — near-native performance.
+>
+> For the agent specifically: TurboModules via JSI means when the JS UI dispatches a task to the
+> Kotlin brain, it executes with minimal overhead. Kotlin then uses Coroutines to manage threading
+> internally (`Dispatchers.Default` for inference, never blocking the main UI thread).
+
 - [x] `newArchEnabled: true` in `app.json`
 - [x] `hermesEnabled=true` in `gradle.properties`
 - [x] JSI bridge confirmed active via `DefaultNewArchitectureEntryPoint.load()` in MainApplication
+- [x] Kotlin Coroutines manage high-performance threading — inference on `Dispatchers.Default`, never blocking main thread
 - [ ] Verify TurboModule codegen runs at Gradle build time (needs EAS build or local SDK)
 
 ### 0.3 JS UI Shell (Phase 1 — complete)
@@ -213,13 +240,48 @@ What IS built from zero is:
 > It DOES improve over time via LoRA adapters computed from successful task traces.
 
 ### 1.1 Model Choice — Decided
+
 **Model:** `Llama-3.2-1B-Instruct-Q4_K_M.gguf`
 - Source: `bartowski/Llama-3.2-1B-Instruct-GGUF` on HuggingFace
-- Disk: ~870 MB · RAM: ~1,500–1,900 MB · Speed: ~10–15 tok/s on M31
-- Why NOT BF16: ~3,185 MB RAM → OOM crash alongside OCR + screen buffers
-- Why NOT IQ2_S (2-bit): ~900 MB but poor instruction-following → navigation fails
-- Why NOT Phi-3 Mini (3.8B): too heavy for 6GB alongside vision services; weaker at UI understanding
-- Why Llama 3.2-1B: designed for mobile edge, multimodal vision training, fits in RAM
+- Disk: ~870 MB · RSS RAM: ~1,500–1,900 MB · Speed: ~8–15 tok/s on M31
+
+#### Llama 3.2-1B Internal Architecture
+- **Type:** Decoder-only transformer · 1.23 billion parameters
+- **Attention:** Grouped-Query Attention (GQA) — reduces memory bandwidth for key/value tensors, improving inference scalability on low-memory hardware. Critical for M31 where bandwidth is the bottleneck.
+- **Distillation:** Distilled from Llama 3.1 8B and 70B. Retains significant reasoning performance of larger models despite the 1B parameter count.
+- **Context window:** 128,000 tokens (theoretical max) — but hardware-limited to 4,096 on M31. Memory usage grows **quadratically** with sequence length; 128K would OOM the device. 4,096 is the hard cap.
+- **Vision-to-Action:** Multimodal training (vision + text) gives the model the ability to analyze screenshots and UI images and output structured actions. This is the decisive advantage over logic-only models.
+- **Multilinguality:** 128-language support — useful for reading foreign-language app UIs.
+
+#### Available RAM on M31
+- Total: 6 GB LPDDR4X
+- After Android OS + system services: **~2.5–3.5 GB available** for application use
+- This is the hard budget. LLM + OCR + screen buffers + policy network must all fit here.
+
+#### Quantization Comparison
+| Level | Disk (MB) | RSS RAM (MB) | Speed on M31 | Decision |
+|-------|-----------|--------------|--------------|----------|
+| BF16 (16-bit) | ~2,358 | ~3,185 | < 2 tok/s | ❌ OOM — no headroom for OCR + screen |
+| **Q4_K_M (4-bit)** | **~870** | **~1,500–1,900** | **~10–15 tok/s** | **✅ Chosen** |
+| IQ2_S (2-bit) | ~581 | ~900–1,100 | ~20+ tok/s | ❌ Low IFEval score → navigation fails |
+
+> **IFEval (Instruction Following Evaluation):** the standard benchmark for whether a model reliably
+> follows structured instructions. IQ2_S quantization degrades IFEval scores significantly — the model
+> can no longer reliably produce valid JSON tool calls, making autonomous navigation unreliable.
+> Q4_K_M is the minimum quantization level that maintains acceptable IFEval performance.
+
+#### Llama 3.2-1B vs Phi-3 Mini — Decision
+| Factor | Llama 3.2-1B | Phi-3 Mini (3.8B) |
+|--------|--------------|-------------------|
+| Parameters | 1.23B | 3.8B |
+| RAM (Q4) | ~1,500–1,900 MB | ~3,000+ MB (too heavy with vision services) |
+| Vision/screen tasks | ✅ Trained on multimodal, Vision-to-Action capable | ❌ No vision training |
+| Reasoning/math/code | Good | ✅ Outperforms models twice its size |
+| Best for this agent | ✅ Screen reading, UI navigation, accessibility | Logic/math sub-tasks only |
+
+> **Conclusion:** Llama 3.2-1B is the definitive choice for the reasoning engine. Phi-3 Mini could
+> theoretically handle pure-logic sub-tasks, but its RAM footprint makes it incompatible with
+> simultaneous vision services on 6GB hardware. Larger Llama variants (3B+) are also ruled out.
 
 ### 1.2 Model Download (First Launch)
 - [ ] `android/core/ai/ModelManager.kt` — checks if GGUF exists + size > 800MB
@@ -236,10 +298,40 @@ What IS built from zero is:
 - [ ] EAS build: do NOT bundle GGUF (APK limit 150 MB vs model 870 MB)
 - [ ] Play Asset Delivery (future Play Store): on-demand asset pack via `AssetPackManager`
 
-### 1.3 llama.cpp JNI Integration
+### 1.3 Inference Framework Decision — llama.cpp vs MediaPipe
+
+> Two frameworks were evaluated for running Llama 3.2-1B on Android. This decision is recorded here
+> permanently because switching frameworks later would require significant JNI and Gradle rework.
+
+| Factor | llama.cpp (via JNI/NDK) | MediaPipe LLM / LiteRT-LM |
+|--------|------------------------|---------------------------|
+| Integration | C++ via JNI + NDK CMake | Gradle dependency (`tasks-genai`) |
+| Memory control | ✅ `use_mmap=true`, manual context | Managed by MediaPipe runtime |
+| GPU offload | ✅ Vulkan (`LLAMA_VULKAN=ON`) | ✅ GPU + NNAPI acceleration |
+| LoRA support | ✅ llama.cpp LoRA API (our path) | `LlmInferenceOptions.setLoraConfig()` (Gemma-2, Phi-2 only) |
+| Multimodal | Manual (feed OCR+tree as text) | ✅ `setEnableVisionModality(true)` native |
+| GGUF format | ✅ Native format | ✅ LiteRT-LM supports GGUF |
+| Control level | ✅ Fine-grained (our choice) | Higher-level, less customizable |
+
+**Decision: llama.cpp via JNI.**
+Reasons: `use_mmap` is essential for the M31 RAM budget. Vulkan offload is available. LoRA fine-tuning via llama.cpp API aligns with our on-device training pipeline. MediaPipe's LoRA support is limited to Google's own models (Gemma-2, Phi-2) — not Llama 3.2.
+
+> **MediaPipe/LiteRT-LM is noted for future consideration** if Vision-to-Action (native multimodal)
+> becomes a priority and Llama 3.2's multimodal path via llama.cpp proves too complex to wire.
+
+#### Key MediaPipe APIs (documented for reference)
+- `com.google.mediapipe:tasks-genai` — Gradle dependency
+- `LlmInference.createFromOptions(context, options)` — load model
+- `LlmInferenceSession.LlmInferenceSessionOptions.setEnableVisionModality(true)` — multimodal input
+- `LlmInferenceOptions.setLoraConfig(loraPath)` — load LoRA adapter (Gemma-2 / Phi-2 only)
+- `LiteRT-LM` — Google's newer runtime; GGUF-compatible; Kotlin-native; GPU/NPU via NNAPI
+
+---
+
+### 1.4 llama.cpp JNI Integration
 - [ ] Add llama.cpp as NDK submodule: `android/core/ai/llama.cpp/`
 - [ ] `CMakeLists.txt`:
-  - ARM NEON SIMD enabled (automatic on Cortex-A73)
+  - ARM NEON SIMD enabled (automatic on Cortex-A73) — ARM NEON provides hardware-accelerated matrix multiplication on mobile CPUs; this is the primary compute path for inference on the A73 cores
   - Vulkan GPU offload: `LLAMA_VULKAN=ON` (Mali-G72 MP3 support)
   - `LLAMA_METAL=OFF`, `LLAMA_CUBLAS=OFF`
 - [ ] `LlamaJNI.kt`:
@@ -342,23 +434,29 @@ What IS built from zero is:
 
 ### 3.1 Gesture Engine
 - [ ] `android/system/actions/GestureEngine.kt`
-- [ ] `tap(nodeId)`:
+- [ ] `tap(nodeId)` — Sequential clicks (navigating through settings menus):
   - Resolve nodeId → `AccessibilityNodeInfo` → `getBoundsInScreen(rect)` → center
   - `dispatchGesture(GestureDescription { path(Point(x,y), 0, 50ms) })`
-- [ ] `swipe(direction, nodeId)`:
+- [ ] `swipe(direction, nodeId)` — Scrolling through long documents or gesture-based games:
   - Compute start/end from node bounds + direction
   - `StrokeDescription` path over 300ms (natural timing)
-- [ ] `typeText(nodeId, text)`:
+- [ ] `typeText(nodeId, text)` — Entering code into an IDE, drafting messages in a communication app:
   - `performAction(ACTION_SET_TEXT, bundle.putCharSequence(...))`
 - [ ] `scroll(direction, nodeId)`:
   - `performAction(ACTION_SCROLL_FORWARD / ACTION_SCROLL_BACKWARD)`
-- [ ] `longPress(nodeId)`:
+- [ ] `longPress(nodeId)` — Triggering context menus in third-party apps:
   - Same as tap but 800ms stroke duration
 - [ ] `back()`:
   - `performGlobalAction(GLOBAL_ACTION_BACK)`
 - [ ] TurboModule: `executeAction(actionJson): Boolean`
 
-### 3.2 Verification Loop
+### 3.2 Verification Loop and Multi-Turn Memory
+
+> The autonomous loop is NOT a one-way command sequence. It is a **feedback-driven cycle**.
+> Every action's result — success, failure, or transition to a new screen state — is fed back into
+> the LLM's context for the next turn. This is **multi-turn memory**: the agent knows which moves
+> worked and can recover from errors such as a button that didn't respond or a pop-up that blocked its path.
+
 - [ ] After each action: listen for `AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED`
 - [ ] Timeout: 3 seconds (if no change → action failed)
 - [ ] Capture new screen state
@@ -366,7 +464,11 @@ What IS built from zero is:
   - Success: screen changed as expected → +1
   - Partial: screen changed but unexpected state → 0
   - Failure: no change or error dialog appeared → -1
-- [ ] Feed (result, reward, new_screen_state) back into LLM context and SQLite
+- [ ] Feed (result, reward, new_screen_state) back into LLM context (multi-turn memory) and SQLite
+- [ ] Error recovery types handled:
+  - Button did not respond → re-observe screen, retry with different node ID
+  - Pop-up blocked path → detect overlay, dismiss it, resume original task
+  - Wrong app opened → `back()` until correct screen, restate goal
 
 ### 3.3 Autonomous Agent Loop
 - [ ] `android/core/ai/AgentLoop.kt` (long-running background Coroutine):
@@ -461,6 +563,16 @@ What IS built from zero is:
   Output: action probabilities (7 actions: tap, swipe×4, type, scroll, back)
   ```
 - [ ] This is NOT the LLM. The LLM is for reasoning. The policy net is for fast game/app action selection.
+
+#### RL Component Mapping (Android Agent Implementation)
+| RL Component | Android Agent Implementation |
+|--------------|------------------------------|
+| Agent | Kotlin-based policy network (`PolicyNetwork.kt`) |
+| Environment | Android OS + current foreground application |
+| State | Downsampled RGB pixel values (224×224) + OCR text summaries |
+| Action | Localized touch, swipe, and lift events via `dispatchGesture()` |
+| Reward | Success notifications or changes in UI state (e.g. progress bar advance, score increase) |
+
 - [ ] Training algorithm: REINFORCE (policy gradient) via DL4J:
   ```kotlin
   // For each experience tuple in batch:
@@ -487,13 +599,32 @@ What IS built from zero is:
 - [ ] TurboModule: `startIrlCapture(videoDescription): void`
 
 ### 5.3 LoRA Fine-Tuning (LLM Improvement)
+
+#### How LoRA Works (Parameter-Efficient Fine-Tuning)
+> Traditional fine-tuning updates ALL parameters of the model — for a 1B model this requires massive
+> compute and memory. LoRA (Low-Rank Adaptation) instead **freezes the base model weights** and
+> inserts small, trainable rank-decomposition matrices into each transformer layer.
+>
+> **Mathematical representation:**
+> ```
+> W = W₀ + BA
+> ```
+> Where:
+> - `W₀` = frozen pre-trained weight matrix (unchanged)
+> - `B` and `A` = low-rank matrices being trained (the LoRA adapter)
+> - rank `r=8` means A is (d × 8) and B is (8 × d) — far fewer parameters than W₀ (d × d)
+>
+> Only `A` and `B` are updated during training — typically **less than 1% of total model parameters**.
+> This reduces VRAM requirements to approximately **1/8th of full fine-tuning**.
+> Output adapter size: < 10 MB. The base model (870 MB) is never modified.
+
 - [ ] `android/core/rl/LoraTrainer.kt`
 - [ ] Input: successful experience traces from SQLite (result='success', reward > 0)
 - [ ] Convert traces to fine-tuning format:
   ```json
   {"instruction": "Screen: [#1] Button:Play [#2]...", "response": "{\"tool\":\"Click\",\"node_id\":\"#1\"}"}
   ```
-- [ ] LoRA config: rank r=8, alpha=16 → adapter size <10MB
+- [ ] LoRA config: rank r=8, alpha=16 → adapter size <10MB (< 1% of base model params)
 - [ ] Training: on `Dispatchers.Default`, chunked to avoid thermal spike
 - [ ] Output: `filesDir/adapters/lora_v{N}.bin` (versioned)
 - [ ] Load new adapter via llama.cpp LoRA API at next agent session
@@ -568,6 +699,24 @@ These are the "optimized values" — they make the NEXT task loop smarter than t
 ---
 
 ## Phase 8 — Optimization & Thermal Management
+
+### 8.0 Exynos 9611 Hardware Profile (Critical Constraints)
+
+> Understanding the target chip is essential to every performance decision in this project.
+> All inference speed estimates, RAM budgets, and thermal rules are derived from this profile.
+
+| Property | Value | Implication |
+|----------|-------|-------------|
+| Process node | 10nm | Moderate efficiency — thermal throttling expected under sustained load |
+| CPU config | big.LITTLE: 4× Cortex-A73 @ 2.3 GHz + 4× Cortex-A53 @ 1.7 GHz | A73 cores handle inference; A53 cores handle background tasks |
+| GPU | Mali-G72 MP3 | Vulkan supported (limited) — used for LLM layer offload |
+| NPU | ❌ None | No dedicated neural processing unit. All AI runs on CPU/GPU only. This is a critical constraint — no NNAPI acceleration path available unlike Snapdragon 888+ devices. |
+| RAM | 6 GB LPDDR4X | Shared between OS, LLM, OCR, RL, screen buffers — every MB counts |
+| Inference speed | ~8–12 tok/s (Q4_K_M) | Sufficient for autonomous agent. Not conversational speed. Agent can afford 2–5 seconds of "thinking time" per action — a human working through a UI does the same. |
+| vs flagship | ~50–70 tok/s on Snapdragon 8 Elite | M31 is 5–8× slower, but the task requirement (one action per screen) makes this workable |
+
+> **No NPU means:** MediaPipe's NNAPI acceleration path is unavailable. llama.cpp with Vulkan offload
+> is the correct path. CPU inference on A73 cores with ARM NEON SIMD is the primary compute method.
 
 ### 8.1 RAM Budget (6GB M31 — Must Stay Under 4.5GB Total)
 | Component | Budget |
