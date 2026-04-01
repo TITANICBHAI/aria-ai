@@ -21,6 +21,7 @@ import { SectionHeader } from "@/components/SectionHeader";
 
 const QUANTIZATIONS = ["Q4_K_M", "Q4_0", "IQ2_S", "Q5_K_M"];
 const CONTEXT_SIZES = [512, 1024, 2048, 4096];
+const GPU_LAYERS = [0, 8, 16, 24, 32];
 
 export default function SettingsScreen() {
   const colors = useColors();
@@ -86,6 +87,7 @@ export default function SettingsScreen() {
         <TextInput
           value={local.modelPath ?? ""}
           onChangeText={(v) => patch("modelPath", v)}
+          placeholder="/data/user/0/com.ariaagent.mobile/files/models/your-model.gguf"
           style={[
             styles.pathInput,
             {
@@ -97,6 +99,9 @@ export default function SettingsScreen() {
           ]}
           placeholderTextColor={colors.mutedForeground}
         />
+        <Text style={[styles.fieldSub, { color: colors.mutedForeground, marginTop: 4 }]}>
+          Swap to any Llama-compatible GGUF — place the file in internal storage, paste the full path above, and tap Save. ARIA loads it on the next "Load Model" press.
+        </Text>
 
         <View style={[styles.divider, { borderColor: colors.border }]} />
 
@@ -179,6 +184,54 @@ export default function SettingsScreen() {
                 ]}
               >
                 {sz}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <View style={[styles.divider, { borderColor: colors.border }]} />
+
+        <View style={styles.fieldRow}>
+          <View style={styles.fieldInfo}>
+            <Text style={[styles.fieldLabel, { color: colors.foreground }]}>
+              GPU Layers (n_gpu_layers)
+            </Text>
+            <Text style={[styles.fieldSub, { color: colors.mutedForeground }]}>
+              Mali-G72: 32 recommended · 0 = CPU-only
+            </Text>
+          </View>
+        </View>
+        <View style={styles.chipRow}>
+          {GPU_LAYERS.map((n) => (
+            <TouchableOpacity
+              key={n}
+              onPress={() => {
+                Haptics.selectionAsync();
+                patch("nGpuLayers", n);
+              }}
+              style={[
+                styles.chip,
+                {
+                  backgroundColor:
+                    (local.nGpuLayers ?? 32) === n
+                      ? colors.primary
+                      : colors.surface3,
+                  borderRadius: 8,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.chipText,
+                  {
+                    color:
+                      (local.nGpuLayers ?? 32) === n
+                        ? colors.primaryForeground
+                        : colors.foreground,
+                  },
+                ]}
+              >
+                {n === 0 ? "CPU" : `${n} L`}
               </Text>
             </TouchableOpacity>
           ))}

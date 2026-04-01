@@ -59,7 +59,13 @@ export interface LLMStatus {
 export interface ModuleStatus {
   llm: LLMStatus;
   ocr: { ready: boolean; engine: string };
-  rl: { ready: boolean; episodesRun: number };
+  rl: {
+    ready: boolean;
+    episodesRun: number;
+    loraVersion: number;
+    adapterLoaded: boolean;
+    untrainedSamples: number;
+  };
   memory: { ready: boolean; embeddingCount: number; dbSizeKb: number };
   accessibility: { granted: boolean; active: boolean };
   screenCapture: { granted: boolean; active: boolean };
@@ -90,6 +96,7 @@ export interface AgentConfig {
   contextWindow: number;
   maxTokensPerTurn: number;
   temperatureX100: number;
+  nGpuLayers: number;        // GPU offload layers — 0=CPU only, 32=full GPU (Exynos Mali-G72)
   loraAdapterPath: string | null;
   rlEnabled: boolean;
   learningRate: number;
@@ -271,7 +278,7 @@ export const AgentCoreBridge = {
     return {
       llm: { loaded: false, modelName: "Llama-3.2-1B-Instruct", quantization: "Q4_K_M", contextLength: 4096, tokensPerSecond: 0, memoryMb: 0 },
       ocr: { ready: false, engine: "ML Kit Text Recognition v2" },
-      rl: { ready: false, episodesRun: 0 },
+      rl: { ready: false, episodesRun: 0, loraVersion: 0, adapterLoaded: false, untrainedSamples: 0 },
       memory: { ready: false, embeddingCount: 0, dbSizeKb: 0 },
       accessibility: { granted: false, active: false },
       screenCapture: { granted: false, active: false },
@@ -317,6 +324,7 @@ export const AgentCoreBridge = {
       contextWindow: 4096,
       maxTokensPerTurn: 512,
       temperatureX100: 70,
+      nGpuLayers: 32,
       loraAdapterPath: null,
       rlEnabled: true,
       learningRate: 1,

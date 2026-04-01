@@ -14,6 +14,7 @@ import * as Haptics from "expo-haptics";
 
 import { useAgent } from "@/context/AgentContext";
 import { useColors } from "@/hooks/useColors";
+import { AgentCoreBridge } from "@/native-bindings/AgentCoreBridge";
 import { SectionHeader } from "@/components/SectionHeader";
 
 interface DetailRowProps {
@@ -145,6 +146,13 @@ export default function ModulesScreen() {
   const insets = useSafeAreaInsets();
   const { moduleStatus, loadModel, requestPermissions, refresh } = useAgent();
   const [refreshing, setRefreshing] = React.useState(false);
+  const [thermal, setThermal] = React.useState<{
+    level: string; inferenceSafe: boolean; trainingSafe: boolean; emergency: boolean;
+  } | null>(null);
+
+  React.useEffect(() => {
+    AgentCoreBridge.getThermalStatus().then(setThermal).catch(() => {});
+  }, []);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : 0;
@@ -158,7 +166,10 @@ export default function ModulesScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await refresh();
+    await Promise.all([
+      refresh(),
+      AgentCoreBridge.getThermalStatus().then(setThermal).catch(() => {}),
+    ]);
     setRefreshing(false);
   };
 
@@ -221,14 +232,18 @@ export default function ModulesScreen() {
 
       <ModuleCard
         title="RL Module"
-        subtitle="On-device reinforcement learning"
+        subtitle="REINFORCE policy gradient + LoRA fine-tuning"
         icon="trending-up"
         ready={rl?.ready ?? false}
         colors={colors}
         details={[
-          { label: "Algorithm", value: "Custom lightweight Q-agent" },
+          { label: "Algorithm", value: "REINFORCE (policy gradient)" },
+          { label: "Optimizer", value: "Adam — adaptive moment estimation" },
+          { label: "Backprop", value: "3-layer MLP, NEON SIMD math" },
           { label: "Episodes", value: String(rl?.episodesRun ?? 0) },
-          { label: "LoRA tuning", value: "Periodic background fine-tune" },
+          { label: "LoRA version", value: rl?.loraVersion != null ? `v${rl.loraVersion}` : "v0 (untrained)" },
+          { label: "Adapter loaded", value: rl?.adapterLoaded ? "Yes" : "No" },
+          { label: "Untrained samples", value: String(rl?.untrainedSamples ?? 0) },
           { label: "Reward signal", value: "Action success + task completion" },
         ]}
       />
@@ -244,6 +259,28 @@ export default function ModulesScreen() {
           { label: "DB size", value: mem?.dbSizeKb ? `${mem.dbSizeKb} KB` : "—" },
           { label: "Storage", value: "SQLite (app internal)" },
           { label: "Context window", value: "Summarized + retrieved" },
+        ]}
+      />
+
+      <SectionHeader title="Device Health" />
+
+      <ModuleCard
+        title="Thermal Guard"
+        subtitle="CPU/GPU temperature monitoring"
+        icon="thermometer"
+        ready={thermal !== null && !thermal.emergency}
+        colors={colors}
+        details={[
+          {
+            label: "Thermal level",
+            value: thermal
+              ? thermal.level.charAt(0).toUpperCase() + thermal.level.slice(1)
+              : "Unknown",
+          },
+          { label: "Inference allowed", value: thermal ? (thermal.inferenceSafe ? "Yes" : "Paused — too hot") : "—" },
+          { label: "Training allowed", value: thermal ? (thermal.trainingSafe ? "Yes" : "Paused — too hot") : "—" },
+          { label: "Emergency throttle", value: thermal?.emergency ? "YES — agent stopped" : "No" },
+          { label: "API backend", value: "ThermalManager (API 29) + battery fallback" },
         ]}
       />
 
