@@ -120,18 +120,49 @@ What IS built from zero is:
 ## Phase 0 — Foundation (Monorepo + JS UI Shell)
 
 ### 0.1 Monorepo Structure
+
+#### Architectural Ownership Rule
+> Applications depend on packages. Packages NEVER depend on applications.
+> This maintains a predictable, acyclic dependency graph and clear ownership boundaries.
+
+#### Canonical Directory Layout (from technical spec)
+| Directory | Content Type | Technical Purpose |
+|-----------|--------------|-------------------|
+| `apps/mobile-agent/` | React Native (TS/Kotlin) | Primary Android app — bridge, manifest, entry point |
+| `apps/web-dashboard/` | React / Next.js | Local web UI for monitoring agent logs and RL metrics |
+| `packages/brain/` | Kotlin / C++ | Core AI logic, LLM inference wrappers, JNI implementations |
+| `packages/learning/` | Kotlin / DL4J | RL modules (REINFORCE policy gradient) + LoRA fine-tuning logic |
+| `packages/ui-core/` | TypeScript / React | Shared UI components used across mobile app and web dashboard |
+| `packages/shared-utils/` | TypeScript / JS | Common utility functions for data formatting and configuration |
+
+> **Current implementation note:** The project uses `artifacts/mobile/` (mobile app) and `artifacts/api-server/` (API) in place of the `apps/` prefix. The `packages/` split is implemented as `android/core/` (brain) and `android/core/rl/` (learning) inside the mobile artifact. This structure maps to the canonical spec above.
+
+#### Implementation Checklist
 - [x] Create pnpm workspace monorepo
 - [x] Configure `pnpm-workspace.yaml` with `artifacts/*`, `lib/*`, `scripts`
-- [x] Set `node-linker=hoisted` in `.npmrc` (required for Kotlin autolinking)
-- [x] Update `settings.gradle` → point `reactNativeDir` to workspace root
-- [x] Update `build.gradle` → resolve `codegenDir` from hoisted root
+- [ ] Add `packages/ui-core/` — shared UI component library (used by both mobile + web dashboard)
+- [ ] Add `packages/shared-utils/` — common data formatting and configuration utilities
+- [ ] Add `apps/web-dashboard/` — local Next.js monitoring interface for logs and RL metrics (see Phase 0.4)
+- [ ] Add `shared/schemas/` for JS ↔ Kotlin data contracts
+
+#### Dependency Resolution and Hoisting Mechanics
+> **Root problem:** React Native's Metro bundler assumes a flat project structure where all dependencies
+> are in a local `node_modules/`. In a monorepo, pnpm hoists shared deps to the repo root — which
+> Metro and Gradle cannot find without explicit path adjustments. Without this, Kotlin native module
+> autolinking silently fails and produces mysterious compilation errors.
+
+- [x] Set `node-linker=hoisted` in `.npmrc` — forces pnpm to hoist all deps to root (Metro-compatible flat layout; prevents autolinking failures in Kotlin native modules)
+- [x] Update `settings.gradle` → point `reactNativeDir` to workspace root (Gradle resolves React Native from hoisted root, not local `node_modules/`)
+- [x] Update `build.gradle` → resolve `codegenDir` from hoisted root (TurboModule codegen finds its source from the correct hoisted location)
+
+#### Kotlin Android Project Structure
 - [x] Create full `android/` Kotlin project structure:
   ```
   android/
   ├── core/
-  │   ├── ai/           ← llama.cpp JNI, model manager, agent loop
-  │   ├── ocr/          ← ML Kit OCR wrapper
-  │   ├── rl/           ← policy network, LoRA trainer, IRL module
+  │   ├── ai/           ← llama.cpp JNI, model manager, agent loop  [maps to packages/brain/]
+  │   ├── ocr/          ← ML Kit OCR wrapper                        [maps to packages/brain/]
+  │   ├── rl/           ← policy network (DL4J), LoRA trainer, IRL  [maps to packages/learning/]
   │   └── memory/       ← SQLite experience store, embeddings
   ├── system/
   │   ├── accessibility/ ← AgentAccessibilityService
@@ -140,10 +171,9 @@ What IS built from zero is:
   ├── bridge/
   │   ├── turbo/         ← TurboModules (JSI)
   │   └── dto/           ← data contracts
-  └── ui-native/         ← future Jetpack Compose (Phase 8)
+  └── ui-native/         ← future Jetpack Compose (Phase 11)
   ```
 - [x] Add `models/llama/` and `models/adapters/` dirs (empty, in `.gitignore`)
-- [ ] Add `shared/schemas/` for JS ↔ Kotlin data contracts
 
 ### 0.2 React Native New Architecture
 - [x] `newArchEnabled: true` in `app.json`
@@ -160,6 +190,19 @@ What IS built from zero is:
 - [x] `AgentCoreBridge.ts` — TurboModule contract with Phase 1 stubs
 - [x] `AgentContext.tsx` — centralized bridge state + polling
 - [x] Dark space theme (`#0a0f1e` / `#00d4ff` / `#7c3aed`)
+
+### 0.4 Web Dashboard (`apps/web-dashboard/`) — Future
+> A local (not cloud) web-based interface for monitoring agent internals. Shares `packages/ui-core/`
+> components with the mobile app. Runs on the same device or local network — no external server.
+
+- [ ] Scaffold Next.js app at `apps/web-dashboard/` (or `artifacts/web-dashboard/`)
+- [ ] Real-time agent log viewer — streams from SQLite experience store
+- [ ] RL metrics dashboard — episodes run, reward history, policy loss curve
+- [ ] LoRA adapter version tracker — shows each adapter version, training date, success rate delta
+- [ ] Edge case browser — lists stored edge cases with screen patterns and resolutions
+- [ ] Memory store explorer — embeddings count, DB size, top retrieved memories
+- [ ] Connects to same SQLite DB as Kotlin brain (read-only, on-device access)
+- [ ] Consumes `packages/ui-core/` shared components
 
 ---
 
@@ -407,18 +450,22 @@ What IS built from zero is:
 > Takes raw experience tuples → produces optimized action values → policy network weights update.
 
 ### 5.1 Reinforcement Learning — Policy Network
-- [ ] `android/core/rl/PolicyNetwork.kt` — small MLP (3 layers, ~5MB):
+> **Framework:** DeepLearning4J (DL4J) — Kotlin/JVM-native deep learning library. Chosen because it runs
+> fully on-device within the JVM (no Python runtime needed), integrates directly with Kotlin coroutines,
+> and supports the REINFORCE policy gradient algorithm on Android. Lives in `packages/learning/` per spec.
+
+- [ ] `android/core/rl/PolicyNetwork.kt` — small MLP (3 layers, ~5MB) built with DL4J:
   ```
   Input:  screen embedding (128-dim) + goal embedding (128-dim)
   Hidden: 256 → 128 neurons
   Output: action probabilities (7 actions: tap, swipe×4, type, scroll, back)
   ```
 - [ ] This is NOT the LLM. The LLM is for reasoning. The policy net is for fast game/app action selection.
-- [ ] Training algorithm: REINFORCE (policy gradient):
+- [ ] Training algorithm: REINFORCE (policy gradient) via DL4J:
   ```kotlin
   // For each experience tuple in batch:
   loss = -log(policy(action|state)) * reward
-  // Accumulate gradients, update weights
+  // Accumulate gradients, update weights via DL4J optimizer
   ```
 - [ ] Training trigger: idle + charging detected → start `PolicyTrainer` background job
 - [ ] Thermal guard: battery temp > 40°C → pause training immediately
