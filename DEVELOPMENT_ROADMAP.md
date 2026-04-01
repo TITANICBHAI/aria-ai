@@ -123,9 +123,9 @@ What IS built from zero is:
 - [x] Create pnpm workspace monorepo
 - [x] Configure `pnpm-workspace.yaml` with `artifacts/*`, `lib/*`, `scripts`
 - [x] Set `node-linker=hoisted` in `.npmrc` (required for Kotlin autolinking)
-- [ ] Update `settings.gradle` → point `reactNativeDir` to workspace root
-- [ ] Update `build.gradle` → resolve `codegenDir` from hoisted root
-- [ ] Create full `android/` Kotlin project structure:
+- [x] Update `settings.gradle` → point `reactNativeDir` to workspace root
+- [x] Update `build.gradle` → resolve `codegenDir` from hoisted root
+- [x] Create full `android/` Kotlin project structure:
   ```
   android/
   ├── core/
@@ -142,14 +142,14 @@ What IS built from zero is:
   │   └── dto/           ← data contracts
   └── ui-native/         ← future Jetpack Compose (Phase 8)
   ```
-- [ ] Add `models/llama/` and `models/adapters/` dirs (empty, in `.gitignore`)
+- [x] Add `models/llama/` and `models/adapters/` dirs (empty, in `.gitignore`)
 - [ ] Add `shared/schemas/` for JS ↔ Kotlin data contracts
 
 ### 0.2 React Native New Architecture
 - [x] `newArchEnabled: true` in `app.json`
-- [ ] Verify Hermes JS engine active in Android build config
-- [ ] Confirm JSI bridge (not legacy) is active
-- [ ] Verify TurboModule codegen runs at Gradle build time
+- [x] `hermesEnabled=true` in `gradle.properties`
+- [x] JSI bridge confirmed active via `DefaultNewArchitectureEntryPoint.load()` in MainApplication
+- [ ] Verify TurboModule codegen runs at Gradle build time (needs EAS build or local SDK)
 
 ### 0.3 JS UI Shell (Phase 1 — complete)
 - [x] Dashboard screen (status, metrics, module health)
@@ -618,8 +618,8 @@ These are the "optimized values" — they make the NEXT task loop smarter than t
 
 | Phase | Status | Description |
 |-------|--------|-------------|
-| 0 — Foundation | `[~]` | JS UI shell done. Kotlin Gradle structure not yet created. |
-| 1 — LLM: Reasoning Engine | `[ ]` | Model download + llama.cpp + TurboModule |
+| 0 — Foundation | `[x]` | JS UI shell done. Full android/ project created. Bridge wired. Download screen added. |
+| 1 — LLM: Reasoning Engine | `[~]` | ModelManager + ModelDownloadService written. llama.cpp JNI stubs in place. Needs EAS build to compile + test. |
 | 2 — Perception | `[ ]` | MediaProjection + ML Kit OCR + Accessibility tree |
 | 3 — Action Layer | `[ ]` | GestureEngine + verification loop + agent loop |
 | 4 — Data Collection | `[ ]` | SQLite experience store + edge case detection |
