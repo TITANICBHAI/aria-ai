@@ -892,14 +892,14 @@ CREATE INDEX idx_labels_screen ON object_labels(app_package, screen_hash);
 | Phase | Status | Description |
 |-------|--------|-------------|
 | 0 — Foundation | `[x]` | JS UI shell done. Full android/ project created. Bridge wired. Download screen added. |
-| 1 — LLM: Reasoning Engine | `[~]` | eas.json + CMakeLists.txt + llama_jni.cpp + LlamaEngine JNI written. PromptBuilder written. Needs EAS build + llama.cpp submodule to activate real inference. |
+| 1 — LLM: Reasoning Engine | `[~]` | eas.json + CMakeLists.txt + llama_jni.cpp + LlamaEngine JNI written. **jniAvailable bug fixed** (markJniAvailable() now called on successful loadLibrary). LoRA adapter loading added (nativeLoadLora JNI + LlamaEngine.loadLora() + auto-load in AgentCoreModule.loadModel()). Needs EAS build + llama.cpp submodule. |
 | 2 — Perception | `[~]` | ScreenObserver.kt (OCR + a11y fusion) written. currentPackage/Activity tracking added. Needs real device build to verify. |
-| 3 — Action Layer | `[~]` | AgentLoop.kt (Observe→Reason→Act) written. GestureEngine exists. Needs EAS build to test on M31. |
-| 4 — Data Collection | `[~]` | ExperienceStore (SQLite) complete. EmbeddingEngine (MiniLM/hash fallback) written. |
+| 3 — Action Layer | `[~]` | AgentLoop.kt (Observe→Reason→Act) written. GestureEngine exists. **Thermal pause added** (step 2c: pause if ThermalGuard.isEmergency()). Needs EAS build to test on M31. |
+| 4 — Data Collection | `[~]` | ExperienceStore (SQLite) complete. EmbeddingEngine (MiniLM/hash fallback) written. **EmbeddingModelManager added** (OkHttp resumable download for MiniLM-L3-v2 ~23MB, auto-starts in background on first launch). |
 | 5 — RL/IRL Processing | `[~]` | LoraTrainer.kt + IrlModule.kt written. LearningScheduler wired. Needs llama.cpp training API + real device test. |
 | 6 — Game Playing | `[ ]` | Game-specific RL loop + score detection |
-| 7 — Learning Scheduler | `[~]` | LearningScheduler fully wired: thermal guard + idle check + LoraTrainer + learning_cycle_complete event. |
-| 8 — Optimization | `[ ]` | RAM budget + thermal management + Vulkan offload |
+| 7 — Learning Scheduler | `[~]` | LearningScheduler fully wired: **ThermalGuard.isTrainingSafe()** check (replaces inline temp check), battery temp sync to ThermalGuard on every ACTION_BATTERY_CHANGED. |
+| 8 — Optimization | `[x]` | **ThermalGuard.kt complete**: ThermalManager API 29 listener + battery temp fallback (API < 29). Levels: SAFE/LIGHT/MODERATE/SEVERE/CRITICAL. Emits thermal_status_changed events to JS. AgentLoop pauses on SEVERE+. LearningScheduler skips training on MODERATE+. |
 | 9 — Model Delivery | `[~]` | eas.json written. ModelDownloadService + ModelManager complete. Play Asset Delivery pending. |
 | 10 — JS Thinning | `[ ]` | Push events, remove state from JS |
 | 11 — Jetpack Compose | `[ ]` | Full Kotlin UI replaces React Native |

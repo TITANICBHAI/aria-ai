@@ -17,6 +17,7 @@
  *   token_generated          { token }
  *   agent_status_changed     { status, currentTask, currentApp }
  *   learning_cycle_complete  { loraVersion, policyVersion }
+ *   thermal_status_changed   { level, inferenceSafe, trainingSafe, emergency }
  */
 
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
@@ -262,10 +263,14 @@ export const AgentCoreBridge = {
   },
 
   async getModuleStatus(): Promise<ModuleStatus> {
-    const llm = await AgentCoreBridge.getLlmStatus().catch(() => null);
+    if (AgentCore) {
+      try {
+        return await AgentCore.getModuleStatus();
+      } catch (_) {}
+    }
     return {
-      llm: llm ?? { loaded: false, modelName: "Llama-3.2-1B-Instruct", quantization: "Q4_K_M", contextLength: 4096, tokensPerSecond: 0, memoryMb: 0 },
-      ocr: { ready: false, engine: "ML Kit Text Recognition" },
+      llm: { loaded: false, modelName: "Llama-3.2-1B-Instruct", quantization: "Q4_K_M", contextLength: 4096, tokensPerSecond: 0, memoryMb: 0 },
+      ocr: { ready: false, engine: "ML Kit Text Recognition v2" },
       rl: { ready: false, episodesRun: 0 },
       memory: { ready: false, embeddingCount: 0, dbSizeKb: 0 },
       accessibility: { granted: false, active: false },
@@ -301,10 +306,50 @@ export const AgentCoreBridge = {
   },
 
   async getConfig(): Promise<AgentConfig> {
-    return { modelPath: "/data/user/0/com.ariaagent.mobile/files/models/llama-3.2-1b-q4_k_m.gguf", quantization: "Q4_K_M", contextWindow: 4096, maxTokensPerTurn: 512, temperatureX100: 70, loraAdapterPath: null, rlEnabled: false, learningRate: 1 };
+    if (AgentCore) {
+      try {
+        return await AgentCore.getConfig();
+      } catch (_) {}
+    }
+    return {
+      modelPath: "/data/user/0/com.ariaagent.mobile/files/models/llama-3.2-1b-q4_k_m.gguf",
+      quantization: "Q4_K_M",
+      contextWindow: 4096,
+      maxTokensPerTurn: 512,
+      temperatureX100: 70,
+      loraAdapterPath: null,
+      rlEnabled: true,
+      learningRate: 1,
+    };
   },
 
-  async updateConfig(_config: Partial<AgentConfig>): Promise<{ success: boolean }> { return { success: true }; },
+  async updateConfig(config: Partial<AgentConfig>): Promise<{ success: boolean }> {
+    if (AgentCore) {
+      try {
+        await AgentCore.updateConfig(config);
+        return { success: true };
+      } catch (_) {}
+    }
+    return { success: true };
+  },
+
+  async getThermalStatus(): Promise<{
+    level: string; inferenceSafe: boolean; trainingSafe: boolean;
+    throttleCapture: boolean; emergency: boolean;
+  }> {
+    if (AgentCore) return AgentCore.getThermalStatus();
+    return { level: "safe", inferenceSafe: true, trainingSafe: true, throttleCapture: false, emergency: false };
+  },
+
+  async getMiniLmStatus(): Promise<{ ready: boolean; path: string; downloadedBytes: number }> {
+    if (AgentCore) return AgentCore.getMiniLmStatus();
+    return { ready: false, path: "", downloadedBytes: 0 };
+  },
+
+  async downloadMiniLm(): Promise<boolean> {
+    if (AgentCore) return AgentCore.downloadMiniLm();
+    return false;
+  },
 
   async isAccessibilityEnabled(): Promise<boolean> {
     if (AgentCore) return AgentCore.isAccessibilityEnabled();
