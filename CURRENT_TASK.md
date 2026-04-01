@@ -1,162 +1,205 @@
 # Current Task
 
-> Update this file every time you start a new task.
-> Format: What → Why → How → Acceptance criteria → Blockers
+> Update this file every time a new task begins.
+> Format: WHAT → WHY → HOW → Acceptance criteria → Blockers → Next task
 
 ---
 
-## Task: Phase 1 — LLM Model Delivery System
+## Task: Phase 0 Completion — Kotlin Android Project Structure
 
-**Status:** Not started  
-**Priority:** Critical path — nothing else in Phase 1 works without the model on disk  
-**Depends on:** Phase 0 (complete — JS UI shell done, Gradle Kotlin structure pending)
+**Status:** In progress (`[~]`)
+**Priority:** Blocks everything. No Kotlin code can run until the Android project exists.
+**Before this:** JS UI shell done (5 screens, bridge stubs, dark theme)
+**After this:** Phase 1 (model download service) can begin
 
 ---
 
 ## WHAT
 
-Build the model acquisition pipeline so the GGUF model lands in the app's internal storage on first launch and the LLM can be loaded for inference.
+Create the Android Gradle project inside `android/` with the correct directory structure, Gradle configuration, and New Architecture (TurboModule) setup so that Kotlin code can actually compile and the TurboModule bridge can connect to the JS UI.
 
-**Specific model:** `Llama-3.2-1B-Instruct-Q4_K_M.gguf`  
-**Source:** `https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf`  
-**Destination:** `context.filesDir/models/llama-3.2-1b-q4_k_m.gguf`  
-**Size:** ~870 MB on disk → ~1,700 MB RSS when loaded
+Nothing from Phase 1 onwards can be built until this exists. The GGUF can't be downloaded, llama.cpp can't be loaded, no gesture can be dispatched — all of it requires a working Android project.
 
 ---
 
 ## WHY
 
-### Why this model?
-From the technical documents:
-- The M31 has ~2.5–3.5 GB available for app use after the OS takes its share
-- Llama 3.2-1B at Q4_K_M uses ~1,500–1,900 MB RAM — this fits with headroom for OCR + screen buffers
-- BF16 (16-bit) would use ~3,185 MB — no headroom, guaranteed OOM crash
-- IQ2_S (2-bit) uses ~900 MB but has poor IFEval (instruction-following accuracy) scores — navigation tasks would fail
-- Llama 3.2-1B has **multimodal vision training** (unlike Phi-3), making it better for "vision-to-action" tasks where the agent reads screenshots
-- Phi-3 at 3.8B parameters doesn't fit alongside vision and accessibility services on 6GB
+### Why Kotlin and not more JS?
 
-### Why first-launch download instead of bundling?
-- APK/AAB hard limit is ~150 MB. The GGUF is 870 MB. It cannot be bundled.
-- Play Store OBBs are deprecated. Modern replacement is **Play Asset Delivery** (Phase 5 migration).
-- First-launch download works for: Expo Go testing, sideloaded APK, Play Store (all distribution methods).
-- HuggingFace provides resumable HTTPS downloads with Content-Range support.
+From the technical documents: the JS layer is a **temporary UI shell**. JS must never own logic permanently because:
+- JS runs on Hermes (JavaScript engine) — single-threaded, not suitable for heavy parallel work
+- Kotlin uses Coroutines — true parallel background threads for inference, OCR, RL training
+- On-device AI (llama.cpp, ML Kit, MediaProjection, AccessibilityService) has no JS bindings — all Android-native APIs
+- Phase 2 and Phase 3 will thin and eventually remove the JS layer entirely
 
-### Why a foreground service?
-- Android kills background processes aggressively to free RAM.
-- An 870 MB download can take 5–20 minutes on mobile data.
-- A foreground service with a persistent notification survives the download even if the user backgrounds the app.
-- Required by Android API 26+ for long-running background work.
+### Why TurboModules (New Architecture)?
+
+Legacy React Native bridge serializes everything to JSON over an async queue — this adds latency for every LLM call and gesture dispatch. JSI (JavaScript Interface) lets the JS engine hold **direct references** to Kotlin/C++ objects, making the bridge near-native speed. This matters when the agent is running a tight observe→reason→act loop.
+
+### Why this Gradle structure?
+
+The monorepo uses pnpm hoisting — all `node_modules` land at the repo root, not inside `artifacts/mobile/`. Android's Gradle autolinking system assumes `node_modules` is in a fixed relative path. We must tell Gradle where to find `react-native` and the codegen output by overriding `reactNativeDir` and `codegenDir` in `settings.gradle`.
 
 ---
 
 ## HOW
 
-### Step 1 — Kotlin: `ModelManager.kt`
-```kotlin
-// android/core/ai/ModelManager.kt
-object ModelManager {
-    fun modelPath(context: Context): File =
-        File(context.filesDir, "models/llama-3.2-1b-q4_k_m.gguf")
+### Step 1 — Directory layout to create
 
-    fun isModelReady(context: Context): Boolean =
-        modelPath(context).exists() && modelPath(context).length() > 800_000_000L
-
-    fun sha256(file: File): String // verify after download
-}
+```
+android/
+├── app/
+│   ├── src/main/
+│   │   ├── AndroidManifest.xml
+│   │   ├── java/com/ariaagent/
+│   │   │   └── MainApplication.kt
+│   │   └── res/
+│   ├── build.gradle
+│   └── proguard-rules.pro
+├── core/
+│   ├── ai/              ← llama.cpp JNI, ModelManager, AgentLoop
+│   ├── ocr/             ← ML Kit wrapper
+│   ├── rl/              ← PolicyNetwork, LoraTrainer, IrlModule, Scheduler
+│   └── memory/          ← ExperienceStore, EmbeddingEngine
+├── system/
+│   ├── accessibility/   ← AgentAccessibilityService
+│   ├── screen/          ← ScreenCaptureService (MediaProjection)
+│   └── actions/         ← GestureEngine
+├── bridge/
+│   ├── turbo/           ← AgentCoreModule.kt (TurboModule registration)
+│   └── dto/             ← data classes shared between JS and Kotlin
+├── ui-native/           ← empty, for Phase 11 Jetpack Compose
+├── build.gradle         ← root Gradle config
+├── settings.gradle      ← monorepo path overrides (reactNativeDir, codegenDir)
+└── gradle.properties    ← newArchEnabled=true, memory settings
 ```
 
-### Step 2 — Kotlin: `ModelDownloadService.kt`
-```kotlin
-// android/core/ai/ModelDownloadService.kt
-class ModelDownloadService : Service() {
-    // Foreground service — shows notification: "Downloading AI model 45% (392 MB / 870 MB)"
-    // Uses OkHttp with Range header support for resumable download
-    // Emits progress via EventEmitter → JS receives it via DeviceEventEmitter
-    // On complete: verify SHA256, then broadcast MODEL_READY event
+### Step 2 — `settings.gradle` (critical for pnpm monorepo)
 
-    val MODEL_URL = "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf"
-}
-```
-
-### Step 3 — Kotlin: `AgentCoreModule.kt` (TurboModule)
-```kotlin
-@ReactMethod
-fun checkModelReady(promise: Promise) {
-    promise.resolve(ModelManager.isModelReady(reactApplicationContext))
-}
-
-@ReactMethod
-fun startModelDownload(promise: Promise) {
-    val intent = Intent(reactApplicationContext, ModelDownloadService::class.java)
-    reactApplicationContext.startForegroundService(intent)
-    promise.resolve(true)
-}
-```
-Events pushed to JS:
-- `model_download_progress` → `{ percent: 45, downloadedMb: 392, totalMb: 870 }`
-- `model_download_complete` → `{ path: "/data/user/0/.../files/models/..." }`
-- `model_download_error` → `{ error: "Network timeout" }`
-
-### Step 4 — Update `AgentCoreBridge.ts` stubs
-```typescript
-// Replace stubs with real NativeModules calls:
-import { NativeModules, NativeEventEmitter } from 'react-native';
-const { AgentCore } = NativeModules;
-
-checkModelReady: () => AgentCore.checkModelReady(),
-startModelDownload: () => AgentCore.startModelDownload(),
-```
-
-### Step 5 — JS Download Screen
-Add a download screen that shows when `checkModelReady()` returns `false`:
-- Progress bar (animated, shows MB/total)
-- "This downloads once — 870 MB required for on-device AI"
-- Estimated time remaining
-- Cancel button (pauses download, resumes next launch)
-- Triggered in `app/_layout.tsx` before rendering main tabs
-
-### Step 6 — Gradle: Resume Support with OkHttp
 ```groovy
-// android/app/build.gradle
-dependencies {
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+// Must point to hoisted node_modules at repo root, not local artifacts/mobile/
+def reactNativeDir = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).parentFile
+// Override autolinking resolution path
+```
+
+### Step 3 — `gradle.properties`
+
+```properties
+newArchEnabled=true          # enables TurboModules + Fabric
+hermesEnabled=true           # Hermes JS engine
+android.useAndroidX=true
+org.gradle.jvmargs=-Xmx4096m
+```
+
+### Step 4 — `AndroidManifest.xml` permissions needed from Day 1
+
+```xml
+<uses-permission android:name="android.permission.INTERNET"/>
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+<!-- For Phase 2 -->
+<uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE"/>
+```
+
+### Step 5 — `MainApplication.kt` with New Architecture enabled
+
+```kotlin
+class MainApplication : Application(), ReactApplication {
+    override val reactNativeHost = DefaultReactNativeHost(this) {
+        isNewArchEnabled = BuildConfig.IS_NEW_ARCHITECTURE_ENABLED
+        isHermesEnabled = BuildConfig.IS_HERMES_ENABLED
+        getPackages() = listOf(AgentCorePackage())   // our TurboModule
+    }
 }
 ```
-Resume logic:
+
+### Step 6 — First placeholder TurboModule (so bridge compiles)
+
 ```kotlin
-val existingSize = partialFile.length()
-val request = Request.Builder()
-    .url(MODEL_URL)
-    .addHeader("Range", "bytes=$existingSize-")
-    .build()
+// android/bridge/turbo/AgentCoreModule.kt
+class AgentCoreModule(ctx: ReactApplicationContext) :
+    ReactContextBaseJavaModule(ctx), TurboModule {
+
+    override fun getName() = "AgentCore"
+
+    @ReactMethod
+    fun checkModelReady(promise: Promise) {
+        promise.resolve(false)   // Phase 1 will replace with real check
+    }
+
+    @ReactMethod
+    fun getAgentStatus(promise: Promise) {
+        val map = WritableNativeMap()
+        map.putString("phase", "phase0_kotlin_init")
+        map.putBoolean("modelReady", false)
+        promise.resolve(map)
+    }
+}
 ```
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] `ModelManager.isModelReady()` returns `false` on fresh install
-- [ ] Download starts when JS calls `startModelDownload()`
-- [ ] Foreground notification shows correct progress %
-- [ ] Download survives app being backgrounded
-- [ ] Partial download resumes correctly after network interruption
-- [ ] SHA256 verification passes after complete download
-- [ ] `model_download_complete` event fires and JS transitions to main tabs
-- [ ] `ModelManager.isModelReady()` returns `true` on subsequent launches (no re-download)
-- [ ] Total download size confirmed as ~870 MB
+- [ ] `android/` directory exists with full structure listed above
+- [ ] `./gradlew assembleDebug` completes without errors from `android/` root
+- [ ] `newArchEnabled=true` is set and codegen runs during build
+- [ ] `AgentCoreModule.kt` compiles and is registered in `ReactPackage`
+- [ ] Connecting the Expo app to the Android project: `AgentCoreBridge.ts` `checkModelReady()` call reaches Kotlin and returns `false` (not stub)
+- [ ] No `node_modules` path errors from Gradle autolinking
 
 ---
 
 ## Blockers
 
-- **Kotlin Android project not yet initialized** — `android/` directory needs full Gradle setup before any Kotlin code can run
-- **TurboModule codegen** — requires New Architecture Gradle plugin configuration
-- **Manifest permissions** — `FOREGROUND_SERVICE`, `INTERNET`, `POST_NOTIFICATIONS` need to be declared
+None currently. This task is unblocked and ready to start.
 
 ---
 
-## Next Task (after this completes)
+## Important Constraints (Don't Forget These)
 
-**Phase 1 — Task 1.2: llama.cpp JNI Integration**
-Build the NDK/JNI layer that loads the GGUF from disk and runs inference via `llama.cpp`.
-See `DEVELOPMENT_ROADMAP.md` → Phase 1 → 1.2 llama.cpp Integration.
+1. **JS never calls System Control layer directly.** Only Kotlin calls `AccessibilityService`, `MediaProjection`, `GestureEngine`. JS only calls TurboModule methods.
+2. **No logic in JS.** Even simple things like "is the model ready?" must be answered by Kotlin, not computed in JS.
+3. **No cloud. Ever.** The model download from HuggingFace is the only network call in the entire app. After that, everything is on-device.
+4. **Training only during charging + idle.** Never during active inference. Thermal guard is not optional.
+5. **Model is NOT bundled.** It is downloaded at runtime. The APK must stay under 50MB.
+
+---
+
+## The Full Learning Pipeline (Summary — Why This All Matters)
+
+```
+Day 1:  Base Llama 3.2-1B loaded (Meta pre-trained, general reasoning)
+        No fine-tuning, no RL policy, no personal data yet
+
+First tasks:  Agent explores with base model guidance
+              Every (screen, action, result, reward) tuple saved to SQLite
+              IRL module watches YouTube if user plays/watches anything
+
+First idle charging:  
+              → Policy network: REINFORCE update on accumulated tuples
+              → IRL: extract expert sequences from video frames
+              → LoRA: fine-tune LLM on successful task traces
+              → Edge cases: index unusual situations for future recall
+
+Week 1:  Agent knows this phone's apps, this user's task patterns
+         Handles edge cases it's seen before
+         Games: policy network gets faster and more accurate
+
+Month 1:  LoRA adapter makes LLM fluent in this user's language and app set
+          Policy network competitive at simple mobile games
+          Agent suggests actions before user even asks
+
+All on-device. No cloud. No external server. The M31 is the entire AI system.
+```
+
+---
+
+## Next Task (after Phase 0 complete)
+
+**Phase 1 — Task 1.2: Model Download Service**
+
+Build `ModelDownloadService.kt` — the foreground service that downloads the 870MB GGUF from HuggingFace with resume support, progress notifications, and SHA256 verification. Wire to JS download screen via TurboModule events.
+
+See `DEVELOPMENT_ROADMAP.md` → Phase 1 → 1.2 Model Download.

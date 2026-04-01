@@ -1,15 +1,119 @@
 # ARIA Agent — Development Roadmap
 
-> Derived from both technical feasibility documents.
+> Derived fully from both technical documents.
 > Tick boxes as tasks complete. Each section maps to a real implementation step.
-> Device target: Samsung Galaxy M31 · Exynos 9611 · 6GB LPDDR4X RAM
+> Device: Samsung Galaxy M31 · Exynos 9611 · 6GB LPDDR4X RAM · No cloud. Ever.
 
 ---
 
 ## Legend
 - `[ ]` Not started
-- `[~]` In progress
+- `[~]` In progress  
 - `[x]` Complete
+
+---
+
+## How The Full System Works (Read This First)
+
+The agent is NOT trained from scratch. It starts with a **pre-trained base model** (Llama 3.2-1B Q4_K_M — already trained by Meta on internet-scale data). That model provides reasoning and language ability out of the box.
+
+What IS built from zero is:
+- The agent's **knowledge of your specific phone, apps, and tasks**
+- The **RL policy** for game-playing and app navigation
+- The **LoRA adapters** that fine-tune the base LLM on your usage over time
+
+### The Learning Pipeline (this is the core loop)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    STARTING FROM ZERO                           │
+│  Base Llama 3.2-1B (Meta pre-trained) loaded into device       │
+│  No task data. No RL policy. No LoRA adapters. Yet.            │
+└─────────────────┬───────────────────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 1 — OBSERVE                                               │
+│  MediaProjection → screenshot (512×512)                         │
+│  ML Kit OCR → white-space structured text                       │
+│  AccessibilityService → UI node tree → semantic IDs             │
+│  Fused: "[#1] Button:Play [#2] EditText:Search [#3] Icon:Menu"  │
+└─────────────────┬───────────────────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 2 — REASON (Llama 3.2-1B, ~10-15 tok/s)                 │
+│  Prompt: goal + screen summary + history + available tools      │
+│  Output: {"tool":"Click","node_id":"#1","reason":"Play starts"} │
+└─────────────────┬───────────────────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 3 — ACT                                                   │
+│  GestureEngine resolves node_id → X,Y coordinates              │
+│  AccessibilityService.dispatchGesture() → physical touch event  │
+│  Wait for screen change → verify success/failure                │
+└─────────────────┬───────────────────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 4 — COLLECT DATA (always, every loop)                     │
+│  Record: (screen_state, action_taken, result, reward)           │
+│  Store as experience tuple in SQLite                            │
+│  Tag: app name, task type, success/failure, edge case flag      │
+└─────────────────┬───────────────────────────────────────────────┘
+                  │
+         ┌────────┴─────────┐
+         │ During active use │     During charging + idle
+         │ COLLECT ONLY      │──────────────┐
+         └───────────────────┘              │
+                                            ▼
+                          ┌─────────────────────────────────────┐
+                          │  STEP 5 — PROCESS (offline/charging) │
+                          │                                       │
+                          │  RL Processing (REINFORCE):           │
+                          │  (state,action,reward) tuples →       │
+                          │  policy gradient update →             │
+                          │  optimized action-value pairs         │
+                          │                                       │
+                          │  IRL Processing (from YouTube):       │
+                          │  OCR video frames → human sequences → │
+                          │  extract expert (state→action) pairs →│
+                          │  pre-training data for policy         │
+                          │                                       │
+                          │  LoRA Fine-Tuning:                    │
+                          │  successful traces → adapter weights   │
+                          │  r=8, alpha=16, <10MB output          │
+                          └──────────────┬──────────────────────┘
+                                         │
+                                         ▼
+                          ┌──────────────────────────────────────┐
+                          │  STEP 6 — OPTIMIZED VALUES           │
+                          │  Updated LoRA adapter loaded         │
+                          │  Updated policy network weights      │
+                          │  Edge cases stored in memory DB      │
+                          └──────────────┬───────────────────────┘
+                                         │
+                                         ▼
+                          ┌──────────────────────────────────────┐
+                          │  BACK TO STEP 1 — NEXT TASK          │
+                          │  Agent is now smarter than before    │
+                          │  Generates better data this time     │
+                          │  Remembers edge cases from SQLite    │
+                          └──────────────────────────────────────┘
+```
+
+### Bootstrap Reality (Starting From Zero — The Hard Part)
+
+**Problem:** On Day 1, there is no RL data, no policy network, no LoRA adapter, no task traces.
+
+**Solution:**
+1. **Base Llama 3.2-1B handles Day 1.** Meta's pre-training gives it general reasoning. It can already read a screen summary and suggest actions — imperfectly, but functionally.
+2. **Exploration mode.** The RL policy starts in random-then-guided mode: try random valid actions, record the results. This collects the first experience data even without knowing what's good.
+3. **IRL bootstrapping.** Before any personal usage data exists, the agent can watch YouTube videos of app usage via OCR on frames — extracting human expert (state→action) sequences as initial pre-training data for the policy network.
+4. **First 10-50 tasks.** The base LLM guides these with no LoRA. Experience tuples accumulate in SQLite.
+5. **First training cycle.** After enough data, the first LoRA adapter is computed during idle charging. The policy network gets its first update.
+6. **Flywheel begins.** Each task generates better data. Each training cycle makes the agent more accurate. Edge cases get stored and recalled.
 
 ---
 
@@ -18,352 +122,495 @@
 ### 0.1 Monorepo Structure
 - [x] Create pnpm workspace monorepo
 - [x] Configure `pnpm-workspace.yaml` with `artifacts/*`, `lib/*`, `scripts`
-- [x] Set `node-linker=hoisted` in `.npmrc` (required for Kotlin native module autolinking)
-- [ ] Update `settings.gradle` to point `reactNativeDir` → workspace root (not local path)
-- [ ] Update `build.gradle` to resolve `codegenDir` from hoisted root
-- [ ] Add `android/` directory with full Kotlin project structure:
+- [x] Set `node-linker=hoisted` in `.npmrc` (required for Kotlin autolinking)
+- [ ] Update `settings.gradle` → point `reactNativeDir` to workspace root
+- [ ] Update `build.gradle` → resolve `codegenDir` from hoisted root
+- [ ] Create full `android/` Kotlin project structure:
   ```
   android/
-  ├── core/ai/        ← llama.cpp bindings
-  ├── core/ocr/       ← ML Kit wrapper
-  ├── core/rl/        ← RL module
-  ├── core/memory/    ← SQLite + embeddings
-  ├── system/accessibility/
-  ├── system/screen/
-  ├── system/actions/
-  ├── bridge/turbo/   ← TurboModules
-  ├── bridge/dto/     ← Data contracts
-  └── ui-native/      ← future Jetpack Compose
+  ├── core/
+  │   ├── ai/           ← llama.cpp JNI, model manager, agent loop
+  │   ├── ocr/          ← ML Kit OCR wrapper
+  │   ├── rl/           ← policy network, LoRA trainer, IRL module
+  │   └── memory/       ← SQLite experience store, embeddings
+  ├── system/
+  │   ├── accessibility/ ← AgentAccessibilityService
+  │   ├── screen/        ← MediaProjection capture service
+  │   └── actions/       ← GestureEngine
+  ├── bridge/
+  │   ├── turbo/         ← TurboModules (JSI)
+  │   └── dto/           ← data contracts
+  └── ui-native/         ← future Jetpack Compose (Phase 8)
   ```
-- [ ] Add `models/llama/` and `models/adapters/` directories
+- [ ] Add `models/llama/` and `models/adapters/` dirs (empty, in `.gitignore`)
 - [ ] Add `shared/schemas/` for JS ↔ Kotlin data contracts
 
 ### 0.2 React Native New Architecture
-- [x] Enable `newArchEnabled: true` in `app.json`
-- [ ] Verify Hermes is the JS engine in Android build config
-- [ ] Confirm JSI (not legacy bridge) is active in the build
-- [ ] Verify TurboModule codegen runs during Gradle build
+- [x] `newArchEnabled: true` in `app.json`
+- [ ] Verify Hermes JS engine active in Android build config
+- [ ] Confirm JSI bridge (not legacy) is active
+- [ ] Verify TurboModule codegen runs at Gradle build time
 
-### 0.3 JS UI Shell (Phase 1)
+### 0.3 JS UI Shell (Phase 1 — complete)
 - [x] Dashboard screen (status, metrics, module health)
-- [x] Control screen (goal input, start/pause/stop)
+- [x] Control screen (goal input, presets, start/pause/stop)
 - [x] Activity screen (action log + memory browser)
 - [x] Modules screen (per-module deep status)
 - [x] Settings screen (model config, RL toggle, LoRA path)
 - [x] `AgentCoreBridge.ts` — TurboModule contract with Phase 1 stubs
 - [x] `AgentContext.tsx` — centralized bridge state + polling
-- [x] Dark space theme (`#0a0f1e` background, cyan primary)
+- [x] Dark space theme (`#0a0f1e` / `#00d4ff` / `#7c3aed`)
 
 ---
 
-## Phase 1 — LLM Integration (Core Brain — Kotlin)
+## Phase 1 — LLM: The Reasoning Engine
 
-### 1.1 Model Acquisition & Storage
-- [ ] **Choose model:** `Llama-3.2-1B-Instruct-Q4_K_M.gguf` from HuggingFace (`bartowski/Llama-3.2-1B-Instruct-GGUF`)
-  - Size on disk: ~870 MB
-  - RAM at runtime: ~1,500–1,900 MB
-  - Speed on M31: ~10–15 tok/s (sufficient — agent doesn't need real-time speed)
-  - **NOT** BF16 (2358 MB, leaves no headroom)
-  - **NOT** IQ2_S (2-bit, too inaccurate for navigation tasks)
-- [ ] Set model destination: `context.filesDir + "/models/llama-3.2-1b-q4_k_m.gguf"`
-- [ ] Create `android/core/ai/ModelDownloadService.kt` (foreground service)
-  - Download URL: `https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf`
-  - Show persistent notification with progress % and MB downloaded
-  - Resume partial downloads (check `Content-Range`)
-  - Verify SHA256 after download
-  - Emit progress events back to JS via TurboModule callback
-- [ ] Add download screen to JS UI (shown on first launch if model missing)
-  - Progress bar, MB/total display, cancel button
-  - Calls `AgentCoreBridge.downloadModel(url, dest, callback)`
+> **Role of LLM:** Language reasoning only. It reads screen summaries and decides what action to take.
+> It does NOT play games (too slow). It does NOT do RL. That's the policy network's job.
+> It DOES improve over time via LoRA adapters computed from successful task traces.
 
-### 1.2 llama.cpp Integration (JNI/NDK)
-- [ ] Add llama.cpp as Android NDK submodule (`android/core/ai/llama.cpp/`)
-- [ ] Write `CMakeLists.txt` to build llama.cpp as shared library (`.so`)
-  - Enable ARM NEON SIMD instructions (automatic on Exynos A73)
-  - Enable Vulkan GPU offload (Mali-G72 support, reduces CPU pressure)
-  - Set `LLAMA_METAL=OFF`, `LLAMA_CUBLAS=OFF` (Android-specific flags)
-- [ ] Write `LlamaJNI.kt` — Kotlin-side JNI wrapper:
-  - `loadModel(path: String, contextSize: Int, nGpuLayers: Int): Long` → returns model handle
-  - `createContext(modelHandle: Long): Long`
-  - `runInference(ctx: Long, prompt: String, maxTokens: Int, callback: TokenCallback): String`
-  - `freeModel(handle: Long)`
-- [ ] Set `use_mmap = true` for efficient memory mapping on device
-- [ ] Configure `n_ctx = 4096` (practical limit for M31; full 128K is infeasible on 6GB)
-- [ ] Run inference on background thread (Kotlin Coroutine, `Dispatchers.Default`)
-- [ ] Alternatively: evaluate MediaPipe LiteRT-LM (`litert-lm` Gradle dep):
-  - `LlmInference.createFromOptions(context, LlmInferenceOptions.builder().setModelPath(path)...)`
-  - Supports GGUF natively, handles GPU/NNAPI automatically
-  - Better multimodal support if vision modality needed
+### 1.1 Model Choice — Decided
+**Model:** `Llama-3.2-1B-Instruct-Q4_K_M.gguf`
+- Source: `bartowski/Llama-3.2-1B-Instruct-GGUF` on HuggingFace
+- Disk: ~870 MB · RAM: ~1,500–1,900 MB · Speed: ~10–15 tok/s on M31
+- Why NOT BF16: ~3,185 MB RAM → OOM crash alongside OCR + screen buffers
+- Why NOT IQ2_S (2-bit): ~900 MB but poor instruction-following → navigation fails
+- Why NOT Phi-3 Mini (3.8B): too heavy for 6GB alongside vision services; weaker at UI understanding
+- Why Llama 3.2-1B: designed for mobile edge, multimodal vision training, fits in RAM
 
-### 1.3 LLM TurboModule Bridge
-- [ ] Create `android/bridge/turbo/AgentCoreModule.kt`:
+### 1.2 Model Download (First Launch)
+- [ ] `android/core/ai/ModelManager.kt` — checks if GGUF exists + size > 800MB
+- [ ] `android/core/ai/ModelDownloadService.kt` — foreground service:
+  - URL: `https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf`
+  - OkHttp with `Range` header → resumes partial downloads
+  - Persistent notification: "Downloading AI brain... 45% (392 MB / 870 MB)"
+  - SHA256 verification on completion
+  - Emits progress events → JS via TurboModule `DeviceEventEmitter`
+- [ ] JS download screen (shown on first launch if model missing):
+  - Progress bar + MB/total + estimated time
+  - "Downloads once — 870 MB needed for on-device AI. No cloud ever."
+  - Wired to `model_download_progress` and `model_download_complete` events
+- [ ] EAS build: do NOT bundle GGUF (APK limit 150 MB vs model 870 MB)
+- [ ] Play Asset Delivery (future Play Store): on-demand asset pack via `AssetPackManager`
+
+### 1.3 llama.cpp JNI Integration
+- [ ] Add llama.cpp as NDK submodule: `android/core/ai/llama.cpp/`
+- [ ] `CMakeLists.txt`:
+  - ARM NEON SIMD enabled (automatic on Cortex-A73)
+  - Vulkan GPU offload: `LLAMA_VULKAN=ON` (Mali-G72 MP3 support)
+  - `LLAMA_METAL=OFF`, `LLAMA_CUBLAS=OFF`
+- [ ] `LlamaJNI.kt`:
+  - `loadModel(path, contextSize=4096, nGpuLayers=32): Long`
+  - `createContext(modelHandle): Long`
+  - `runInference(ctx, prompt, maxTokens, tokenCallback): String`
+  - `freeModel(handle)`
+- [ ] `use_mmap = true` (memory mapping — avoids loading full model into RAM at once)
+- [ ] `n_ctx = 4096` (practical M31 limit; 128K is quadratic memory growth = OOM)
+- [ ] Inference on `Dispatchers.Default` Coroutine (never block main thread)
+
+### 1.4 TurboModule Bridge for LLM
+- [ ] `android/bridge/turbo/AgentCoreModule.kt`:
   ```kotlin
-  class AgentCoreModule(reactContext: ReactApplicationContext) :
-      ReactContextBaseJavaModule(reactContext), TurboModule {
-      override fun getName() = "AgentCore"
-      @ReactMethod fun loadModel(path: String, promise: Promise)
-      @ReactMethod fun runInference(prompt: String, maxTokens: Int, promise: Promise)
-      @ReactMethod fun downloadModel(url: String, dest: String, promise: Promise)
-  }
+  @ReactMethod fun checkModelReady(promise: Promise)
+  @ReactMethod fun startModelDownload(promise: Promise)
+  @ReactMethod fun loadModel(path: String, promise: Promise)
+  @ReactMethod fun runInference(prompt: String, maxTokens: Int, promise: Promise)
+  @ReactMethod fun getAgentStatus(promise: Promise)
   ```
-- [ ] Register module in `ReactPackage` → `ReactNativeHost`
-- [ ] Update `AgentCoreBridge.ts` stubs → real `NativeModules.AgentCore.*` calls
-- [ ] Add TypeScript spec file for TurboModule codegen (`NativeAgentCore.ts`)
+- [ ] Register in `ReactPackage` → `ReactNativeHost`
+- [ ] Replace stubs in `AgentCoreBridge.ts` with real `NativeModules.AgentCore.*` calls
+- [ ] TypeScript codegen spec file: `NativeAgentCore.ts`
 
-### 1.4 Prompt Engineering
-- [ ] Design system prompt for agent reasoning:
+### 1.5 Prompt Design
+- [ ] System prompt:
   ```
-  You are an autonomous Android agent. You observe screens and decide actions.
-  Available tools: Click(node_id), Swipe(dir, node_id), Type(node_id, text), Scroll(dir)
-  Always respond in JSON: {"tool": "Click", "node_id": "btn_play", "reason": "..."}
+  You are an autonomous Android agent. You see a structured screen summary.
+  Decide the next single action. Always respond in JSON only.
+  Tools: Click(node_id), Swipe(dir, node_id), Type(node_id, text), Scroll(dir), Back()
+  Example: {"tool":"Click","node_id":"#3","reason":"Search bar to enter query"}
   ```
-- [ ] Cap input at 512 tokens (reduce inference time on M31)
-- [ ] Implement multi-turn context window (last N turns fit in 4096 token budget)
+- [ ] Cap input: 512 tokens per turn
+- [ ] Multi-turn window: keep last N turns within 4096 total token budget
+- [ ] Inject relevant memories (top-3 similar past traces) before each inference call
 
 ---
 
-## Phase 2 — Perception (Screen Reading)
+## Phase 2 — Perception (Eyes of the Agent)
+
+> **Role:** The agent must see and understand the screen before it can reason or act.
+> Two parallel pipelines: visual (MediaProjection + OCR) and structural (Accessibility tree).
+> Both fuse into one semantic map fed to the LLM.
 
 ### 2.1 Screen Capture (MediaProjection)
-- [ ] Create `android/system/screen/ScreenCaptureService.kt` (foreground service)
-- [ ] Implement `MediaProjectionManager.createScreenCaptureIntent()` user consent flow
-- [ ] Create `VirtualDisplay` from consent token
-- [ ] Project screen onto `ImageReader` Surface
-- [ ] Downsample captured bitmap to **512×512** before processing
-  - Reduces memory bandwidth on Mali-G72
-  - Sufficient for OCR and UI element detection
-- [ ] Expose via TurboModule: `captureScreen(): String` → returns base64 JPEG or file path
-- [ ] Handle `Exynos 9611` memory bandwidth limit — do NOT capture at full resolution
+- [ ] `android/system/screen/ScreenCaptureService.kt` (foreground service)
+- [ ] `MediaProjectionManager.createScreenCaptureIntent()` → user consent → token
+- [ ] Create `VirtualDisplay` from token → project onto `ImageReader` Surface
+- [ ] Downsample to **512×512** before any processing:
+  - Reduces Mali-G72 memory bandwidth pressure
+  - Sufficient resolution for OCR and UI detection
+  - Full resolution would exhaust Exynos 9611 memory bandwidth
+- [ ] Capture rate: 1-2 FPS for navigation tasks (not continuous — too hot)
+- [ ] TurboModule: `captureScreen(): String` → file path to JPEG
 
-### 2.2 OCR Engine (ML Kit)
-- [ ] Add `com.google.mlkit:text-recognition` Gradle dependency
-- [ ] Create `android/core/ocr/OcrEngine.kt`:
-  - Input: `Bitmap` (512×512 downsampled)
-  - Output: "white-space structured text" (preserves relative position of text nodes)
-  - Maintain spatial layout: label above input field, price next to product
-- [ ] White-space alignment algorithm:
-  - Sort text blocks by Y coordinate
-  - Group into rows by Y-proximity threshold
-  - Reconstruct layout as aligned text lines
-- [ ] Run on background thread (Coroutine)
-- [ ] Expose via TurboModule: `runOcr(imagePath: String): String`
+### 2.2 OCR Engine (ML Kit Text Recognition)
+- [ ] Add `com.google.mlkit:text-recognition` Gradle dependency (free, fully on-device)
+- [ ] `android/core/ocr/OcrEngine.kt`:
+  - Input: `Bitmap` (512×512)
+  - Process: `TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)`
+  - Output: **white-space structured text** (spatial layout preserved)
+- [ ] White-space layout algorithm:
+  - Get bounding box of each text block
+  - Sort by Y coordinate (top to bottom)
+  - Group blocks at similar Y into rows
+  - Within each row, sort by X → reconstruct as text line
+  - Result: "Price $9.99    [Add to Cart]" (position-aware, not just word bag)
+- [ ] Run on background Coroutine thread
+- [ ] TurboModule: `runOcr(imagePath): String`
 
 ### 2.3 Accessibility Tree Parser
-- [ ] Create `android/system/accessibility/AgentAccessibilityService.kt`
+- [ ] `android/system/accessibility/AgentAccessibilityService.kt`
   - Extends `AccessibilityService`
-  - Declare in `AndroidManifest.xml` with `BIND_ACCESSIBILITY_SERVICE` permission
-- [ ] Implement node tree traversal:
-  - Filter to interactable nodes only (`isClickable`, `isEditable`, etc.)
-  - Assign semantic IDs: `[#1]`, `[#2]`, etc.
-  - Pair IDs with text labels
-- [ ] Convert tree to LLM-friendly summary:
+  - Manifest: `BIND_ACCESSIBILITY_SERVICE` permission + XML config
+- [ ] Node traversal:
+  - Only interactable nodes (`isClickable`, `isScrollable`, `isEditable`, `isFocusable`)
+  - Assign IDs: `[#1]`, `[#2]`, etc. (persistent within one screen state)
+  - Record: class name, content description, text, bounds
+- [ ] LLM-friendly output:
   ```
-  [#1] Button: "Play" (center)
-  [#2] Icon: "Settings" (top-right)
-  [#3] EditText: "Search..." (top)
+  [#1] Button: "Play" at center
+  [#2] EditText: "Search..." at top
+  [#3] ImageButton: "Settings" at top-right
+  [#4] ListView: scrollable (12 items)
   ```
-- [ ] Expose via TurboModule: `getAccessibilityTree(): String`
+- [ ] TurboModule: `getAccessibilityTree(): String`
 
-### 2.4 Semantic Fusion (Observation Phase)
-- [ ] Create `android/core/ai/ScreenObserver.kt`
-- [ ] Fuse OCR text + accessibility tree into unified semantic map:
-  - Match OCR text blocks to accessibility node positions
-  - Annotate visual elements not in accessibility tree (icons, images) using OCR only
-- [ ] Output single string fed directly into LLM context
+### 2.4 Semantic Fusion
+- [ ] `android/core/ai/ScreenObserver.kt`
+- [ ] Merge OCR spatial text + accessibility tree:
+  - Cross-reference: OCR label "Price $9.99" near accessibility node → annotate node
+  - Elements only visible in OCR (icons, images without text): keep in output
+  - Elements only in accessibility tree (hidden/off-screen): skip
+- [ ] Single fused string → LLM input
+- [ ] TurboModule: `observeScreen(): String` (captures + OCR + tree → fused in one call)
 
 ---
 
-## Phase 3 — Action Layer
+## Phase 3 — Action Layer (Hands of the Agent)
 
 ### 3.1 Gesture Engine
-- [ ] Create `android/system/actions/GestureEngine.kt`
-- [ ] Implement `dispatchTap(nodeId: String)`:
-  - Resolve `nodeId` → `AccessibilityNodeInfo` → bounding rect center (X, Y)
-  - `AccessibilityService.dispatchGesture(GestureDescription, callback)`
-- [ ] Implement `dispatchSwipe(direction: String, nodeId: String)`:
-  - Build `GestureDescription.StrokeDescription` path
-  - Duration: 300ms (natural swipe timing)
-- [ ] Implement `dispatchText(nodeId: String, text: String)`:
-  - `performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)`
-- [ ] Implement `dispatchScroll(direction: String, nodeId: String)`:
+- [ ] `android/system/actions/GestureEngine.kt`
+- [ ] `tap(nodeId)`:
+  - Resolve nodeId → `AccessibilityNodeInfo` → `getBoundsInScreen(rect)` → center
+  - `dispatchGesture(GestureDescription { path(Point(x,y), 0, 50ms) })`
+- [ ] `swipe(direction, nodeId)`:
+  - Compute start/end from node bounds + direction
+  - `StrokeDescription` path over 300ms (natural timing)
+- [ ] `typeText(nodeId, text)`:
+  - `performAction(ACTION_SET_TEXT, bundle.putCharSequence(...))`
+- [ ] `scroll(direction, nodeId)`:
   - `performAction(ACTION_SCROLL_FORWARD / ACTION_SCROLL_BACKWARD)`
-- [ ] Implement `dispatchLongPress(nodeId: String)`:
-  - 800ms `GestureDescription` stroke
-- [ ] Expose all via TurboModule: `executeAction(actionJson: String): Boolean`
+- [ ] `longPress(nodeId)`:
+  - Same as tap but 800ms stroke duration
+- [ ] `back()`:
+  - `performGlobalAction(GLOBAL_ACTION_BACK)`
+- [ ] TurboModule: `executeAction(actionJson): Boolean`
 
-### 3.2 Action Verification
-- [ ] After each action, wait for `AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED`
-- [ ] Capture new screen state (observation loop)
-- [ ] Return success/failure + new screen summary to LLM context
-- [ ] Feed result back into LLM as next-turn context (feedback loop)
+### 3.2 Verification Loop
+- [ ] After each action: listen for `AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED`
+- [ ] Timeout: 3 seconds (if no change → action failed)
+- [ ] Capture new screen state
+- [ ] Compute reward signal:
+  - Success: screen changed as expected → +1
+  - Partial: screen changed but unexpected state → 0
+  - Failure: no change or error dialog appeared → -1
+- [ ] Feed (result, reward, new_screen_state) back into LLM context and SQLite
 
 ### 3.3 Autonomous Agent Loop
-- [ ] Create `android/core/ai/AgentLoop.kt` (background Coroutine loop):
-  ```
-  while (goalActive) {
-    screenState = observe()         // MediaProjection + OCR + A11y tree
-    action = llm.reason(goal, screenState, history)  // LLM inference
-    result = gestureEngine.execute(action)           // dispatch gesture
-    history.add(screenState, action, result)        // multi-turn memory
-    if (result.goalAchieved) break
+- [ ] `android/core/ai/AgentLoop.kt` (long-running background Coroutine):
+  ```kotlin
+  while (goal.isActive) {
+      screenState = screenObserver.observe()          // Phase 2
+      relevantMemory = memoryStore.retrieve(screenState) // top-3 similar past
+      action = llm.reason(goal, screenState, history, relevantMemory)
+      result = gestureEngine.execute(action)          // Phase 3
+      reward = result.computeReward()
+      experienceTuple = ExperienceTuple(screenState, action, result, reward)
+      memoryStore.save(experienceTuple)               // Phase 4
+      history.addTurn(screenState, action, result)
+      if (result.goalAchieved || history.tooLong()) break
   }
   ```
-- [ ] Implement goal completion detection
-- [ ] Implement error recovery (action failed → LLM re-reasons with failure context)
+- [ ] Goal completion detection (screen contains target text / accessibility node)
+- [ ] Error recovery: if 3 consecutive failures → re-observe + re-reason with failure context
+- [ ] History pruning: keep within 4096 token budget
 
 ---
 
-## Phase 4 — Memory & Learning
+## Phase 4 — Data Collection (The Raw Material)
 
-### 4.1 SQLite Memory Store
-- [ ] Create `android/core/memory/MemoryStore.kt`
+> This is the foundation of everything. The agent cannot improve without data.
+> Data = (screen_state, action, result, reward) tuples. Every agent loop produces them.
+
+### 4.1 Experience Store (SQLite)
+- [ ] `android/core/memory/ExperienceStore.kt`
 - [ ] Schema:
   ```sql
-  CREATE TABLE memory (
+  CREATE TABLE experience (
     id TEXT PRIMARY KEY,
-    app TEXT,
-    summary TEXT,
-    embedding BLOB,     -- float array (file-based)
-    confidence REAL,
-    usage_count INTEGER,
-    created_at INTEGER
+    timestamp INTEGER,
+    app_package TEXT,
+    task_type TEXT,          -- 'navigation', 'game', 'coding', 'web'
+    screen_summary TEXT,     -- fused OCR + a11y text (the observation)
+    action_json TEXT,        -- {"tool":"Click","node_id":"#3"}
+    result TEXT,             -- 'success' / 'failure' / 'partial'
+    reward REAL,             -- -1.0 to +1.0
+    is_edge_case INTEGER,    -- 1 if unusual/unexpected situation
+    edge_case_notes TEXT,    -- what was unusual
+    session_id TEXT
+  );
+
+  CREATE TABLE edge_cases (
+    id TEXT PRIMARY KEY,
+    screen_pattern TEXT,     -- what the screen looked like
+    resolution TEXT,         -- what eventually worked
+    app_package TEXT,
+    recall_count INTEGER,    -- how often this was retrieved
+    last_seen INTEGER
   );
   ```
-- [ ] Store successful action traces as memory entries
-- [ ] Retrieve relevant memories via embedding similarity before each LLM call
-- [ ] Expose via TurboModule: `getMemoryEntries()`, `clearMemory()`
+- [ ] TurboModule: `getExperienceStats(): {totalTuples, byApp, successRate}`
+- [ ] TurboModule: `getEdgeCases(): EdgeCase[]`
 
-### 4.2 File-Based Embeddings
-- [ ] Create `android/core/memory/EmbeddingEngine.kt`
-- [ ] Use a tiny embedding model (MiniLM or similar, <50MB) for similarity search
-- [ ] Store embeddings as binary blobs in SQLite or flat files
-- [ ] Cosine similarity retrieval for top-K relevant memories
+### 4.2 Edge Case Detection & Memory
+- [ ] Flag an experience as edge case when:
+  - Action failed 2+ times before succeeding
+  - Screen state didn't match any seen before
+  - Reward was negative but task eventually succeeded with different approach
+- [ ] Store resolution path (what finally worked) in `edge_cases` table
+- [ ] Before each LLM call: query `edge_cases` for matching screen pattern
+- [ ] Inject matching edge case into LLM prompt: "Note: This screen previously required X instead of Y"
+- [ ] TurboModule: `getEdgeCases(): EdgeCase[]`
 
-### 4.3 LoRA Adapter (On-Device Fine-Tuning)
-- [ ] Design "collect-then-train" strategy (from technical document):
-  - **During active use:** record (screen state, action, reward) tuples
-  - **During charging + idle:** run LoRA fine-tuning on collected data
-  - Never run training during active inference (thermal + RAM conflict)
-- [ ] Create `android/core/rl/LoraTrainer.kt`
-- [ ] Implement thermal guard: check device temperature before training starts
-  - Pause if battery temp > 40°C
-  - Use `Window.setSustainedPerformanceMode()` during training
-- [ ] LoRA rank: r=8, alpha=16 (keeps adapter <10MB)
-- [ ] Adapter output path: `filesDir/adapters/lora_latest.bin`
-- [ ] Load adapter at inference time via llama.cpp's lora API
-
-### 4.4 Reinforcement Learning Module
-- [ ] Create `android/core/rl/PolicyGradient.kt` (REINFORCE algorithm)
-- [ ] State: downsampled pixel values + OCR text embedding
-- [ ] Action space: tap, swipe-up, swipe-down, swipe-left, swipe-right, type, back
-- [ ] Reward signal:
-  - Positive: score increase, goal achieved, progress bar advance
-  - Negative: "game over", no screen change after action, timeout
-- [ ] Policy network: small MLP (2-3 layers, <5MB), NOT the LLM
-  - LLM provides language reasoning
-  - Policy network handles fine-grained action selection
-- [ ] Inverse RL from video (future):
-  - OCR on YouTube video frames
-  - Learn from human expert action sequences
+### 4.3 Embedding Engine (for Memory Retrieval)
+- [ ] `android/core/memory/EmbeddingEngine.kt`
+- [ ] Tiny embedding model (MiniLM L6-v2, ~22MB ONNX) for similarity search
+- [ ] Embed each screen_summary at storage time
+- [ ] Store embedding as BLOB in SQLite
+- [ ] At retrieval time: embed current screen, cosine similarity → top-3 most similar past experiences
+- [ ] Inject top-3 into LLM context before inference
 
 ---
 
-## Phase 5 — Model Delivery Strategy
+## Phase 5 — RL/IRL Processing (Turning Data into Intelligence)
 
-### 5.1 First-Launch Auto-Download (Current / Phase 1-3)
-- [ ] On app start, `ModelManager.kt` checks if GGUF exists in `filesDir/models/`
-- [ ] If missing, trigger `ModelDownloadService` (foreground service, persistent notification)
-- [ ] Download from: `https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf`
-- [ ] Resume support via `Range` headers (important — 870MB can fail mid-download)
-- [ ] SHA256 verification after download
-- [ ] JS download screen shows progress via TurboModule callback
-- [ ] Only proceed to agent after model is verified on disk
+> This is the "second brain." Runs ONLY during idle + charging. Never during active inference.
+> Takes raw experience tuples → produces optimized action values → policy network weights update.
 
-### 5.2 Play Asset Delivery — OBB Replacement (Play Store / Phase 5+)
-- [ ] Convert app to Android App Bundle (AAB) format — EAS already does this
-- [ ] Create on-demand asset pack for model:
+### 5.1 Reinforcement Learning — Policy Network
+- [ ] `android/core/rl/PolicyNetwork.kt` — small MLP (3 layers, ~5MB):
   ```
-  build.gradle:
-  assetPacks = [":model-pack"]
+  Input:  screen embedding (128-dim) + goal embedding (128-dim)
+  Hidden: 256 → 128 neurons
+  Output: action probabilities (7 actions: tap, swipe×4, type, scroll, back)
   ```
-- [ ] `model-pack/src/main/assets/models/` contains the GGUF
-- [ ] In-app: `AssetPackManager.fetch(listOf("model-pack"))` with progress listener
-- [ ] Play Store streams asset on first launch (no separate download dialog needed)
-- [ ] This is the modern OBB equivalent — works with EAS + Play Store
-- [ ] Note: requires Play Store distribution. Sideloaded APKs use Option 5.1
+- [ ] This is NOT the LLM. The LLM is for reasoning. The policy net is for fast game/app action selection.
+- [ ] Training algorithm: REINFORCE (policy gradient):
+  ```kotlin
+  // For each experience tuple in batch:
+  loss = -log(policy(action|state)) * reward
+  // Accumulate gradients, update weights
+  ```
+- [ ] Training trigger: idle + charging detected → start `PolicyTrainer` background job
+- [ ] Thermal guard: battery temp > 40°C → pause training immediately
+- [ ] Save updated policy weights to `filesDir/rl/policy_latest.bin`
+- [ ] Load updated policy at next agent session start
+- [ ] Optimized values produced: P(action | screen_state) → agent uses this to bias action selection
 
-### 5.3 EAS Build Configuration
-- [ ] Do NOT bundle GGUF in the app binary (APK limit: 150MB, model: 870MB)
-- [ ] `eas.json` build profile should not reference model files
-- [ ] Model download handled entirely by Kotlin at runtime
-- [ ] Keep `assets/models/` directory empty in repo (add to `.gitignore`)
+### 5.2 Inverse Reinforcement Learning (IRL) — Learning from YouTube
+- [ ] `android/core/rl/IrlModule.kt`
+- [ ] Process: user watches a YouTube tutorial → agent runs in background:
+  1. MediaProjection captures video frames at 0.5 FPS
+  2. ML Kit OCR extracts text from each frame (identifies app, menus, text)
+  3. Tracks sequence of screen states across frames
+  4. Infers human action between frames (what changed? a button was pressed, text was typed)
+  5. Stores as (state_before, inferred_action, state_after) → marks as IRL data
+- [ ] IRL data is labelled as `task_type='irl_expert'` in experience store
+- [ ] Used as pre-training data for policy network before any personal usage data exists
+- [ ] This solves the bootstrap problem: agent learns from watching humans before doing anything itself
+- [ ] TurboModule: `startIrlCapture(videoDescription): void`
 
----
+### 5.3 LoRA Fine-Tuning (LLM Improvement)
+- [ ] `android/core/rl/LoraTrainer.kt`
+- [ ] Input: successful experience traces from SQLite (result='success', reward > 0)
+- [ ] Convert traces to fine-tuning format:
+  ```json
+  {"instruction": "Screen: [#1] Button:Play [#2]...", "response": "{\"tool\":\"Click\",\"node_id\":\"#1\"}"}
+  ```
+- [ ] LoRA config: rank r=8, alpha=16 → adapter size <10MB
+- [ ] Training: on `Dispatchers.Default`, chunked to avoid thermal spike
+- [ ] Output: `filesDir/adapters/lora_v{N}.bin` (versioned)
+- [ ] Load new adapter via llama.cpp LoRA API at next agent session
+- [ ] The LLM is now better at this phone's specific apps, UI patterns, and the user's task style
 
-## Phase 6 — Optimization & Thermal Management
+### 5.4 Optimized Value Output (What Training Produces)
+After each training cycle, the agent has:
+- [ ] **Updated policy weights** → better action selection probabilities for seen screen types
+- [ ] **Updated LoRA adapter** → LLM better at reasoning about this phone's specific apps
+- [ ] **Edge case store populated** → agent handles unusual situations that previously caused failures
+- [ ] **Embedding index updated** → faster, more relevant memory retrieval
 
-### 6.1 Inference Performance
-- [ ] Benchmark on M31: target >8 tok/s minimum for agent usability
-- [ ] Enable Vulkan GPU offload in llama.cpp (`n_gpu_layers = 32`)
-- [ ] Use `NNAPI` delegate via MediaPipe if llama.cpp GPU offload is unstable
-- [ ] Cap context at 4096 tokens (not 128K — quadratic memory scaling on M31)
-- [ ] Cap per-turn input at 512 tokens
-- [ ] Use memory mapping (`use_mmap = true`) to avoid loading full model into RAM
-
-### 6.2 Thermal Management
-- [ ] Implement `ThermalManager` listener (API 29+):
-  - `THERMAL_STATUS_LIGHT` → throttle screenshot frequency
-  - `THERMAL_STATUS_MODERATE` → pause RL training
-  - `THERMAL_STATUS_SEVERE` → pause inference, notify user
-- [ ] Use `Window.setSustainedPerformanceMode()` during extended sessions
-- [ ] Run LoRA training only during charging (register `BatteryManager` receiver)
-- [ ] Screen capture frequency: 1-2 FPS for navigation tasks (not 60 FPS)
-
-### 6.3 Memory Footprint Budget (6GB M31)
-| Component | RAM Budget |
-|-----------|-----------|
-| Android OS + system | ~2,000 MB |
-| App UI (React Native) | ~150 MB |
-| Llama 3.2-1B Q4_K_M | ~1,700 MB |
-| Screen buffer (512×512) | ~10 MB |
-| ML Kit OCR | ~100 MB |
-| RL module + policy net | ~50 MB |
-| Memory store + embeddings | ~100 MB |
-| **Total** | **~4,110 MB** |
-| **Headroom** | **~1,890 MB** |
-
----
-
-## Phase 7 — Phase 2 Migration (JS → Kotlin thinning)
-
-- [ ] Move agent loop coordination from JS context → Kotlin `AgentLoop.kt`
-- [ ] Remove polling from `AgentContext.tsx` — switch to push events via TurboModule callbacks
-- [ ] Thin `AgentCoreBridge.ts` to pure pass-through (no local state)
-- [ ] Move config management to Kotlin `SharedPreferences` / DataStore
-- [ ] JS becomes a display layer only: receives events, renders UI, sends commands
+These are the "optimized values" — they make the NEXT task loop smarter than the last.
 
 ---
 
-## Phase 8 — Phase 3 Migration (Jetpack Compose)
+## Phase 6 — Game Playing (RL Agent, Not LLM)
 
-- [ ] Build `android/ui-native/` with Jetpack Compose
-- [ ] Mirror all 5 screens: Dashboard, Control, Activity, Modules, Settings
-- [ ] Remove React Native dependency from build
-- [ ] Remove JS/Metro bundler from the app entirely
-- [ ] Full Kotlin stack achieved
+> Games are too fast for Llama (10-15 tok/s). A separate policy network handles games.
+> The LLM's role in games: parse game state via OCR + accessibility, suggest strategy in natural language.
+> The policy network's role: execute fast actions (tap, swipe) based on pixel state.
+
+### 6.1 Game RL Agent
+- [ ] Detect when foreground app is a game (check if accessibility tree has game-specific elements)
+- [ ] Switch from LLM-guided to policy-network-guided loop for games
+- [ ] Game loop:
+  ```kotlin
+  while (gameActive) {
+    pixelState = captureScreen().downsample(224, 224).toFloatArray()
+    ocrText = ocr.run(screen)
+    action = policyNetwork.predict(pixelState + ocrText.embedding)
+    gestureEngine.execute(action)
+    reward = detectScoreChange() or detectGameOver()
+    experience.save(pixelState, action, reward, task_type='game')
+  }
+  ```
+- [ ] Score detection: OCR on known score regions → compare before/after action
+- [ ] Game over detection: look for "Game Over", "Try Again", "Retry" via OCR
+- [ ] Reward: +score_delta, -1 for game over, +5 for high score milestone
+
+### 6.2 IRL from Game Videos (YouTube)
+- [ ] Watch a YouTube video of someone playing the target game
+- [ ] IRL module extracts: frame-by-frame game state + inferred tap/swipe between frames
+- [ ] Bootstraps policy network before agent plays even one round itself
+- [ ] Solves cold-start for games: agent arrives at a new game already knowing basic strategies
+
+---
+
+## Phase 7 — Continuous Learning Scheduler
+
+> The scheduler decides when to collect, when to train, and when to load updated weights.
+> This is what makes the agent get better over time without any user involvement.
+
+- [ ] `android/core/rl/LearningScheduler.kt`
+- [ ] Events that trigger training:
+  - Device plugged in to charger
+  - Screen off > 10 minutes
+  - Experience store has > 50 new tuples since last training
+- [ ] Events that pause/cancel training:
+  - Battery temperature > 40°C
+  - User unlocks screen
+  - Available RAM drops below 1GB
+  - Unplug from charger
+- [ ] Training sequence order:
+  1. Policy network update (REINFORCE on new game/app experience)
+  2. IRL processing (if new video frames captured)
+  3. LoRA training (if enough successful LLM traces accumulated)
+  4. Edge case index rebuild
+  5. Embedding index update
+- [ ] Notify JS on completion: `learning_cycle_complete` event → update "Last trained" in UI
+
+---
+
+## Phase 8 — Optimization & Thermal Management
+
+### 8.1 RAM Budget (6GB M31 — Must Stay Under 4.5GB Total)
+| Component | Budget |
+|-----------|--------|
+| Android OS + system services | ~2,000 MB |
+| React Native shell | ~150 MB |
+| Llama 3.2-1B Q4_K_M (loaded) | ~1,700 MB |
+| Screen buffer (512×512 JPEG) | ~10 MB |
+| ML Kit OCR engine | ~100 MB |
+| Policy network (MLP) | ~5 MB |
+| MiniLM embedding model | ~25 MB |
+| SQLite + experience store | ~50 MB |
+| LoRA adapter (active) | ~10 MB |
+| **Total** | **~4,050 MB** |
+| **Headroom** | **~1,950 MB** |
+
+### 8.2 Thermal Rules
+- [ ] `ThermalManager` listener (API 29+):
+  - `THERMAL_STATUS_LIGHT`: throttle screen capture to 0.5 FPS
+  - `THERMAL_STATUS_MODERATE`: pause RL training job
+  - `THERMAL_STATUS_SEVERE`: pause all inference, show "Cooling down" in UI
+- [ ] `Window.setSustainedPerformanceMode()` during extended sessions
+- [ ] Screen capture: 1-2 FPS (navigation), 0.5 FPS (IRL video), 0 during training
+
+### 8.3 Inference Performance
+- [ ] Benchmark: target ≥8 tok/s on M31 (sufficient for agent, not conversational)
+- [ ] Vulkan GPU offload: `n_gpu_layers = 32` in llama.cpp config
+- [ ] Fallback to CPU if Vulkan init fails (Exynos 9611 Vulkan support is limited)
+- [ ] `use_mmap = true` — model stays on disk, pages loaded on demand
+- [ ] Context: hard cap 4096 tokens (not 128K — quadratic memory at longer contexts)
+
+---
+
+## Phase 9 — Model Delivery
+
+### 9.1 First-Launch Download (Works for All Distribution)
+- [ ] `ModelManager.kt`: check `filesDir/models/` for GGUF + size validation
+- [ ] `ModelDownloadService.kt`: foreground service + OkHttp + Range header resume
+- [ ] JS download screen: shown before main tabs if model missing
+- [ ] SHA256 verification after complete download
+- [ ] `assets/models/` directory empty in repo (add `*.gguf` to `.gitignore`)
+
+### 9.2 Play Asset Delivery (Play Store Distribution — Future)
+- [ ] AAB format (EAS already builds AAB)
+- [ ] Create on-demand asset pack `model-pack/`
+- [ ] `AssetPackManager.fetch(listOf("model-pack"))` + progress listener
+- [ ] This is the modern replacement for OBB files — Play Store streams the 870MB pack on first launch
+- [ ] Requires Google Play distribution (sideloaded APKs use 9.1)
+
+### 9.3 EAS Build Rules
+- [ ] Never include GGUF in EAS build (APK hard limit: 150MB)
+- [ ] Never include policy weights or LoRA adapters in build (they're generated on-device)
+- [ ] App binary stays under 50MB
+- [ ] All AI assets are runtime-only: downloaded or generated on the device
+
+---
+
+## Phase 10 — Phase 2: JS Thinning (Future)
+
+- [ ] Move agent loop from JS context polling → Kotlin push events via TurboModule callbacks
+- [ ] Remove all state from `AgentContext.tsx` — JS only renders what Kotlin pushes
+- [ ] Remove `AgentCoreBridge.ts` stubs → all calls are real
+- [ ] Config moves to Kotlin `DataStore`
+- [ ] JS = rendering layer only
+
+---
+
+## Phase 11 — Phase 3: Full Kotlin + Jetpack Compose (Future)
+
+- [ ] Build `android/ui-native/` screens in Jetpack Compose
+  - Dashboard, Control, Activity, Modules, Settings
+- [ ] Remove React Native from build
+- [ ] Remove Metro bundler
+- [ ] Pure Kotlin app
 
 ---
 
 ## Testing Milestones
 
-- [ ] Inference benchmark: `llama.cpp` runs Llama 3.2-1B Q4_K_M at ≥8 tok/s on M31
-- [ ] OCR accuracy: ML Kit extracts structured text from typical Android app screenshots
-- [ ] Gesture accuracy: agent taps correct element from accessibility node ID
-- [ ] Full loop test: agent completes a 3-step task (e.g., open Settings → WiFi → toggle) without human intervention
-- [ ] Memory test: agent recalls a previously successful app workflow from SQLite
-- [ ] LoRA test: model improves on repeated task after one fine-tune cycle
-- [ ] Thermal test: app survives 30 minutes of continuous agent operation without crash
-- [ ] RAM test: total RSS ≤ 4.5 GB during active inference session
+- [ ] **T1 — Model loads**: Llama 3.2-1B Q4_K_M runs at ≥8 tok/s on M31 without OOM
+- [ ] **T2 — Screen reads**: OCR + accessibility tree fused output is parseable by LLM
+- [ ] **T3 — Gesture works**: agent taps correct element from node ID (3/3 attempts)
+- [ ] **T4 — 3-step task**: open Settings → WiFi → toggle, without human intervention
+- [ ] **T5 — Data flows**: experience tuples appear in SQLite after each agent loop
+- [ ] **T6 — RL trains**: policy network weights change after first training cycle
+- [ ] **T7 — LoRA loads**: updated LoRA adapter loads at next session without crash
+- [ ] **T8 — Edge case recalled**: agent retrieves and uses a previously stored edge case
+- [ ] **T9 — IRL works**: OCR extracts action sequence from a 30-second YouTube capture
+- [ ] **T10 — Thermal holds**: 30 minutes continuous inference without thermal shutdown
+- [ ] **T11 — RAM holds**: total RSS ≤ 4.5GB during active inference
 
 ---
 
@@ -371,12 +618,15 @@
 
 | Phase | Status | Description |
 |-------|--------|-------------|
-| 0 — Foundation | `[~]` In progress | JS UI shell done, Kotlin structure pending |
-| 1 — LLM Integration | `[ ]` Not started | |
-| 2 — Perception | `[ ]` Not started | |
-| 3 — Action Layer | `[ ]` Not started | |
-| 4 — Memory & Learning | `[ ]` Not started | |
-| 5 — Model Delivery | `[ ]` Not started | Design done, implementation pending |
-| 6 — Optimization | `[ ]` Not started | |
-| 7 — Phase 2 JS Thinning | `[ ]` Not started | |
-| 8 — Phase 3 Jetpack Compose | `[ ]` Not started | |
+| 0 — Foundation | `[~]` | JS UI shell done. Kotlin Gradle structure not yet created. |
+| 1 — LLM: Reasoning Engine | `[ ]` | Model download + llama.cpp + TurboModule |
+| 2 — Perception | `[ ]` | MediaProjection + ML Kit OCR + Accessibility tree |
+| 3 — Action Layer | `[ ]` | GestureEngine + verification loop + agent loop |
+| 4 — Data Collection | `[ ]` | SQLite experience store + edge case detection |
+| 5 — RL/IRL Processing | `[ ]` | Policy gradient + IRL from video + LoRA trainer |
+| 6 — Game Playing | `[ ]` | Game-specific RL loop + score detection |
+| 7 — Learning Scheduler | `[ ]` | Idle/charging training trigger + thermal guard |
+| 8 — Optimization | `[ ]` | RAM budget + thermal management + Vulkan offload |
+| 9 — Model Delivery | `[ ]` | First-launch download + Play Asset Delivery |
+| 10 — JS Thinning | `[ ]` | Push events, remove state from JS |
+| 11 — Jetpack Compose | `[ ]` | Full Kotlin UI replaces React Native |
