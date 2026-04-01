@@ -237,9 +237,11 @@ export default function ModulesScreen() {
         ready={rl?.ready ?? false}
         colors={colors}
         details={[
-          { label: "Algorithm", value: "REINFORCE (policy gradient)" },
-          { label: "Optimizer", value: "Adam — adaptive moment estimation" },
-          { label: "Backprop", value: "3-layer MLP, NEON SIMD math" },
+          { label: "Algorithm", value: "REINFORCE (Williams 1992)" },
+          { label: "Optimizer", value: "Adam (β₁=0.9, β₂=0.999)" },
+          { label: "Network", value: "MLP 256→128→7 actions, NEON SIMD" },
+          { label: "Adam steps", value: String(rl?.adamStep ?? 0) },
+          { label: "Policy loss", value: rl?.lastPolicyLoss ? rl.lastPolicyLoss.toFixed(4) : "—" },
           { label: "Episodes", value: String(rl?.episodesRun ?? 0) },
           { label: "LoRA version", value: rl?.loraVersion != null ? `v${rl.loraVersion}` : "v0 (untrained)" },
           { label: "Adapter loaded", value: rl?.adapterLoaded ? "Yes" : "No" },
@@ -250,15 +252,17 @@ export default function ModulesScreen() {
 
       <ModuleCard
         title="Memory Store"
-        subtitle="SQLite + file-based embeddings"
+        subtitle="SQLite + MiniLM-L6-v2 ONNX embeddings"
         icon="database"
         ready={mem?.ready ?? false}
         colors={colors}
         details={[
+          { label: "Embedding model", value: mem?.ready ? "MiniLM-L6-v2 (ONNX Runtime)" : "Hash fallback (model downloading)" },
+          { label: "Embedding dim", value: "384-dim float32, L2-normalised" },
           { label: "Embeddings", value: String(mem?.embeddingCount ?? 0) },
           { label: "DB size", value: mem?.dbSizeKb ? `${mem.dbSizeKb} KB` : "—" },
           { label: "Storage", value: "SQLite (app internal)" },
-          { label: "Context window", value: "Summarized + retrieved" },
+          { label: "Retrieval", value: "NEON cosine similarity, top-K" },
         ]}
       />
 

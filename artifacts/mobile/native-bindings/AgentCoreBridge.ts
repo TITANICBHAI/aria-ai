@@ -65,6 +65,8 @@ export interface ModuleStatus {
     loraVersion: number;
     adapterLoaded: boolean;
     untrainedSamples: number;
+    adamStep: number;          // REINFORCE Adam optimizer step count
+    lastPolicyLoss: number;    // most recent policy gradient loss (lower = better)
   };
   memory: { ready: boolean; embeddingCount: number; dbSizeKb: number };
   accessibility: { granted: boolean; active: boolean };
@@ -255,10 +257,11 @@ export const AgentCoreBridge = {
   },
 
   async processIrlVideo(videoPath: string, taskGoal: string, appPackage: string): Promise<{
-    videoPath: string; framesProcessed: number; tuplesExtracted: number; errorMessage: string;
+    videoPath: string; framesProcessed: number; tuplesExtracted: number;
+    llmAssistedCount: number; errorMessage: string;
   }> {
     if (AgentCore) return AgentCore.processIrlVideo(videoPath, taskGoal, appPackage);
-    return { videoPath, framesProcessed: 0, tuplesExtracted: 0, errorMessage: "web preview" };
+    return { videoPath, framesProcessed: 0, tuplesExtracted: 0, llmAssistedCount: 0, errorMessage: "web preview" };
   },
 
   async getLearningStatus(): Promise<{
@@ -278,7 +281,7 @@ export const AgentCoreBridge = {
     return {
       llm: { loaded: false, modelName: "Llama-3.2-1B-Instruct", quantization: "Q4_K_M", contextLength: 4096, tokensPerSecond: 0, memoryMb: 0 },
       ocr: { ready: false, engine: "ML Kit Text Recognition v2" },
-      rl: { ready: false, episodesRun: 0, loraVersion: 0, adapterLoaded: false, untrainedSamples: 0 },
+      rl: { ready: false, episodesRun: 0, loraVersion: 0, adapterLoaded: false, untrainedSamples: 0, adamStep: 0, lastPolicyLoss: 0 },
       memory: { ready: false, embeddingCount: 0, dbSizeKb: 0 },
       accessibility: { granted: false, active: false },
       screenCapture: { granted: false, active: false },
