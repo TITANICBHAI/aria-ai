@@ -9,11 +9,25 @@ import React, {
 import {
   AgentConfig,
   AgentCoreBridge,
+  AgentCoreEmitter,
   AgentState,
   ActionLog,
   MemoryEntry,
   ModuleStatus,
 } from "@/native-bindings/AgentCoreBridge";
+
+export interface ThermalStatus {
+  level: "safe" | "light" | "moderate" | "severe" | "critical";
+  inferenceSafe: boolean;
+  trainingSafe: boolean;
+  emergency: boolean;
+}
+
+export interface LearningEvent {
+  loraVersion: number;
+  policyVersion: number;
+  timestamp: number;
+}
 
 interface AgentContextValue {
   agentState: AgentState | null;
@@ -23,6 +37,8 @@ interface AgentContextValue {
   config: AgentConfig | null;
   isLoading: boolean;
   error: string | null;
+  thermalStatus: ThermalStatus | null;
+  lastLearningEvent: LearningEvent | null;
 
   startAgent: (goal: string) => Promise<void>;
   stopAgent: () => Promise<void>;
@@ -44,6 +60,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   const [config, setConfig] = useState<AgentConfig | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [thermalStatus, setThermalStatus] = useState<ThermalStatus | null>(null);
+  const [lastLearningEvent, setLastLearningEvent] = useState<LearningEvent | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchAll = useCallback(async () => {
