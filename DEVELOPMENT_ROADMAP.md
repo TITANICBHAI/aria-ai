@@ -794,6 +794,83 @@ These are the "optimized values" — they make the NEXT task loop smarter than t
 
 ---
 
+## Future Ideas — Not Yet Scheduled
+
+> Ideas captured here for future planning. None of these are active tasks.
+> Promote to a numbered Phase when ready to implement.
+
+---
+
+### Idea: Object Labeler Tool
+
+**Concept:** A modal UI screen where the user can manually annotate objects on a captured screen. Each annotation gives the LLM richer context for reasoning about that screen.
+
+**Why it matters:** The current perception pipeline (OCR + accessibility tree) extracts what exists on screen but loses semantic meaning — it knows a node is a "Button" but not that it's "the button that starts a payment flow." The object labeler lets humans inject that domain knowledge directly, making the LLM far more accurate on specific apps and workflows.
+
+**How it would work:**
+1. User opens the Object Labeler modal from the Control screen
+2. The modal captures a screenshot (via MediaProjection bridge)
+3. User taps anywhere on the screenshot image to place an annotation pin
+4. Each pin has:
+   - **Name** — user-assigned label (e.g. "Checkout Button")
+   - **Context** — description of purpose (e.g. "Triggers the payment flow")
+   - **Element Type** — button / text / input / icon / image / container / toggle / link
+   - **LLM-generated fields** (via `runInference()`):
+     - `meaning` — what this element means in the broader app context
+     - `interactionHint` — how the agent should use this element
+     - `reasoningContext` — a hint injected into the LLM prompt when this element is visible
+     - `importanceScore` — 0–10 priority for agent attention
+   - **Additional custom fields** — user can add arbitrary key/value pairs
+5. "Auto-detect" button runs MediaPipe object detection + ML Kit OCR on the image, auto-placing pins at detected elements with OCR text pre-filled
+6. "Enrich All" button sends all pins to Llama for bulk field generation
+7. Individual pin "Generate" button enriches a single pin
+8. Annotations are saved to SQLite and injected into the LLM's context whenever the matching screen is observed during agent operation
+
+**Tech stack:**
+- UI: React Native modal with `Pressable` + `onLayout` for normalized pin coordinates
+- Screenshot capture: `captureScreenForLabeling()` → Kotlin MediaProjection bridge
+- OCR at point: `runOcrAtPoint(imageUri, normX, normY)` → ML Kit on Kotlin side
+- Object detection: `detectObjectsInImage(imageUri)` → MediaPipe on Kotlin side
+- LLM enrichment: `enrichLabelsWithLLM(labels, screenContext)` → Llama 3.2-1B bridge
+- Persistence: new `object_labels` table in SQLite, keyed by app package + screen hash
+- Retrieval: during agent loop, query stored labels for current screen → inject into LLM prompt
+
+**New bridge methods needed (Kotlin side):**
+```kotlin
+@ReactMethod fun captureScreenForLabeling(promise: Promise)
+@ReactMethod fun runOcrAtPoint(imageUri: String, normX: Double, normY: Double, promise: Promise)
+@ReactMethod fun detectObjectsInImage(imageUri: String, promise: Promise)
+@ReactMethod fun enrichLabelsWithLLM(labelsJson: String, screenContext: String, promise: Promise)
+@ReactMethod fun saveObjectLabels(appPackage: String, screenHash: String, labelsJson: String, promise: Promise)
+@ReactMethod fun getObjectLabels(appPackage: String, screenHash: String, promise: Promise)
+```
+
+**New SQLite table needed:**
+```sql
+CREATE TABLE object_labels (
+  id TEXT PRIMARY KEY,
+  app_package TEXT,
+  screen_hash TEXT,         -- hash of the OCR+a11y output for this screen
+  name TEXT,
+  context TEXT,
+  x REAL,                   -- 0–1 normalized
+  y REAL,
+  element_type TEXT,
+  meaning TEXT,
+  interaction_hint TEXT,
+  reasoning_context TEXT,
+  importance_score INTEGER,
+  additional_fields TEXT,   -- JSON blob
+  created_at INTEGER,
+  updated_at INTEGER
+);
+CREATE INDEX idx_labels_screen ON object_labels(app_package, screen_hash);
+```
+
+**When to implement:** After Phase 2 (Perception) and Phase 4 (Data Collection) are complete, since it depends on MediaProjection, ML Kit, and SQLite being live on-device.
+
+---
+
 ## Testing Milestones
 
 - [ ] **T1 — Model loads**: Llama 3.2-1B Q4_K_M runs at ≥8 tok/s on M31 without OOM
