@@ -208,12 +208,58 @@ export const AgentCoreBridge = {
     return { status: "idle", currentTask: null, currentApp: null, tokenRate: 0, memoryUsedMb: 0, sessionStartedAt: null, actionsPerformed: 0, successRate: 0, modelReady: false, llmLoaded: false, accessibilityActive: false, screenCaptureActive: false };
   },
 
-  async startAgent(_goal: string): Promise<{ success: boolean; error?: string }> {
-    return { success: false, error: "Agent loop not yet implemented (Phase 3)" };
+  async startAgent(goal: string, appPackage: string = ""): Promise<{ success: boolean; error?: string }> {
+    if (AgentCore) {
+      try {
+        await AgentCore.startAgent(goal, appPackage);
+        return { success: true };
+      } catch (e: any) {
+        return { success: false, error: e.message };
+      }
+    }
+    return { success: false, error: "web preview — agent loop requires Android device" };
   },
 
-  async stopAgent(): Promise<{ success: boolean }> { return { success: true }; },
-  async pauseAgent(): Promise<{ success: boolean }> { return { success: true }; },
+  async stopAgent(): Promise<{ success: boolean }> {
+    if (AgentCore) await AgentCore.stopAgent();
+    return { success: true };
+  },
+
+  async pauseAgent(): Promise<{ success: boolean }> {
+    if (AgentCore) await AgentCore.pauseAgent();
+    return { success: true };
+  },
+
+  async getAgentLoopStatus(): Promise<{
+    status: string; goal: string; appPackage: string;
+    stepCount: number; lastAction: string; lastError: string;
+  }> {
+    if (AgentCore) return AgentCore.getAgentLoopStatus();
+    return { status: "idle", goal: "", appPackage: "", stepCount: 0, lastAction: "", lastError: "" };
+  },
+
+  async runRlCycle(): Promise<{
+    success: boolean; samplesUsed: number; adapterPath: string;
+    loraVersion: number; errorMessage: string;
+  }> {
+    if (AgentCore) return AgentCore.runRlCycle();
+    return { success: false, samplesUsed: 0, adapterPath: "", loraVersion: 0, errorMessage: "web preview" };
+  },
+
+  async processIrlVideo(videoPath: string, taskGoal: string, appPackage: string): Promise<{
+    videoPath: string; framesProcessed: number; tuplesExtracted: number; errorMessage: string;
+  }> {
+    if (AgentCore) return AgentCore.processIrlVideo(videoPath, taskGoal, appPackage);
+    return { videoPath, framesProcessed: 0, tuplesExtracted: 0, errorMessage: "web preview" };
+  },
+
+  async getLearningStatus(): Promise<{
+    loraVersion: number; latestAdapterPath: string; adapterExists: boolean;
+    untrainedSamples: number; policyReady: boolean;
+  }> {
+    if (AgentCore) return AgentCore.getLearningStatus();
+    return { loraVersion: 0, latestAdapterPath: "", adapterExists: false, untrainedSamples: 0, policyReady: false };
+  },
 
   async getModuleStatus(): Promise<ModuleStatus> {
     const llm = await AgentCoreBridge.getLlmStatus().catch(() => null);

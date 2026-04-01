@@ -5,178 +5,158 @@
 
 ---
 
-## Task: Phase 1 — EAS Build Setup + First Kotlin Compile
+## Task: Phase 1 → EAS Build + llama.cpp NDK Wiring
 
-**Status:** In progress (`[~]`)
-**Priority:** Critical — no Kotlin code runs until the Android project compiles
-**Before this:** Phase 0 complete (android/ structure created, all Kotlin files written, bridge wired)
-**After this:** Phase 1 model download service can be tested on real M31
+**Status:** Code complete. Awaiting user to run EAS build on machine with Android SDK.
+**Priority:** Critical — no Kotlin code runs until the first EAS build succeeds.
 
 ---
 
-## WHAT WAS JUST BUILT (Phase 0 complete)
+## WHAT WAS JUST BUILT (this session)
 
-### Kotlin Android Project (`artifacts/mobile/android/`)
+### Build Infrastructure
 | File | Purpose |
 |------|---------|
-| `build.gradle` (root) | Gradle plugin declarations — react-native + kotlin |
-| `settings.gradle` | pnpm monorepo paths — points to hoisted node_modules |
-| `gradle.properties` | `newArchEnabled=true`, `hermesEnabled=true`, arm64-v8a only |
-| `app/build.gradle` | App module — react-native paths, ML Kit dep, OkHttp dep |
-| `AndroidManifest.xml` | All required permissions (INTERNET, FOREGROUND_SERVICE, etc.) |
-| `MainActivity.kt` | New Architecture delegate |
-| `MainApplication.kt` | Registers AgentCorePackage, enables JSI |
+| `eas.json` | EAS build profiles: development (debug APK) / preview (release APK) / production (AAB) |
+| `app/build.gradle` | Updated: CMake externalNativeBuild block, TFLite + MediaPipe deps added |
+
+### NDK / llama.cpp JNI (Phase 1.4)
+| File | Purpose |
+|------|---------|
+| `src/main/cpp/CMakeLists.txt` | Builds `llama-jni.so` with Vulkan (Mali-G72), arm64-v8a, -O3 |
+| `src/main/cpp/llama_jni.cpp` | Full JNI implementation: load, create context, infer with streaming, free |
+| `core/ai/LlamaEngine.kt` | Updated: real JNI declarations + graceful fallback to stub if .so not found |
+
+### Perception Layer (Phase 2)
+| File | Purpose |
+|------|---------|
+| `core/perception/ScreenObserver.kt` | Fuses accessibility tree + OCR into ScreenSnapshot for LLM prompt |
+| `system/accessibility/AgentAccessibilityService.kt` | Updated: `currentPackage` + `currentActivity` tracked from events |
+
+### Agent Loop (Phase 3)
+| File | Purpose |
+|------|---------|
+| `core/ai/PromptBuilder.kt` | Assembles full Llama 3.2-1B Instruct chat template with system prompt, screen, goal, history, memory |
+| `core/agent/AgentLoop.kt` | Full Observe→Reason→Act loop: screen capture → LLM → gesture → experience store → events to JS |
+
+### Memory (Phase 4)
+| File | Purpose |
+|------|---------|
+| `core/memory/EmbeddingEngine.kt` | MiniLM-L3-v2 via TFLite; hash-embed fallback until model downloaded; cosine similarity retrieval |
+
+### Learning Pipeline (Phase 5)
+| File | Purpose |
+|------|---------|
+| `core/rl/LoraTrainer.kt` | LoRA training: JSONL dataset from ExperienceStore → llama.cpp train API stub |
+| `core/rl/IrlModule.kt` | IRL from video: frame extraction → OCR → text delta → action inference → experience tuples |
+| `core/rl/LearningScheduler.kt` | Updated: now calls LoraTrainer + PolicyNetwork; emits `learning_cycle_complete` event |
 
 ### Bridge (JS ↔ Kotlin)
 | File | Purpose |
 |------|---------|
-| `bridge/AgentCorePackage.kt` | Registers AgentCoreModule in React Native |
-| `bridge/AgentCoreModule.kt` | All @ReactMethod calls JS can make — COMPLETE interface |
-| `native-bindings/AgentCoreBridge.ts` | JS side — calls real NativeModules on Android, stubs on web |
-
-### Core AI
-| File | Purpose |
-|------|---------|
-| `core/ai/ModelManager.kt` | Checks if GGUF exists, manages paths, SHA256 verify |
-| `core/ai/ModelDownloadService.kt` | Foreground service — OkHttp + Range resume + notifications |
-| `core/ai/LlamaEngine.kt` | llama.cpp JNI stubs — ready for NDK wiring in Phase 1.3 |
-
-### Perception
-| File | Purpose |
-|------|---------|
-| `core/ocr/OcrEngine.kt` | ML Kit OCR — white-space structured text output |
-| `system/accessibility/AgentAccessibilityService.kt` | Reads UI tree → LLM-friendly semantic IDs |
-| `system/screen/ScreenCaptureService.kt` | MediaProjection → 512×512 JPEG |
-
-### Action
-| File | Purpose |
-|------|---------|
-| `system/actions/GestureEngine.kt` | tap/swipe/type/scroll from JSON → dispatchGesture() |
-
-### Memory + Learning
-| File | Purpose |
-|------|---------|
-| `core/memory/ExperienceStore.kt` | SQLite — (state, action, reward) tuples, edge case flags |
-| `core/rl/PolicyNetwork.kt` | MLP policy (stub) — REINFORCE training target |
-| `core/rl/LearningScheduler.kt` | Idle+charging detector → triggers training |
-
-### UI Gate
-| File | Purpose |
-|------|---------|
-| `components/ModelDownloadScreen.tsx` | Progress screen — shown until GGUF is on device |
-| `app/_layout.tsx` | Checks `checkModelReady()` on Android launch — gates main tabs |
+| `bridge/AgentCoreModule.kt` | Added: `startAgent`, `stopAgent`, `pauseAgent`, `getAgentLoopStatus`, `runRlCycle`, `processIrlVideo`, `getLearningStatus`. LearningScheduler wired in init block. |
+| `native-bindings/NativeAgentCore.ts` | Full TurboModule codegen spec — every bridge method typed and declared |
+| `native-bindings/AgentCoreBridge.ts` | Updated: `startAgent(goal, appPackage)`, `getAgentLoopStatus`, `runRlCycle`, `processIrlVideo`, `getLearningStatus` all wired to Kotlin |
 
 ---
 
-## WHAT IS NEXT
+## WHAT EXISTS (full file list)
 
-### Step 1 — EAS Build (User action needed)
+### Kotlin (`artifacts/mobile/android/app/src/main/kotlin/com/ariaagent/mobile/`)
+```
+bridge/
+  AgentCoreModule.kt     ← bridge, event emitter, init hooks
+  AgentCorePackage.kt    ← registers module with React Native
 
-The Kotlin code needs an actual Android build environment to compile.
-Replit doesn't have the Android SDK. The user must:
+core/
+  agent/
+    AgentLoop.kt         ← Observe→Reason→Act autonomous loop  [NEW]
+  ai/
+    LlamaEngine.kt       ← llama.cpp JNI (stub fallback ready)  [UPDATED]
+    ModelManager.kt      ← GGUF path + SHA256 verify
+    ModelDownloadService.kt ← OkHttp resume download + notification
+    PromptBuilder.kt     ← Llama 3.2-1B chat template builder  [NEW]
+  memory/
+    ExperienceStore.kt   ← SQLite (state, action, reward) tuples
+    EmbeddingEngine.kt   ← MiniLM-L3-v2 / hash fallback  [NEW]
+  ocr/
+    OcrEngine.kt         ← ML Kit OCR, white-space layout
+  rl/
+    IrlModule.kt         ← IRL from screen recording video  [NEW]
+    LearningScheduler.kt ← idle+charging gating → LoraTrainer  [UPDATED]
+    LoraTrainer.kt       ← LoRA adapter training  [NEW]
+    PolicyNetwork.kt     ← MLP REINFORCE (stub training)
 
-**Option A — EAS Cloud Build (recommended, no local setup):**
+system/
+  accessibility/
+    AgentAccessibilityService.kt ← UI tree + currentPackage/Activity  [UPDATED]
+  actions/
+    GestureEngine.kt     ← tap/swipe/type → dispatchGesture
+  screen/
+    ScreenCaptureService.kt ← MediaProjection → 512×512 JPEG
+
+MainActivity.kt
+MainApplication.kt
+
+cpp/
+  CMakeLists.txt         ← NDK build config for llama-jni.so  [NEW]
+  llama_jni.cpp          ← JNI implementation for llama.cpp  [NEW]
+```
+
+### TypeScript / JS (`artifacts/mobile/`)
+```
+native-bindings/
+  AgentCoreBridge.ts     ← all bridge calls with web stubs  [UPDATED]
+  NativeAgentCore.ts     ← TurboModule codegen spec  [NEW]
+
+eas.json                 ← EAS build profiles  [NEW]
+```
+
+---
+
+## BLOCKER — User Action Required
+
+**The llama.cpp submodule must be added before the first EAS build:**
+
 ```bash
+cd artifacts/mobile/android/app/src/main/cpp
+git submodule add https://github.com/ggml-org/llama.cpp llama.cpp
+git submodule update --init --recursive
+```
+
+**Then run the EAS build:**
+
+```bash
+# Option A — Cloud build (no local Android SDK needed)
 npm install -g eas-cli
 eas login
-eas build --platform android --profile preview
-```
-This builds an APK in the cloud, installs on M31 via QR code.
-
-**Option B — Local Android Studio:**
-```bash
 cd artifacts/mobile
+eas build --platform android --profile preview
+
+# Option B — Local Android Studio
 npx expo prebuild --platform android
-cd android && ./gradlew assembleDebug
+cd android && ./gradlew assembleRelease
 ```
-Installs via: `adb install app/build/outputs/apk/debug/app-debug.apk`
-
-**What to check after first build:**
-- App launches on M31 without crash
-- Model download screen appears (GGUF not present yet)
-- Tap "Download AI Brain" → foreground notification appears
-- Progress % updates in the UI as GGUF downloads
-- After download: main tabs appear
-
-### Step 2 — Add `eas.json`
-
-```json
-{
-  "build": {
-    "preview": {
-      "android": {
-        "buildType": "apk",
-        "gradleCommand": ":app:assembleRelease"
-      }
-    },
-    "production": {
-      "android": {
-        "buildType": "aab"
-      }
-    }
-  }
-}
-```
-
-### Step 3 — llama.cpp NDK Integration (Phase 1.3)
-
-After the basic build works, wire up the actual LLM inference:
-
-1. Add llama.cpp as a git submodule:
-   ```bash
-   git submodule add https://github.com/ggml-org/llama.cpp \
-     artifacts/mobile/android/app/src/main/cpp/llama.cpp
-   ```
-
-2. Create `app/src/main/cpp/CMakeLists.txt`:
-   ```cmake
-   cmake_minimum_required(VERSION 3.22.1)
-   project(llama-jni)
-   set(LLAMA_VULKAN ON)   # Mali-G72 GPU offload
-   set(LLAMA_METAL OFF)   # Android only
-   add_subdirectory(llama.cpp)
-   add_library(llama-jni SHARED llama_jni.cpp)
-   target_link_libraries(llama-jni llama android log)
-   ```
-
-3. Create `app/src/main/cpp/llama_jni.cpp`:
-   - `Java_com_ariaagent_mobile_core_ai_LlamaJNI_nativeLoadModel()`
-   - `Java_com_ariaagent_mobile_core_ai_LlamaJNI_nativeRunInference()`
-   - `Java_com_ariaagent_mobile_core_ai_LlamaJNI_nativeFreeModel()`
-
-4. Update `LlamaEngine.kt` — replace stubs with JNI calls + `System.loadLibrary("llama-jni")`
-
-5. Add `externalNativeBuild` block to `app/build.gradle`
 
 ---
 
 ## Acceptance Criteria (Phase 1 complete when all pass)
 
-- [ ] `./gradlew assembleDebug` succeeds (or EAS build succeeds)
+- [ ] `eas build --profile preview` succeeds (or `./gradlew assembleDebug`)
 - [ ] App installs on M31 without crash
 - [ ] `checkModelReady()` reaches Kotlin, returns false on fresh install
-- [ ] Model download service starts, notification appears
-- [ ] Download resumes after network interruption
-- [ ] GGUF lands at correct path after complete download
-- [ ] `AgentCore.loadModel()` calls `LlamaEngine.load()` without crash
-- [ ] `AgentCore.runInference("hello", 20)` returns stub JSON (llama.cpp not yet wired)
+- [ ] Model download screen appears (GGUF not present)
+- [ ] Tap "Download AI Brain" → foreground notification, progress updates
+- [ ] After download: main tabs appear
+- [ ] `AgentCore.loadModel()` runs without crash (stub inference active)
+- [ ] `AgentCore.startAgent("Open WiFi", "com.android.settings")` triggers loop
 
 ---
 
-## Files That Need User Action (Cannot Be Done in Replit)
+## Next Tasks After EAS Build
 
-| File | Action |
-|------|--------|
-| `eas.json` | Create with build profiles |
-| `android/app/src/main/cpp/llama.cpp/` | `git submodule add` for llama.cpp source |
-| EAS Account | `eas login` on the user's machine |
-| `google-services.json` | NOT needed (ML Kit works without Firebase) |
-
----
-
-## Next Task (after Phase 1 EAS build passes)
-
-**Phase 1.3 — llama.cpp JNI wiring**
-Wire `LlamaEngine.kt` stubs to real C++ inference via NDK.
-Target: >8 tok/s on M31 with Q4_K_M + Vulkan offload.
-See `DEVELOPMENT_ROADMAP.md` → Phase 1 → 1.3 llama.cpp JNI Integration.
+1. **llama.cpp JNI real test** — `loadModel()` with real GGUF, measure tok/s on M31
+2. **MediaProjection permission** — wire `ScreenCaptureService` to get real screenshots  
+3. **Accessibility service test** — verify node tree output for Settings app
+4. **First agent run** — `startAgent("Open WiFi settings", "com.android.settings")` → watch loop
+5. **Download MiniLM** — ~23MB TFLite model for real embedding retrieval

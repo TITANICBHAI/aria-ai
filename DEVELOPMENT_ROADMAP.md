@@ -892,14 +892,14 @@ CREATE INDEX idx_labels_screen ON object_labels(app_package, screen_hash);
 | Phase | Status | Description |
 |-------|--------|-------------|
 | 0 — Foundation | `[x]` | JS UI shell done. Full android/ project created. Bridge wired. Download screen added. |
-| 1 — LLM: Reasoning Engine | `[~]` | ModelManager + ModelDownloadService written. llama.cpp JNI stubs in place. Needs EAS build to compile + test. |
-| 2 — Perception | `[ ]` | MediaProjection + ML Kit OCR + Accessibility tree |
-| 3 — Action Layer | `[ ]` | GestureEngine + verification loop + agent loop |
-| 4 — Data Collection | `[ ]` | SQLite experience store + edge case detection |
-| 5 — RL/IRL Processing | `[ ]` | Policy gradient + IRL from video + LoRA trainer |
+| 1 — LLM: Reasoning Engine | `[~]` | eas.json + CMakeLists.txt + llama_jni.cpp + LlamaEngine JNI written. PromptBuilder written. Needs EAS build + llama.cpp submodule to activate real inference. |
+| 2 — Perception | `[~]` | ScreenObserver.kt (OCR + a11y fusion) written. currentPackage/Activity tracking added. Needs real device build to verify. |
+| 3 — Action Layer | `[~]` | AgentLoop.kt (Observe→Reason→Act) written. GestureEngine exists. Needs EAS build to test on M31. |
+| 4 — Data Collection | `[~]` | ExperienceStore (SQLite) complete. EmbeddingEngine (MiniLM/hash fallback) written. |
+| 5 — RL/IRL Processing | `[~]` | LoraTrainer.kt + IrlModule.kt written. LearningScheduler wired. Needs llama.cpp training API + real device test. |
 | 6 — Game Playing | `[ ]` | Game-specific RL loop + score detection |
-| 7 — Learning Scheduler | `[ ]` | Idle/charging training trigger + thermal guard |
+| 7 — Learning Scheduler | `[~]` | LearningScheduler fully wired: thermal guard + idle check + LoraTrainer + learning_cycle_complete event. |
 | 8 — Optimization | `[ ]` | RAM budget + thermal management + Vulkan offload |
-| 9 — Model Delivery | `[ ]` | First-launch download + Play Asset Delivery |
+| 9 — Model Delivery | `[~]` | eas.json written. ModelDownloadService + ModelManager complete. Play Asset Delivery pending. |
 | 10 — JS Thinning | `[ ]` | Push events, remove state from JS |
 | 11 — Jetpack Compose | `[ ]` | Full Kotlin UI replaces React Native |
