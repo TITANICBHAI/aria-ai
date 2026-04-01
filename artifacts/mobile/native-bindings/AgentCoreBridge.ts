@@ -380,4 +380,18 @@ export const AgentCoreBridge = {
   async requestScreenCapturePermission(): Promise<{ granted: boolean }> {
     return { granted: false };
   },
+
+  async getPermissionsStatus(): Promise<{
+    accessibility: boolean;
+    screenCapture: boolean;
+    notifications: boolean;
+  }> {
+    if (AgentCore) return AgentCore.getPermissionsStatus();
+    return { accessibility: false, screenCapture: false, notifications: false };
+  },
+
+  async openNotificationSettings(): Promise<boolean> {
+    if (AgentCore) return AgentCore.openNotificationSettings();
+    return false;
+  },
 };

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   Platform,
@@ -13,15 +13,18 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { useFocusEffect } from "expo-router";
 
 import { useAgent } from "@/context/AgentContext";
 import { useColors } from "@/hooks/useColors";
-import { AgentConfig } from "@/native-bindings/AgentCoreBridge";
+import { AgentConfig, AgentCoreBridge } from "@/native-bindings/AgentCoreBridge";
 import { SectionHeader } from "@/components/SectionHeader";
 
 const QUANTIZATIONS = ["Q4_K_M", "Q4_0", "IQ2_S", "Q5_K_M"];
 const CONTEXT_SIZES = [512, 1024, 2048, 4096];
 const GPU_LAYERS = [0, 8, 16, 24, 32];
+
+type PermState = { accessibility: boolean; screenCapture: boolean; notifications: boolean };
 
 export default function SettingsScreen() {
   const colors = useColors();
@@ -29,6 +32,11 @@ export default function SettingsScreen() {
   const { config, updateConfig, isLoading } = useAgent();
   const [local, setLocal] = useState<Partial<AgentConfig>>({});
   const [saved, setSaved] = useState(false);
+  const [perms, setPerms] = useState<PermState>({
+    accessibility: false,
+    screenCapture: false,
+    notifications: false,
+  });
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : 0;
@@ -36,6 +44,19 @@ export default function SettingsScreen() {
   useEffect(() => {
     if (config) setLocal(config);
   }, [config]);
+
+  const refreshPerms = useCallback(async () => {
+    const status = await AgentCoreBridge.getPermissionsStatus();
+    setPerms(status);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshPerms();
+      const interval = setInterval(refreshPerms, 3000);
+      return () => clearInterval(interval);
+    }, [refreshPerms])
+  );
 
   const patch = (key: keyof AgentConfig, value: any) => {
     setLocal((p) => ({ ...p, [key]: value }));
@@ -340,6 +361,124 @@ export default function SettingsScreen() {
         />
       </View>
 
+      {/* Permissions */}
+      <SectionHeader title="Permissions" />
+      <View
+        style={[
+          styles.section,
+          {
+            backgroundColor: colors.surface1,
+            borderColor: colors.border,
+            borderWidth: 1,
+            borderRadius: 16,
+            gap: 0,
+            padding: 0,
+          },
+        ]}
+      >
+        {/* Accessibility Service */}
+        <View style={[styles.permRow, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
+          <View style={[styles.permIconWrap, { backgroundColor: perms.accessibility ? colors.success + "22" : colors.destructive + "22" }]}>
+            <Feather
+              name="eye"
+              size={18}
+              color={perms.accessibility ? colors.success : colors.destructive}
+            />
+          </View>
+          <View style={styles.permInfo}>
+            <View style={styles.permTitleRow}>
+              <Text style={[styles.permTitle, { color: colors.foreground }]}>Accessibility Service</Text>
+              <View style={[styles.permBadge, { backgroundColor: perms.accessibility ? colors.success + "22" : colors.destructive + "22" }]}>
+                <Text style={[styles.permBadgeText, { color: perms.accessibility ? colors.success : colors.destructive }]}>
+                  {perms.accessibility ? "ACTIVE" : "REQUIRED"}
+                </Text>
+              </View>
+            </View>
+            <Text style={[styles.permDesc, { color: colors.mutedForeground }]}>
+              Reads the UI tree and dispatches gestures. ARIA cannot navigate apps without this.
+            </Text>
+            {!perms.accessibility && (
+              <TouchableOpacity
+                onPress={async () => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  await AgentCoreBridge.openAccessibilitySettings();
+                }}
+                style={[styles.permBtn, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "44", borderWidth: 1 }]}
+                activeOpacity={0.7}
+              >
+                <Feather name="external-link" size={13} color={colors.primary} />
+                <Text style={[styles.permBtnText, { color: colors.primary }]}>
+                  Open Accessibility Settings
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* Notifications */}
+        <View style={[styles.permRow, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
+          <View style={[styles.permIconWrap, { backgroundColor: perms.notifications ? colors.success + "22" : colors.warning + "22" }]}>
+            <Feather
+              name="bell"
+              size={18}
+              color={perms.notifications ? colors.success : colors.warning}
+            />
+          </View>
+          <View style={styles.permInfo}>
+            <View style={styles.permTitleRow}>
+              <Text style={[styles.permTitle, { color: colors.foreground }]}>Notifications</Text>
+              <View style={[styles.permBadge, { backgroundColor: perms.notifications ? colors.success + "22" : colors.warning + "22" }]}>
+                <Text style={[styles.permBadgeText, { color: perms.notifications ? colors.success : colors.warning }]}>
+                  {perms.notifications ? "GRANTED" : "BLOCKED"}
+                </Text>
+              </View>
+            </View>
+            <Text style={[styles.permDesc, { color: colors.mutedForeground }]}>
+              Download progress, training completion, and agent status alerts.
+            </Text>
+            {!perms.notifications && (
+              <TouchableOpacity
+                onPress={async () => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  await AgentCoreBridge.openNotificationSettings();
+                }}
+                style={[styles.permBtn, { backgroundColor: colors.warning + "18", borderColor: colors.warning + "44", borderWidth: 1 }]}
+                activeOpacity={0.7}
+              >
+                <Feather name="external-link" size={13} color={colors.warning} />
+                <Text style={[styles.permBtnText, { color: colors.warning }]}>
+                  Open Notification Settings
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* Screen Capture */}
+        <View style={styles.permRow}>
+          <View style={[styles.permIconWrap, { backgroundColor: perms.screenCapture ? colors.success + "22" : colors.primary + "18" }]}>
+            <Feather
+              name="monitor"
+              size={18}
+              color={perms.screenCapture ? colors.success : colors.primary}
+            />
+          </View>
+          <View style={styles.permInfo}>
+            <View style={styles.permTitleRow}>
+              <Text style={[styles.permTitle, { color: colors.foreground }]}>Screen Capture</Text>
+              <View style={[styles.permBadge, { backgroundColor: perms.screenCapture ? colors.success + "22" : colors.primary + "18" }]}>
+                <Text style={[styles.permBadgeText, { color: perms.screenCapture ? colors.success : colors.primary }]}>
+                  {perms.screenCapture ? "ACTIVE" : "ON-DEMAND"}
+                </Text>
+              </View>
+            </View>
+            <Text style={[styles.permDesc, { color: colors.mutedForeground }]}>
+              MediaProjection — Android will show a one-time consent dialog when you start the agent. No permanent grant needed.
+            </Text>
+          </View>
+        </View>
+      </View>
+
       {/* Architecture Info */}
       <SectionHeader title="Architecture (Read-only)" />
       <View
@@ -449,4 +588,45 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   saveBtnText: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
+  permRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    padding: 16,
+    gap: 12,
+  },
+  permIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    marginTop: 1,
+  },
+  permInfo: { flex: 1, gap: 4 },
+  permTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  permTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  permBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  permBadgeText: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.6 },
+  permDesc: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 18 },
+  permBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignSelf: "flex-start",
+    marginTop: 4,
+  },
+  permBtnText: { fontSize: 13, fontFamily: "Inter_500Medium" },
 });
