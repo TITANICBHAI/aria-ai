@@ -144,6 +144,35 @@ export interface ExperienceStats {
   edgeCaseCount: number;
 }
 
+// ─── Phase 15 types ──────────────────────────────────────────────────────────
+
+/** A task in ARIA's persistent task queue (backed by TaskQueueManager.kt). */
+export interface QueuedTask {
+  id: string;             // UUID
+  goal: string;           // Natural-language task description
+  appPackage: string;     // Target app package (may be "" — agent infers from screen)
+  priority: number;       // Lower = higher priority; FIFO within same priority
+  enqueuedAt: number;     // Unix epoch ms when enqueued
+}
+
+/**
+ * Per-app skill record learned by AppSkillRegistry.kt.
+ * Injected into the LLM context as "[APP KNOWLEDGE]" to seed faster task execution.
+ */
+export interface AppSkill {
+  appPackage: string;
+  appName: string;        // Human-readable name (may be "" if never recorded)
+  taskSuccess: number;    // Count of successful tasks in this app
+  taskFailure: number;    // Count of failed tasks in this app
+  totalSteps: number;     // Cumulative step count across all tasks
+  successRate: number;    // 0.0–1.0
+  avgSteps: number;       // Average steps per completed task
+  promptHint: string;     // Synthesized hint injected into prompts
+  lastSeen: number;       // Unix epoch ms of last interaction
+  learnedElements: string;// JSON array of frequently-used element IDs
+  taskTemplates: string;  // JSON array of successful goal strings as templates
+}
+
 export type ElementType =
   | "button" | "text" | "input" | "icon"
   | "image" | "container" | "toggle" | "link" | "unknown";
@@ -611,5 +640,73 @@ export const AgentCoreBridge = {
   async markSubTaskPassed(subTaskId: string): Promise<boolean> {
     if (AgentCore) return AgentCore.markSubTaskPassed(subTaskId);
     return false;
+  },
+
+  // ─── Phase 15: Task Queue ─────────────────────────────────────────────────
+
+  /**
+   * Add a task to the persistent task queue.
+   * Tasks are automatically started by AgentLoop when the current task finishes.
+   * @param goal        Natural-language task description
+   * @param appPackage  Target app package name (may be "" — agent infers from screen)
+   * @param priority    Lower = higher priority. Default 0. FIFO within same priority.
+   */
+  async enqueueTask(
+    goal: string,
+    appPackage: string = "",
+    priority: number = 0,
+  ): Promise<QueuedTask | null> {
+    if (AgentCore) return AgentCore.enqueueTask(goal, appPackage, priority);
+    return null;
+  },
+
+  /** Remove and return the head task, or null if queue is empty. */
+  async dequeueTask(): Promise<QueuedTask | null> {
+    if (AgentCore) return AgentCore.dequeueTask();
+    return null;
+  },
+
+  /** Return all queued tasks in priority order. */
+  async getTaskQueue(): Promise<QueuedTask[]> {
+    if (AgentCore) return AgentCore.getTaskQueue();
+    return [];
+  },
+
+  /** Remove a specific task by UUID without affecting other queue entries. */
+  async removeQueuedTask(taskId: string): Promise<boolean> {
+    if (AgentCore) return AgentCore.removeQueuedTask(taskId);
+    return false;
+  },
+
+  /** Empty the entire task queue immediately. */
+  async clearTaskQueue(): Promise<boolean> {
+    if (AgentCore) return AgentCore.clearTaskQueue();
+    return true;
+  },
+
+  // ─── Phase 15: App Skill Registry ─────────────────────────────────────────
+
+  /**
+   * Return ARIA's accumulated skill data for a specific app package.
+   * Returns null if the agent has never interacted with this app.
+   */
+  async getAppSkill(appPackage: string): Promise<AppSkill | null> {
+    if (AgentCore) return AgentCore.getAppSkill(appPackage);
+    return null;
+  },
+
+  /**
+   * Return all known app skill records, sorted by last-seen (most recent first).
+   * Used by the Modules screen to show per-app learning progress.
+   */
+  async getAllAppSkills(): Promise<AppSkill[]> {
+    if (AgentCore) return AgentCore.getAllAppSkills();
+    return [];
+  },
+
+  /** Clear all app skill records. Only call from Settings "Reset Agent" flow. */
+  async clearAppSkills(): Promise<boolean> {
+    if (AgentCore) return AgentCore.clearAppSkills();
+    return true;
   },
 };

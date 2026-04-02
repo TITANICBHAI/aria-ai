@@ -1104,6 +1104,93 @@ If the process is killed mid-task, on next launch the agent reads this file and 
 
 ---
 
+## Phase 15 — App Skill Registry + Task Chaining
+
+> ARIA remembers how well it has performed in each app and can queue multiple tasks to execute automatically back-to-back — without human intervention between steps.
+
+### 15.1 AppSkillRegistry (Per-App Knowledge Store)
+
+`AppSkillRegistry.kt` maintains a SQLite table (`app_skills`) with one row per app package:
+
+| Column | Type | Description |
+|---|---|---|
+| `app_package` | TEXT PK | Android package identifier |
+| `app_name` | TEXT | Human-readable name |
+| `task_success` | INT | Completed tasks |
+| `task_failure` | INT | Failed/abandoned tasks |
+| `total_steps` | INT | Cumulative step count |
+| `learned_elements` | TEXT | JSON array of frequent node IDs |
+| `task_templates` | TEXT | JSON array of successful goal strings |
+| `prompt_hint` | TEXT | Synthesized LLM hint (`recordTaskOutcome` auto-generates from stats) |
+| `last_seen` | INT | Unix epoch ms of last interaction |
+
+`recordTaskOutcome()` is called by `AgentLoop.recordAndChain()` at every task exit — succeeded or failed. Learned elements accumulate via frequency and the prompt hint is regenerated each call.
+
+The `[APP KNOWLEDGE]` block is injected into `PromptBuilder` when `appKnowledge` is non-null, placed between `[KNOWN ELEMENTS]` and `[VISUAL DETECTIONS]`.
+
+### 15.2 TaskQueueManager (Persistent Priority Queue)
+
+`TaskQueueManager.kt` stores a `List<QueuedTask>` in `aria_task_queue.json` (internal files dir). Tasks are sorted by `priority` (lower = higher) then `enqueuedAt` (FIFO within same priority).
+
+```
+QueuedTask(
+    id: String,          // UUID
+    goal: String,        // Natural-language task
+    appPackage: String,  // Target app (may be "")
+    priority: Int,       // 0 = default
+    enqueuedAt: Long     // epoch ms
+)
+```
+
+Operations are file-locked (JVM `synchronized`) and fully serialized to JSON so the queue survives process death.
+
+### 15.3 Task Chaining in AgentLoop
+
+`recordAndChain()` (private, runs on `Dispatchers.IO`) is called at all three loop exits:
+
+1. **Tool = "Done"** — succeeded = true
+2. **`stepCount >= MAX_STEPS`** — succeeded = false (abandoned)
+3. **Exception** — succeeded = false
+
+Sequence:
+1. `AppSkillRegistry.recordTaskOutcome(...)` — update SQLite
+2. Emit `skill_updated` event → JS Modules screen refreshes
+3. `TaskQueueManager.dequeue(ctx)` — pop next task
+4. If non-null: emit `task_chain_advanced` event, delay 1.5s, call `start()` for next task
+
+### 15.4 Bridge Methods (AgentCoreModule.kt)
+
+| Method | Description |
+|---|---|
+| `enqueueTask(goal, appPackage, priority)` | Add task to queue |
+| `dequeueTask()` | Pop and return head task |
+| `getTaskQueue()` | Return all tasks in priority order |
+| `removeQueuedTask(taskId)` | Remove by UUID |
+| `clearTaskQueue()` | Empty the entire queue |
+| `getAppSkill(appPackage)` | Get skill record for one app |
+| `getAllAppSkills()` | Get all known skill records |
+| `clearAppSkills()` | Delete all skill records (Settings reset) |
+
+### 15.5 Events (new in Phase 15)
+
+| Event | Payload | Description |
+|---|---|---|
+| `skill_updated` | `{appPackage, taskSuccess, taskFailure, successRate}` | Fired after every task completes |
+| `task_chain_advanced` | `{taskId, goal, appPackage, queueSize}` | Fired just before auto-starting the next queued task |
+
+### Phase 15 Summary Checklist
+
+- [x] `AppSkillRegistry.kt` — SQLite per-app knowledge store with outcome tracking
+- [x] `TaskQueueManager.kt` — JSON-file priority+FIFO task queue (crash-persistent)
+- [x] `PromptBuilder.kt` — `[APP KNOWLEDGE]` block injected when skill data available
+- [x] `AgentLoop.kt` — per-step element tracking + `lastAppPackage` update
+- [x] `AgentLoop.kt` — `recordAndChain()` called at all 3 task-end points (Done/max-steps/exception)
+- [x] `AgentCoreModule.kt` — 8 Phase 15 bridge methods wired (task queue + skill registry)
+- [x] `AgentCoreBridge.ts` — `QueuedTask` + `AppSkill` TS interfaces + 8 method stubs
+- [x] `DEVELOPMENT_ROADMAP.md` — Phase 15 section + status table row added
+
+---
+
 ## Testing Milestones
 
 - [ ] **T1 — Model loads**: Llama 3.2-1B Q4_K_M runs at ≥8 tok/s on M31 without OOM
@@ -1139,3 +1226,4 @@ If the process is killed mid-task, on next launch the agent reads this file and 
 | 12 — Object Labeler | `[x]` | ObjectLabelStore (SQLite), 7 Kotlin bridge methods, LLM enrichment, JS types + stubs, full `app/labeler.tsx` screen, Control screen entry point. Labels injected into LLM prompt as [KNOWN ELEMENTS]. |
 | 13 — Auto-detect Extensions | `[x]` | `ObjectDetectorEngine.kt` (MediaPipe EfficientDet-Lite0 INT8, ~4.4MB, ~37ms/frame). Producer-Consumer wiring in AgentLoop step 1d. `[VISUAL DETECTIONS]` block injected into PromptBuilder. 3 new bridge methods. `DetectedObject` TS type. "Auto-detect" button in `labeler.tsx`. Auto-download on module init. |
 | 14 — Advanced Architecture | `[x]` | `PixelVerifier.kt` (targeted pixel diff action verification). `IrlModule.kt` 3-pass scene-change key-frame chunking (4–5× speedup). `SustainedPerformanceManager.kt` (stable Exynos clocks during inference). `AgentForegroundService.kt` (LMK-protected reasoning loop with live notification). `ProgressPersistence.kt` (progress.txt + goals.json crash-resilient state). All wired into `AgentLoop.kt`. `AndroidManifest.xml` registration complete. `MainActivity` + `ComposeMainActivity` register/unregister wired. `startAgent/stopAgent/pauseAgent` route through `AgentForegroundService`. 5 `ProgressPersistence` bridge methods added to `AgentCoreModule.kt` + `AgentCoreBridge.ts`. |
+| 15 — App Skill Registry + Task Chaining | `[x]` | `AppSkillRegistry.kt` (SQLite per-app knowledge store: success/failure rates, avg steps, learned elements, task templates, prompt hints). `TaskQueueManager.kt` (JSON-file priority+FIFO task queue, persists across restarts). `AgentLoop.kt` wired: `[APP KNOWLEDGE]` in `PromptBuilder`, per-step element tracking, `recordAndChain()` at all 3 loop exits (Done/max-steps/exception) records skill + auto-starts next queued task + emits `skill_updated` + `task_chain_advanced` events. 10 bridge methods in `AgentCoreModule.kt` (enqueueTask, dequeueTask, getTaskQueue, removeQueuedTask, clearTaskQueue, getAppSkill, getAllAppSkills, clearAppSkills). `QueuedTask` + `AppSkill` TS interfaces + 8 stubs in `AgentCoreBridge.ts`. |
