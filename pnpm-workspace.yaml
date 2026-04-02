@@ -38,6 +38,8 @@ packages:
   - artifacts/*
   - lib/*
   - lib/integrations/*
+  - packages/*
+  - shared/*
   - scripts
 
 catalog:

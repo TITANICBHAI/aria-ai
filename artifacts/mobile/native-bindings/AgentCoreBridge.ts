@@ -564,4 +564,52 @@ export const AgentCoreBridge = {
     if (AgentCore) return AgentCore.getLabelStats();
     return { total: 0, enriched: 0 };
   },
+
+  // ─── Progress Persistence (Phase 14.4 — Ralph Loop) ─────────────────────
+
+  /**
+   * Returns the last 20 lines of aria_progress.txt as a single string.
+   * The agent injects this into every prompt so Llama knows what was already tried.
+   * Returns "" if no log exists yet (first task ever).
+   */
+  async getProgressContext(): Promise<string> {
+    if (AgentCore) return AgentCore.getProgressContext();
+    return "";
+  },
+
+  /**
+   * Clear both aria_progress.txt and aria_goals.json.
+   * Called from the Settings / Control screen "Reset Agent" button.
+   */
+  async clearProgress(): Promise<boolean> {
+    if (AgentCore) return AgentCore.clearProgress();
+    return false;
+  },
+
+  /**
+   * Initialise goals.json with a goal string and an ordered list of sub-task labels.
+   * The agent populates this after its planning phase before executing steps.
+   */
+  async initGoals(goal: string, subTasks: string[]): Promise<boolean> {
+    if (AgentCore) return AgentCore.initGoals(goal, JSON.stringify(subTasks));
+    return false;
+  },
+
+  /**
+   * Returns a compact [x]/[ ] checklist of the current goal and sub-tasks.
+   * Injected into the LLM context on crash-resume so it skips completed steps.
+   */
+  async getGoalSummary(): Promise<string> {
+    if (AgentCore) return AgentCore.getGoalSummary();
+    return "";
+  },
+
+  /**
+   * Mark a sub-task as passed in goals.json.
+   * subTaskId is the 1-indexed string ID matching the order passed to initGoals().
+   */
+  async markSubTaskPassed(subTaskId: string): Promise<boolean> {
+    if (AgentCore) return AgentCore.markSubTaskPassed(subTaskId);
+    return false;
+  },
 };

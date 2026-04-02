@@ -151,10 +151,10 @@ What IS built from zero is:
 #### Implementation Checklist
 - [x] Create pnpm workspace monorepo
 - [x] Configure `pnpm-workspace.yaml` with `artifacts/*`, `lib/*`, `scripts`
-- [ ] Add `packages/ui-core/` — shared UI component library (used by both mobile + web dashboard)
-- [ ] Add `packages/shared-utils/` — common data formatting and configuration utilities
-- [ ] Add `apps/web-dashboard/` — local Next.js monitoring interface for logs and RL metrics (see Phase 0.4)
-- [ ] Add `shared/schemas/` for JS ↔ Kotlin data contracts
+- [x] Add `packages/ui-core/` — shared UI component library (StatusPill, MetricCard, ThermalBadge, AgentLogRow, ARIAColors)
+- [x] Add `packages/shared-utils/` — common data formatting utilities (formatBytes, formatMb, formatTokenRate, formatRelativeTime, formatReward, etc.)
+- [x] Add `shared/schemas/` — canonical TS data contracts (AgentState, ModuleStatus, ActionLog, ARIAEventMap, GoalState, etc.)
+- [x] `pnpm-workspace.yaml` updated — `packages/*` and `shared/*` registered as workspace members
 
 #### Dependency Resolution and Hoisting Mechanics
 > **Root problem:** React Native's Metro bundler assumes a flat project structure where all dependencies
@@ -222,14 +222,15 @@ What IS built from zero is:
 > A local (not cloud) web-based interface for monitoring agent internals. Shares `packages/ui-core/`
 > components with the mobile app. Runs on the same device or local network — no external server.
 
-- [ ] Scaffold Next.js app at `apps/web-dashboard/` (or `artifacts/web-dashboard/`)
-- [ ] Real-time agent log viewer — streams from SQLite experience store
-- [ ] RL metrics dashboard — episodes run, reward history, policy loss curve
-- [ ] LoRA adapter version tracker — shows each adapter version, training date, success rate delta
-- [ ] Edge case browser — lists stored edge cases with screen patterns and resolutions
-- [ ] Memory store explorer — embeddings count, DB size, top retrieved memories
-- [ ] Connects to same SQLite DB as Kotlin brain (read-only, on-device access)
-- [ ] Consumes `packages/ui-core/` shared components
+- [x] Scaffold Vite+React app at `artifacts/web-dashboard/` — registered in pnpm workspace
+- [x] Overview page — agent status, module health grid, thermal banners, live metric cards
+- [x] Activity Log page — action log viewer with limit selector + refresh
+- [x] RL Metrics page — reward history chart + policy loss curve (Recharts)
+- [x] LoRA Versions page — adapter version tracker (training date, samples used, success rate Δ)
+- [x] Memory Store page — embeddings count, DB size, edge cases, MiniLM status
+- [x] `artifacts/api-server/src/routes/aria.ts` — monitoring REST endpoints (`/api/aria/status|thermal|experience|rl|lora|memory|activity|modules`)
+- [x] Consumes `@workspace/ui-core` and `@workspace/shared-utils` packages
+- [ ] Live data wiring: on-device Kotlin brain writes JSON snapshots → api-server reads → dashboard displays (requires EAS build + device)
 
 ---
 
@@ -1016,7 +1017,7 @@ Uses `WeakReference<Activity>` — manager never prevents Activity GC. Must be r
 - [x] `android/core/system/SustainedPerformanceManager.kt` — `register()`, `enable()`, `disable()`, `unregister()`
 - [x] `AgentLoop.start()` — calls `enable()` before inference loop starts
 - [x] `AgentLoop` — calls `disable()` on DONE, ERROR, max-steps, and `stop()`
-- [ ] `MainActivity.kt` / `ComposeMainActivity.kt` — add `SustainedPerformanceManager.register(this)` in `onCreate()` and `unregister()` in `onDestroy()`
+- [x] `MainActivity.kt` / `ComposeMainActivity.kt` — add `SustainedPerformanceManager.register(this)` in `onCreate()` and `unregister()` in `onDestroy()`
 
 #### 14.3b Foreground Service Architecture
 
@@ -1030,8 +1031,8 @@ Any long-running reasoning loop must reside in a Foreground Service with a persi
 
 **Files:**
 - [x] `android/system/AgentForegroundService.kt` — full foreground service with notification + `AgentEventBus` subscription
-- [ ] `AndroidManifest.xml` — register `AgentForegroundService` with `FOREGROUND_SERVICE` permission
-- [ ] `AgentCoreModule.kt` — route `startAgent()` bridge call through `AgentForegroundService.startWithGoal()`
+- [x] `AndroidManifest.xml` — register `AgentForegroundService` with `foregroundServiceType="specialUse"`
+- [x] `AgentCoreModule.kt` — route `startAgent()` / `stopAgent()` / `pauseAgent()` through `AgentForegroundService`
 
 ---
 
@@ -1096,9 +1097,10 @@ If the process is killed mid-task, on next launch the agent reads this file and 
 - [x] **14.3a Thermal Control:** `SustainedPerformanceManager.kt` — stable clocks during inference
 - [x] **14.3b Foreground Service:** `AgentForegroundService.kt` — LMK-protected reasoning loop
 - [x] **14.4 Persistence:** `ProgressPersistence.kt` — `progress.txt` + `goals.json` for crash-resilient resumption
-- [ ] Wire `SustainedPerformanceManager.register()` from `MainActivity.onCreate()`
-- [ ] Register `AgentForegroundService` in `AndroidManifest.xml`
-- [ ] Route `AgentCoreModule.startAgent()` through `AgentForegroundService`
+- [x] Wire `SustainedPerformanceManager.register()` from `MainActivity.onCreate()` / `ComposeMainActivity.onCreate()`
+- [x] Register `AgentForegroundService` in `AndroidManifest.xml`
+- [x] Route `AgentCoreModule.startAgent()` / `stopAgent()` / `pauseAgent()` through `AgentForegroundService`
+- [x] `ProgressPersistence` bridge methods in `AgentCoreModule.kt` + `AgentCoreBridge.ts` (getProgressContext, clearProgress, initGoals, getGoalSummary, markSubTaskPassed)
 
 ---
 
@@ -1122,7 +1124,7 @@ If the process is killed mid-task, on next launch the agent reads this file and 
 
 | Phase | Status | Description |
 |-------|--------|-------------|
-| 0 — Foundation | `[x]` | JS UI shell done. Full android/ project created. Bridge wired. Download screen added. Permissions section in Settings with live status + deep-links added. |
+| 0 — Foundation | `[x]` | JS UI shell done. Full android/ project created. Bridge wired. Download screen added. Permissions section in Settings with live status + deep-links added. `packages/ui-core` + `packages/shared-utils` + `shared/schemas` created. Web dashboard scaffolded at `artifacts/web-dashboard/` with 5 monitoring pages + api-server ARIA routes. |
 | 1 — LLM: Reasoning Engine | `[~]` | LlamaEngine JNI written. LoRA adapter loading wired. updateConfig bug fixed (modelPath + loraAdapterPath now persist to SharedPreferences). Needs EAS build + llama.cpp NDK submodule. |
 | 2 — Perception | `[x]` | ScreenObserver.kt (OCR + a11y fusion). ScreenCaptureService + OcrEngine + AgentAccessibilityService all implemented. |
 | 3 — Action Layer | `[x]` | AgentLoop.kt (Observe→Reason→Act→Store). GestureEngine (tap/swipe/type/scroll/longPress/back). Thermal pause, multi-turn memory, error recovery all implemented. |
@@ -1136,4 +1138,4 @@ If the process is killed mid-task, on next launch the agent reads this file and 
 | 11 — Jetpack Compose | `[~]` | ARIATheme, AgentViewModel (StateFlows), DashboardScreen, ControlScreen, ActivityScreen, ModulesScreen, SettingsScreen, ARIAComposeApp NavHost, ComposeMainActivity registered (not launcher yet — EAS needed). |
 | 12 — Object Labeler | `[x]` | ObjectLabelStore (SQLite), 7 Kotlin bridge methods, LLM enrichment, JS types + stubs, full `app/labeler.tsx` screen, Control screen entry point. Labels injected into LLM prompt as [KNOWN ELEMENTS]. |
 | 13 — Auto-detect Extensions | `[x]` | `ObjectDetectorEngine.kt` (MediaPipe EfficientDet-Lite0 INT8, ~4.4MB, ~37ms/frame). Producer-Consumer wiring in AgentLoop step 1d. `[VISUAL DETECTIONS]` block injected into PromptBuilder. 3 new bridge methods. `DetectedObject` TS type. "Auto-detect" button in `labeler.tsx`. Auto-download on module init. |
-| 14 — Advanced Architecture | `[~]` | `PixelVerifier.kt` (targeted pixel diff action verification). `IrlModule.kt` 3-pass scene-change key-frame chunking (4–5× speedup). `SustainedPerformanceManager.kt` (stable Exynos clocks during inference). `AgentForegroundService.kt` (LMK-protected reasoning loop with live notification). `ProgressPersistence.kt` (progress.txt + goals.json crash-resilient state). All wired into `AgentLoop.kt`. Pending: `AndroidManifest.xml` registration + `MainActivity` register calls. |
+| 14 — Advanced Architecture | `[x]` | `PixelVerifier.kt` (targeted pixel diff action verification). `IrlModule.kt` 3-pass scene-change key-frame chunking (4–5× speedup). `SustainedPerformanceManager.kt` (stable Exynos clocks during inference). `AgentForegroundService.kt` (LMK-protected reasoning loop with live notification). `ProgressPersistence.kt` (progress.txt + goals.json crash-resilient state). All wired into `AgentLoop.kt`. `AndroidManifest.xml` registration complete. `MainActivity` + `ComposeMainActivity` register/unregister wired. `startAgent/stopAgent/pauseAgent` route through `AgentForegroundService`. 5 `ProgressPersistence` bridge methods added to `AgentCoreModule.kt` + `AgentCoreBridge.ts`. |

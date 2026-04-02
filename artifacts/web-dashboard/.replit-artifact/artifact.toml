@@ -1,0 +1,20 @@
+kind = "web"
+previewPath = "/web-dashboard/"
+title = "ARIA Web Dashboard"
+version = "1.0.0"
+id = "artifacts/web-dashboard"
+
+[[services]]
+name = "web"
+paths = [ "/web-dashboard/" ]
+localPort = 5174
+
+[services.development]
+run = "pnpm --filter @workspace/web-dashboard run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/web-dashboard", "run", "build" ]
+
+[services.env]
+PORT = "5174"
+BASE_PATH = "/web-dashboard/"
