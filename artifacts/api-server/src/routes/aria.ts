@@ -1,31 +1,23 @@
 /**
  * artifacts/api-server/src/routes/aria.ts
  *
- * ARIA Agent monitoring endpoints — Phase 0.4 (Web Dashboard).
+ * ARIA Agent monitoring endpoints — Phase 0.4 + Phase 16 (Monitoring Bridge).
  *
- * These endpoints are consumed by artifacts/web-dashboard/ to display:
- *   - Agent status (current task, thermal, step count)
- *   - Experience store (action log, RL stats)
- *   - RL metrics (reward history, policy loss, episodes)
- *   - LoRA adapter versions
- *   - Memory store summary
+ * Data flow (Phase 16):
+ *   1. Kotlin MonitoringPusher POSTs a snapshot bundle to POST /api/aria/push
+ *   2. In-memory store is updated from the push
+ *   3. GET /api/aria/stream SSE clients receive a "snapshot" event instantly
+ *   4. All GET endpoints read from the in-memory store (falling back to mock)
  *
- * Data source:
- *   On a real Android device, the Kotlin brain writes periodic JSON snapshots
- *   to a shared directory that these endpoints read from.
- *   In the Replit dev environment these endpoints return mock data so the
- *   dashboard can be developed and demonstrated without a device.
+ * Dev environment: MonitoringPusher is not running — all endpoints return mock data.
+ * On-device: MonitoringPusher pushes every 3 s (throttled) during task execution.
  *
- * Snapshot path convention (on-device):
- *   /data/user/0/com.ariaagent.mobile/files/monitoring/
- *     status.json          — AgentState snapshot (written every step)
- *     experience_stats.json — ExperienceStats (written after each step)
- *     rl_metrics.json      — RLMetrics history (written after each training cycle)
- *     lora_versions.json   — LoRA adapter version list
- *     memory_stats.json    — EmbeddingStore stats
+ * Phase 15 additions:
+ *   GET /api/aria/skills — per-app skill stats (AppSkillRegistry)
+ *   GET /api/aria/queue  — pending task queue (TaskQueueManager)
  */
 
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import type {
   AgentState,
   ExperienceStats,
