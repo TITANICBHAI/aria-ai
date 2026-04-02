@@ -98,6 +98,55 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     };
   }, [fetchAll, agentState?.status]);
 
+  // Native event subscriptions — react immediately without waiting for the poll cycle
+  useEffect(() => {
+    if (!AgentCoreEmitter) return;
+
+    const onLearningComplete = AgentCoreEmitter.addListener(
+      "learning_cycle_complete",
+      (payload: { loraVersion: number; policyVersion: number; timestamp: number }) => {
+        setLastLearningEvent({
+          loraVersion: payload.loraVersion ?? 0,
+          policyVersion: payload.policyVersion ?? 0,
+          timestamp: payload.timestamp ?? Date.now(),
+        });
+        // Refresh everything so moduleStatus shows the new adapter version
+        fetchAll();
+      }
+    );
+
+    const onThermal = AgentCoreEmitter.addListener(
+      "thermal_status_changed",
+      (payload: {
+        level: string;
+        inferenceSafe: boolean;
+        trainingSafe: boolean;
+        emergency: boolean;
+      }) => {
+        setThermalStatus({
+          level: (payload.level ?? "safe") as ThermalStatus["level"],
+          inferenceSafe: payload.inferenceSafe ?? true,
+          trainingSafe: payload.trainingSafe ?? true,
+          emergency: payload.emergency ?? false,
+        });
+      }
+    );
+
+    const onModelDownload = AgentCoreEmitter.addListener(
+      "model_download_complete",
+      () => {
+        // Model finished downloading — refresh so the UI shows it loaded
+        fetchAll();
+      }
+    );
+
+    return () => {
+      onLearningComplete.remove();
+      onThermal.remove();
+      onModelDownload.remove();
+    };
+  }, [fetchAll]);
+
   const startAgent = useCallback(async (goal: string) => {
     const res = await AgentCoreBridge.startAgent(goal);
     if (res.success) {
@@ -153,6 +202,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         config,
         isLoading,
         error,
+        thermalStatus,
+        lastLearningEvent,
         startAgent,
         stopAgent,
         pauseAgent,
