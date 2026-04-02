@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
+import { router } from "expo-router";
 import { useAgent } from "@/context/AgentContext";
 import { useColors } from "@/hooks/useColors";
 import { AgentCoreBridge } from "@/native-bindings/AgentCoreBridge";
@@ -149,9 +150,11 @@ export default function ModulesScreen() {
   const [thermal, setThermal] = React.useState<{
     level: string; inferenceSafe: boolean; trainingSafe: boolean; emergency: boolean;
   } | null>(null);
+  const [labelStats, setLabelStats] = React.useState<{ total: number; enriched: number } | null>(null);
 
   React.useEffect(() => {
     AgentCoreBridge.getThermalStatus().then(setThermal).catch(() => {});
+    AgentCoreBridge.getLabelStats().then(setLabelStats).catch(() => {});
   }, []);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
@@ -169,6 +172,7 @@ export default function ModulesScreen() {
     await Promise.all([
       refresh(),
       AgentCoreBridge.getThermalStatus().then(setThermal).catch(() => {}),
+      AgentCoreBridge.getLabelStats().then(setLabelStats).catch(() => {}),
     ]);
     setRefreshing(false);
   };
@@ -264,6 +268,47 @@ export default function ModulesScreen() {
           { label: "Storage", value: "SQLite (app internal)" },
           { label: "Retrieval", value: "NEON cosine similarity, top-K" },
         ]}
+      />
+
+      <SectionHeader title="Human Teaching Layer" />
+
+      <ModuleCard
+        title="Object Labeler"
+        subtitle="Human-in-the-loop UI element annotation"
+        icon="tag"
+        ready={(labelStats?.total ?? 0) > 0}
+        colors={colors}
+        details={[
+          {
+            label: "Total labels",
+            value: labelStats != null ? String(labelStats.total) : "—",
+          },
+          {
+            label: "LLM-enriched",
+            value: labelStats != null ? String(labelStats.enriched) : "—",
+          },
+          {
+            label: "Coverage",
+            value:
+              labelStats && labelStats.total > 0
+                ? `${Math.round((labelStats.enriched / labelStats.total) * 100)}%`
+                : "—",
+          },
+          { label: "Storage", value: "SQLite (aria_object_labels.db)" },
+          {
+            label: "Injection",
+            value: "[KNOWN ELEMENTS] block · top-8 by importance",
+          },
+          {
+            label: "Training signal",
+            value: "LoRA pairs + RL reward shaping",
+          },
+        ]}
+        onAction={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          router.push("/labeler");
+        }}
+        actionLabel="Open Labeler"
       />
 
       <SectionHeader title="Device Health" />
