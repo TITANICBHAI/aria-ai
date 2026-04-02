@@ -15,9 +15,10 @@
  *   model_download_complete  { path }
  *   model_download_error     { error }
  *   token_generated          { token }
- *   agent_status_changed     { status, currentTask, currentApp }
+ *   agent_status_changed     { status, currentTask, currentApp, gameMode }
  *   learning_cycle_complete  { loraVersion, policyVersion }
  *   thermal_status_changed   { level, inferenceSafe, trainingSafe, emergency }
+ *   game_loop_status         { isActive, gameType, episodeCount, stepCount, currentScore, highScore, totalReward, lastAction, isGameOver }
  */
 
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
@@ -31,6 +32,7 @@ export const AgentCoreEmitter =
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type AgentStatus = "idle" | "running" | "paused" | "error";
+export type GameType = "none" | "arcade" | "puzzle" | "strategy";
 
 export interface AgentState {
   status: AgentStatus;
@@ -45,6 +47,19 @@ export interface AgentState {
   llmLoaded: boolean;
   accessibilityActive: boolean;
   screenCaptureActive: boolean;
+  gameMode: GameType;
+}
+
+export interface GameLoopStatus {
+  isActive: boolean;
+  gameType: GameType;
+  episodeCount: number;
+  stepCount: number;
+  currentScore: number;
+  highScore: number;
+  totalReward: number;
+  lastAction: string;
+  isGameOver: boolean;
 }
 
 export interface LLMStatus {
@@ -213,9 +228,28 @@ export const AgentCoreBridge = {
         llmLoaded: raw.llmLoaded ?? false,
         accessibilityActive: raw.accessibilityActive ?? false,
         screenCaptureActive: raw.screenCaptureActive ?? false,
+        gameMode: (raw.gameMode ?? "none") as GameType,
       };
     }
-    return { status: "idle", currentTask: null, currentApp: null, tokenRate: 0, memoryUsedMb: 0, sessionStartedAt: null, actionsPerformed: 0, successRate: 0, modelReady: false, llmLoaded: false, accessibilityActive: false, screenCaptureActive: false };
+    return { status: "idle", currentTask: null, currentApp: null, tokenRate: 0, memoryUsedMb: 0, sessionStartedAt: null, actionsPerformed: 0, successRate: 0, modelReady: false, llmLoaded: false, accessibilityActive: false, screenCaptureActive: false, gameMode: "none" };
+  },
+
+  async getGameLoopStatus(): Promise<GameLoopStatus> {
+    if (AgentCore) {
+      const raw = await AgentCore.getGameLoopStatus();
+      return {
+        isActive: raw.isActive ?? false,
+        gameType: (raw.gameType ?? "none") as GameType,
+        episodeCount: raw.episodeCount ?? 0,
+        stepCount: raw.stepCount ?? 0,
+        currentScore: raw.currentScore ?? 0,
+        highScore: raw.highScore ?? 0,
+        totalReward: raw.totalReward ?? 0,
+        lastAction: raw.lastAction ?? "",
+        isGameOver: raw.isGameOver ?? false,
+      };
+    }
+    return { isActive: false, gameType: "none", episodeCount: 0, stepCount: 0, currentScore: 0, highScore: 0, totalReward: 0, lastAction: "", isGameOver: false };
   },
 
   async startAgent(goal: string, appPackage: string = ""): Promise<{ success: boolean; error?: string }> {

@@ -12,6 +12,7 @@ import {
   AgentCoreEmitter,
   AgentState,
   ActionLog,
+  GameLoopStatus,
   MemoryEntry,
   ModuleStatus,
 } from "@/native-bindings/AgentCoreBridge";
