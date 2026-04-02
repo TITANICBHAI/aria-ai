@@ -101,8 +101,28 @@ root/
 - **Modules** (`/modules`) — per-module status with details and bridge info
 - **Settings** (`/settings`) — model config, RL settings, architecture info
 
+## Phase 16 — Local Monitoring (No Cloud)
+
+Device serves live data directly over LAN — no external server, no cloud.
+
+- `android/core/monitoring/LocalDeviceServer.kt` — embedded HTTP server on port 8765 (java.net.ServerSocket, zero deps)
+- `android/core/monitoring/LocalSnapshotStore.kt` — volatile in-memory snapshot of all agent state
+- `android/core/monitoring/MonitoringPusher.kt` — updates LocalSnapshotStore on AgentEventBus events (≤1/3s)
+
+Dashboard connects to `http://{device-LAN-IP}:8765/aria/{endpoint}`. Bridge exposes `getLocalServerUrl()` + `getDeviceIp()` to show address in Settings.
+
+Snapshot file also written to `{filesDir}/monitoring/snapshot.json` atomically for ADB pull.
+
+## JNI Training Status
+
+- `nativeTrainLora()` declared in `LoraTrainer.kt` + skeleton in `llama_jni.cpp`
+- Gated on `#define LLAMA_HAS_TRAINING` in CMakeLists.txt
+- Until llama.cpp submodule is added, `tryNativeTrainLora()` catches `UnsatisfiedLinkError` → falls to `stubTrainLora()`
+- `policyVersion` now derived from `PolicyNetwork.adamStepCount` (was hardcoded 1)
+
 ## Key Files
 
 - `artifacts/mobile/native-bindings/AgentCoreBridge.ts` — TurboModule contract + Phase 1 stubs
 - `artifacts/mobile/context/AgentContext.tsx` — centralized bridge state
-- `artifacts/web-dashboard/src/lib/api.ts` — local mock data layer (replace with device fetch when connected)
+- `artifacts/mobile/android/app/src/main/cpp/llama_jni.cpp` — JNI: nativeInfer, nativeLoadModel, nativeLoadLora, nativeTrainLora
+- `artifacts/web-dashboard/src/lib/api.ts` — local mock data (replace with `http://device-ip:8765` fetch when on LAN)

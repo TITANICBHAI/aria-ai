@@ -458,6 +458,22 @@ export const AgentCoreBridge = {
     return { success: true };
   },
 
+  /**
+   * Returns the absolute path to the on-device monitoring snapshot file, or null.
+   *
+   * MonitoringPusher (Kotlin) writes {filesDir}/monitoring/snapshot.json atomically
+   * every time a significant agent event fires. The file can be pulled via ADB:
+   *   adb pull /data/user/0/com.ariaagent.mobile/files/monitoring/snapshot.json
+   *
+   * Fully local — no cloud, no HTTP. Returns null before the first agent event fires.
+   */
+  async getSnapshotPath(): Promise<string | null> {
+    if (AgentCore) {
+      try { return await AgentCore.getSnapshotPath(); } catch (_) {}
+    }
+    return null;
+  },
+
   async getThermalStatus(): Promise<{
     level: string; inferenceSafe: boolean; trainingSafe: boolean;
     throttleCapture: boolean; emergency: boolean;
@@ -707,6 +723,46 @@ export const AgentCoreBridge = {
   /** Clear all app skill records. Only call from Settings "Reset Agent" flow. */
   async clearAppSkills(): Promise<boolean> {
     if (AgentCore) return AgentCore.clearAppSkills();
+    return true;
+  },
+
+  // ─── Phase 16: Local device server ─────────────────────────────────────────
+
+  /**
+   * Returns the HTTP URL of the on-device monitoring server.
+   * Example: "http://192.168.1.42:8765"
+   * Point the web dashboard at this URL to receive live data.
+   */
+  async getLocalServerUrl(): Promise<string> {
+    if (AgentCore) return AgentCore.getLocalServerUrl();
+    return "http://127.0.0.1:8765";
+  },
+
+  /** Returns the device's local IPv4 address (Wi-Fi), or "127.0.0.1". */
+  async getDeviceIp(): Promise<string> {
+    if (AgentCore) return AgentCore.getDeviceIp();
+    return "127.0.0.1";
+  },
+
+  /** Returns true if the on-device HTTP monitoring server is currently running. */
+  async isLocalServerRunning(): Promise<boolean> {
+    if (AgentCore) return AgentCore.isLocalServerRunning();
+    return false;
+  },
+
+  /**
+   * (Re)starts the local monitoring server on the given port.
+   * Pass 0 to use the default port (8765).
+   * Returns the full server URL on success.
+   */
+  async startLocalServer(port = 0): Promise<string> {
+    if (AgentCore) return AgentCore.startLocalServer(port);
+    return "http://127.0.0.1:8765";
+  },
+
+  /** Stops the local monitoring server. */
+  async stopLocalServer(): Promise<boolean> {
+    if (AgentCore) return AgentCore.stopLocalServer();
     return true;
   },
 };
