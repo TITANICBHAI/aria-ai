@@ -355,7 +355,7 @@ Reasons: `use_mmap` is essential for the M31 RAM budget. Vulkan offload is avail
   ```
 - [x] Register in `ReactPackage` → `ReactNativeHost`
 - [~] Replace stubs in `AgentCoreBridge.ts` with real `NativeModules.AgentCore.*` calls (real on Android; web stubs remain for Expo web preview)
-- [ ] TypeScript codegen spec file: `NativeAgentCore.ts`
+- [x] TypeScript codegen spec file: `NativeAgentCore.ts`
 
 ### 1.5 Prompt Design
 - [x] System prompt: Llama 3.2-1B Instruct chat template (`<|begin_of_text|>` header blocks).
