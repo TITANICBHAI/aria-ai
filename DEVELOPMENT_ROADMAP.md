@@ -930,6 +930,178 @@ These are the "optimized values" — they make the NEXT task loop smarter than t
 
 ---
 
+## Phase 14 — Advanced Architecture (Autonomy, Resilience & Performance)
+
+> Four architectural components that bridge the gap between a "scripted bot" and a truly
+> autonomous agent capable of learning and self-correction on the Samsung M31.
+>
+> Added: 2026-04-02
+
+### 14.1 Fast Action Verification (PixelCopy vs. MediaProjection)
+
+> **Problem:** Full-screen MediaProjection capture is expensive (~40–80ms on Exynos 9611).
+> Running one capture before AND after every gesture doubles perception cost per step.
+>
+> **Solution:** Targeted pixel diff on only the acted-upon element region — fast, low-overhead,
+> and more precise than full-screen comparison.
+
+**Verification Pipeline:**
+1. Before dispatching gesture: resolve the target node's screen bounds via `AgentAccessibilityService.getNodeById()`
+2. Crop that region from `ScreenCaptureService`'s current 512×512 bitmap (pre-action state)
+3. Dispatch gesture via `GestureEngine.executeFromJson()`
+4. Wait 250ms for screen to settle
+5. Crop the same region again (post-action state)
+6. Compute normalised pixel diff: `Σ(|R₁−R₂|+|G₁−G₂|+|B₁−B₂|) / (3×W×H×255)`
+7. If diff ≥ 2% → screen region changed → action was registered
+8. Optional `textVerify=true`: run targeted ML Kit OCR on the POST crop to detect label changes (e.g. "Follow" → "Following")
+
+**Note on PixelCopy API:**
+`PixelCopy.request()` (API 26+) requires a live Window/Surface reference — unavailable in a Service context. The implementation operates on `ScreenCaptureService`'s existing ImageReader bitmap, achieving the same objective. When `ComposeMainActivity` becomes the launcher (Phase 11 completion), upgrade to true `PixelCopy.request()` targeting the display surface for sub-millisecond crops.
+
+**Files:**
+- [x] `android/core/system/PixelVerifier.kt` — pixel diff engine (region capture, normalised diff, optional OCR verify)
+- [x] `AgentLoop.kt` — integrated in step 5 (ACT): resolves node rect → pre-capture → gesture → pixel verify
+- [x] Fallback: if node rect unavailable (Back action, a11y node not found) → falls back to `delay(SCREEN_SETTLE_MS)`
+
+---
+
+### 14.2 Inverse Dynamics — "Watching YT to Learn" Pipeline
+
+> **Problem:** Learning from YouTube tutorials requires more than OCR text — the agent needs to
+> understand the *intent* behind human gestures. Scanning every frame of a video is too heavy
+> for the Exynos 9611 and passes mostly-identical static frames to the expensive LLM pipeline.
+>
+> **Solution:** Inverse dynamics objective + chunk-by-chunk key-frame sampling.
+
+**Inverse Dynamics Concept:**
+Instead of mimicking every pixel, the agent analyses consecutive screen *states* from the video to predict what action the human took. Seeing a menu open implies a tap event occurred at the previous frame's icon location. This is the core of `IrlModule`'s `buildExperienceTuples()` logic.
+
+**Chunking Strategy (3-pass pipeline, updated in Phase 14.2):**
+
+| Pass | Operation | Cost |
+|------|-----------|------|
+| Pass 1 | Extract all candidate frames at 2fps → 32×32 thumbnails | Low — tiny bitmaps |
+| Pass 2 | Pixel diff adjacent thumbnails → keep only "key frames" (diff ≥ 8% OR every 5s forced) | Negligible |
+| Pass 3 | Load full 512×512 bitmap for key frames only → OCR + LLM inference | Heavy — but now 4–5× fewer frames |
+
+**Effect on Exynos 9611:**
+A 3-minute tutorial at 2fps = 360 candidate frames. ~60–80% of consecutive frames in Android tutorials are static. Key-frame selection reduces OCR+LLM load to 60–100 frames — a 4–5× speedup, fitting within thermal budget.
+
+**Files:**
+- [x] `android/core/rl/IrlModule.kt` — `extractFrames()` rewritten with 3-pass scene-change detection
+- [x] `computeThumbDiff()` — fast 32×32 pixel diff for scene-change scoring
+- [x] Constants: `SCENE_CHANGE_PIXEL_THRESHOLD=0.08`, `FORCE_KEYFRAME_INTERVAL_FRAMES=5`, `DIFF_THUMB_SIZE=32`
+- [x] Logging: key frames selected / total candidate count reported for tuning
+
+---
+
+### 14.3 Sustained Performance Mode + Foreground Service Architecture
+
+> **Problem:** Two separate failure modes on M31:
+> 1. **Thermal throttle:** Exynos 9611 ramps to max clocks during LLM inference, overheats, throttles to crawl, creating unstable tok/s
+> 2. **LMK kill:** Android's Low Memory Killer terminates background processes — a 20-second reasoning turn CAN be killed mid-inference
+
+#### 14.3a Sustained Performance Mode
+
+**`Window.setSustainedPerformanceMode(true)` (API 24+)**
+
+Signals the Android OS to maintain a lower but *consistent* CPU/GPU clock frequency. Prevents the ramp-overheat-throttle cycle. Result:
+- Slightly lower peak throughput (~8 tok/s vs ~15 tok/s burst)
+- **Consistent throughput** — no mid-inference throttle dips
+- Longer sessions before `ThermalGuard` triggers emergency pause
+
+Uses `WeakReference<Activity>` — manager never prevents Activity GC. Must be registered from `MainActivity.onCreate()`.
+
+**Files:**
+- [x] `android/core/system/SustainedPerformanceManager.kt` — `register()`, `enable()`, `disable()`, `unregister()`
+- [x] `AgentLoop.start()` — calls `enable()` before inference loop starts
+- [x] `AgentLoop` — calls `disable()` on DONE, ERROR, max-steps, and `stop()`
+- [ ] `MainActivity.kt` / `ComposeMainActivity.kt` — add `SustainedPerformanceManager.register(this)` in `onCreate()` and `unregister()` in `onDestroy()`
+
+#### 14.3b Foreground Service Architecture
+
+Any long-running reasoning loop must reside in a Foreground Service with a persistent notification. This protects the Kotlin brain from LMK termination during a 20-second reasoning turn.
+
+**`AgentForegroundService`:**
+- Wraps `AgentLoop.start()` / `stop()` / `pause()` — called via Intent actions
+- Persistent notification: "ARIA Agent — Step 12/50 · Click #4 · ✓" (updates every step via `AgentEventBus`)
+- "Stop" action button in notification → sends `ACTION_STOP` intent
+- Survives Activity destruction — agent continues reasoning when app is backgrounded
+
+**Files:**
+- [x] `android/system/AgentForegroundService.kt` — full foreground service with notification + `AgentEventBus` subscription
+- [ ] `AndroidManifest.xml` — register `AgentForegroundService` with `FOREGROUND_SERVICE` permission
+- [ ] `AgentCoreModule.kt` — route `startAgent()` bridge call through `AgentForegroundService.startWithGoal()`
+
+---
+
+### 14.4 Self-Referential Progress Persistence (The "Ralph Loop")
+
+> **Problem:** Without persistent state, the agent loops forever on known-failed approaches,
+> or restarts a 20-step task from scratch after an LMK kill.
+>
+> **Solution:** Two complementary files maintained on internal storage (no cloud, no permissions).
+
+#### progress.txt — Append-only action log
+
+```
+══ TASK START [2026-04-02 14:23:00]: Open YouTube and play trending video ══
+[2026-04-02 14:23:01] STEP 1 | Click #3 | result=success
+[2026-04-02 14:23:05] STEP 2 | Click #7 | result=failure
+[2026-04-02 14:23:07] NOTE: popup blocked navigation
+[2026-04-02 14:23:09] STEP 3 | Back | result=success
+══ TASK END [SUCCESS] [2026-04-02 14:24:12]: Open YouTube and play trending video ══
+```
+
+Llama 3.2 reads the **last 20 lines** at the start of every new task — injected as the first `actionHistory` entry. This "syncs" the model's context so it knows what was already tried and avoids repeating known-failed actions.
+
+#### goals.json — Structured sub-task state
+
+```json
+{
+  "goal": "Open YouTube and play trending video",
+  "subTasks": [
+    {"id": "1", "label": "Open YouTube", "passed": true},
+    {"id": "2", "label": "Navigate to Trending", "passed": true},
+    {"id": "3", "label": "Tap first video", "passed": false}
+  ],
+  "updatedAt": "2026-04-02T14:23:09Z"
+}
+```
+
+If the process is killed mid-task, on next launch the agent reads this file and resumes from the first sub-task where `passed=false` — not from the beginning.
+
+**Files:**
+- [x] `android/core/persistence/ProgressPersistence.kt`:
+  - `logStep()` — append step result to `progress.txt` after every store
+  - `logNote()` — append free-text observations (popup blocked, exception, etc.)
+  - `logTaskStart()` / `logTaskEnd()` — session boundary markers
+  - `readContext()` — return last 20 lines for LLM context injection
+  - `initGoals()` — write initial goals.json for a new task
+  - `markSubTaskPassed()` — update goals.json when a sub-task completes
+  - `nextPendingSubTask()` — find resume point after LMK kill
+  - `goalSummary()` — compact `[x]/[ ]` summary for LLM injection
+  - `clear()` — reset both files on explicit user request
+- [x] `AgentLoop.start()` — reads `progress.txt` context → injects into `actionHistory[0]`
+- [x] `AgentLoop.start()` — reads `goals.json` → logs resume point on partial-completion
+- [x] `AgentLoop` — logs every step to `progress.txt` after SQLite store (step 7)
+- [x] `AgentLoop` — logs task end (success / abandon) on DONE, ERROR, max-steps, stop
+
+---
+
+### Phase 14 Summary Checklist
+
+- [x] **14.1 Verification:** `PixelVerifier.kt` — targeted pixel diff replaces full-screen settle delay
+- [x] **14.2 Video Learning:** `IrlModule.kt` — 3-pass scene-change key-frame chunking (4–5× speedup)
+- [x] **14.3a Thermal Control:** `SustainedPerformanceManager.kt` — stable clocks during inference
+- [x] **14.3b Foreground Service:** `AgentForegroundService.kt` — LMK-protected reasoning loop
+- [x] **14.4 Persistence:** `ProgressPersistence.kt` — `progress.txt` + `goals.json` for crash-resilient resumption
+- [ ] Wire `SustainedPerformanceManager.register()` from `MainActivity.onCreate()`
+- [ ] Register `AgentForegroundService` in `AndroidManifest.xml`
+- [ ] Route `AgentCoreModule.startAgent()` through `AgentForegroundService`
+
+---
+
 ## Testing Milestones
 
 - [ ] **T1 — Model loads**: Llama 3.2-1B Q4_K_M runs at ≥8 tok/s on M31 without OOM
@@ -964,3 +1136,4 @@ These are the "optimized values" — they make the NEXT task loop smarter than t
 | 11 — Jetpack Compose | `[~]` | ARIATheme, AgentViewModel (StateFlows), DashboardScreen, ControlScreen, ActivityScreen, ModulesScreen, SettingsScreen, ARIAComposeApp NavHost, ComposeMainActivity registered (not launcher yet — EAS needed). |
 | 12 — Object Labeler | `[x]` | ObjectLabelStore (SQLite), 7 Kotlin bridge methods, LLM enrichment, JS types + stubs, full `app/labeler.tsx` screen, Control screen entry point. Labels injected into LLM prompt as [KNOWN ELEMENTS]. |
 | 13 — Auto-detect Extensions | `[x]` | `ObjectDetectorEngine.kt` (MediaPipe EfficientDet-Lite0 INT8, ~4.4MB, ~37ms/frame). Producer-Consumer wiring in AgentLoop step 1d. `[VISUAL DETECTIONS]` block injected into PromptBuilder. 3 new bridge methods. `DetectedObject` TS type. "Auto-detect" button in `labeler.tsx`. Auto-download on module init. |
+| 14 — Advanced Architecture | `[~]` | `PixelVerifier.kt` (targeted pixel diff action verification). `IrlModule.kt` 3-pass scene-change key-frame chunking (4–5× speedup). `SustainedPerformanceManager.kt` (stable Exynos clocks during inference). `AgentForegroundService.kt` (LMK-protected reasoning loop with live notification). `ProgressPersistence.kt` (progress.txt + goals.json crash-resilient state). All wired into `AgentLoop.kt`. Pending: `AndroidManifest.xml` registration + `MainActivity` register calls. |
