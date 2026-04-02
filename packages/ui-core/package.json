@@ -6,6 +6,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "dependencies": {
+    "@workspace/shared-utils": "workspace:*"
+  },
   "peerDependencies": {
     "react": ">=18"
   }

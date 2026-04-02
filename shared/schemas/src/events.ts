@@ -6,7 +6,7 @@
  *
  * Used by:
  *   - artifacts/mobile/app/context/AgentContext.tsx (NativeEventEmitter subscriptions)
- *   - artifacts/web-dashboard/ (WebSocket / SSE feed from api-server)
+ *   - artifacts/web-dashboard/ (local monitoring web UI)
  */
 
 import type { ThermalLevel, GameType } from "./agent";

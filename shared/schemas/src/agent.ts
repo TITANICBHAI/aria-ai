@@ -4,8 +4,7 @@
  * Canonical data contracts for ARIA Agent.
  * These types are the single source of truth shared between:
  *   - artifacts/mobile/ (React Native JS layer, via AgentCoreBridge.ts)
- *   - artifacts/web-dashboard/ (monitoring web UI)
- *   - artifacts/api-server/ (REST endpoints)
+ *   - artifacts/web-dashboard/ (local monitoring web UI)
  *
  * Kotlin side maps to these via AgentCoreModule.kt bridge methods.
  * Changes here must be mirrored in the corresponding Kotlin data maps.

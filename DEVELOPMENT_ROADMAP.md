@@ -146,7 +146,7 @@ What IS built from zero is:
 | `packages/ui-core/` | TypeScript / React | Shared UI components used across mobile app and web dashboard |
 | `packages/shared-utils/` | TypeScript / JS | Common utility functions for data formatting and configuration |
 
-> **Current implementation note:** The project uses `artifacts/mobile/` (mobile app) and `artifacts/api-server/` (API) in place of the `apps/` prefix. The `packages/` split is implemented as `android/core/` (brain) and `android/core/rl/` (learning) inside the mobile artifact. This structure maps to the canonical spec above.
+> **Current implementation note:** The project uses `artifacts/mobile/` (mobile app) in place of the `apps/` prefix. The `packages/` split is implemented as `android/core/` (brain) and `android/core/rl/` (learning) inside the mobile artifact. This structure maps to the canonical spec above.
 
 #### Implementation Checklist
 - [x] Create pnpm workspace monorepo
@@ -228,9 +228,7 @@ What IS built from zero is:
 - [x] RL Metrics page — reward history chart + policy loss curve (Recharts)
 - [x] LoRA Versions page — adapter version tracker (training date, samples used, success rate Δ)
 - [x] Memory Store page — embeddings count, DB size, edge cases, MiniLM status
-- [x] `artifacts/api-server/src/routes/aria.ts` — monitoring REST endpoints (`/api/aria/status|thermal|experience|rl|lora|memory|activity|modules`)
 - [x] Consumes `@workspace/ui-core` and `@workspace/shared-utils` packages
-- [ ] Live data wiring: on-device Kotlin brain writes JSON snapshots → api-server reads → dashboard displays (requires EAS build + device)
 
 ---
 
@@ -1211,7 +1209,7 @@ Sequence:
 
 | Phase | Status | Description |
 |-------|--------|-------------|
-| 0 — Foundation | `[x]` | JS UI shell done. Full android/ project created. Bridge wired. Download screen added. Permissions section in Settings with live status + deep-links added. `packages/ui-core` + `packages/shared-utils` + `shared/schemas` created. Web dashboard scaffolded at `artifacts/web-dashboard/` with 5 monitoring pages + api-server ARIA routes. |
+| 0 — Foundation | `[x]` | JS UI shell done. Full android/ project created. Bridge wired. Download screen added. Permissions section in Settings with live status + deep-links added. `packages/ui-core` + `packages/shared-utils` + `shared/schemas` created. Web dashboard scaffolded at `artifacts/web-dashboard/` with 5 monitoring pages. |
 | 1 — LLM: Reasoning Engine | `[~]` | LlamaEngine JNI written. LoRA adapter loading wired. updateConfig bug fixed (modelPath + loraAdapterPath now persist to SharedPreferences). Needs EAS build + llama.cpp NDK submodule. |
 | 2 — Perception | `[x]` | ScreenObserver.kt (OCR + a11y fusion). ScreenCaptureService + OcrEngine + AgentAccessibilityService all implemented. |
 | 3 — Action Layer | `[x]` | AgentLoop.kt (Observe→Reason→Act→Store). GestureEngine (tap/swipe/type/scroll/longPress/back). Thermal pause, multi-turn memory, error recovery all implemented. |

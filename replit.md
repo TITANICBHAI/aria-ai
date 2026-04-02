@@ -51,10 +51,6 @@ Samsung Galaxy M31 — Exynos 9611 · Mali-G72 MP3 · 6GB LPDDR4X
 - **Node.js version**: 24
 - **Package manager**: pnpm
 - **TypeScript version**: 5.9
-- **API framework**: Express 5
-- **Database**: PostgreSQL + Drizzle ORM
-- **Validation**: Zod (`zod/v4`)
-- **API codegen**: Orval (from OpenAPI spec)
 - **Mobile**: Expo (React Native, New Architecture enabled)
 - **LLM**: Llama 3.2-1B via llama.cpp + JNI
 - **OCR**: Google ML Kit
@@ -82,12 +78,12 @@ root/
 │   └── ui-native/              # future Jetpack Compose
 │
 ├── artifacts/
-│   ├── api-server/             # Express API server
-│   └── mobile/                 # React Native UI shell (Phase 1)
-│       ├── app/                # Expo Router screens
-│       ├── context/            # AgentContext (bridge calls)
-│       ├── native-bindings/    # AgentCoreBridge.ts stubs
-│       └── components/         # UI components
+│   ├── mobile/                 # React Native UI shell (Phase 1)
+│   │   ├── app/                # Expo Router screens
+│   │   ├── context/            # AgentContext (bridge calls)
+│   │   ├── native-bindings/    # AgentCoreBridge.ts stubs
+│   │   └── components/         # UI components
+│   └── web-dashboard/          # Local Vite+React monitoring UI
 │
 ├── models/
 │   ├── llama/                  # GGUF model files
@@ -109,5 +105,4 @@ root/
 
 - `artifacts/mobile/native-bindings/AgentCoreBridge.ts` — TurboModule contract + Phase 1 stubs
 - `artifacts/mobile/context/AgentContext.tsx` — centralized bridge state
-- `artifacts/api-server/src/` — Express routes
-- `lib/api-spec/openapi.yaml` — OpenAPI spec
+- `artifacts/web-dashboard/src/lib/api.ts` — local mock data layer (replace with device fetch when connected)
