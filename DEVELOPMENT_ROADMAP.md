@@ -650,9 +650,9 @@ These are the "optimized values" — they make the NEXT task loop smarter than t
 > The policy network's role: execute fast actions (tap, swipe) based on pixel state.
 
 ### 6.1 Game RL Agent
-- [ ] Detect when foreground app is a game (check if accessibility tree has game-specific elements)
-- [ ] Switch from LLM-guided to policy-network-guided loop for games
-- [ ] Game loop:
+- [x] Detect when foreground app is a game (GameDetector.kt — package list + OCR patterns + A11y structural check)
+- [x] Switch from LLM-guided to policy-network-guided loop for games (wired into AgentLoop at OBSERVE step)
+- [x] Game loop:
   ```kotlin
   while (gameActive) {
     pixelState = captureScreen().downsample(224, 224).toFloatArray()
@@ -663,15 +663,15 @@ These are the "optimized values" — they make the NEXT task loop smarter than t
     experience.save(pixelState, action, reward, task_type='game')
   }
   ```
-- [ ] Score detection: OCR on known score regions → compare before/after action
-- [ ] Game over detection: look for "Game Over", "Try Again", "Retry" via OCR
-- [ ] Reward: +score_delta, -1 for game over, +5 for high score milestone
+- [x] Score detection: OCR labelled regex (`Score: N`) + largest standalone number fallback
+- [x] Game over detection: "Game Over", "Try Again", "Play Again", "Retry", "Mission Failed" regex
+- [x] Reward: +score_delta × 0.001, −1.0 game over, +5.0 new high score, −0.1 failed gesture
 
 ### 6.2 IRL from Game Videos (YouTube)
-- [ ] Watch a YouTube video of someone playing the target game
-- [ ] IRL module extracts: frame-by-frame game state + inferred tap/swipe between frames
-- [ ] Bootstraps policy network before agent plays even one round itself
-- [ ] Solves cold-start for games: agent arrives at a new game already knowing basic strategies
+- [x] Watch a YouTube video of someone playing the target game
+- [x] IRL module extracts: frame-by-frame game state + inferred tap/swipe between frames
+- [x] Bootstraps policy network before agent plays even one round itself
+- [x] Solves cold-start for games: agent arrives at a new game already knowing basic strategies
 
 ---
 
@@ -736,12 +736,18 @@ These are the "optimized values" — they make the NEXT task loop smarter than t
 | **Headroom** | **~1,950 MB** |
 
 ### 8.2 Thermal Rules
-- [ ] `ThermalManager` listener (API 29+):
+- [x] `ThermalManager` listener (API 29+) — `ThermalGuard.kt` + battery temp fallback:
   - `THERMAL_STATUS_LIGHT`: throttle screen capture to 0.5 FPS
   - `THERMAL_STATUS_MODERATE`: pause RL training job
-  - `THERMAL_STATUS_SEVERE`: pause all inference, show "Cooling down" in UI
+  - `THERMAL_STATUS_SEVERE`: pause all inference; Dashboard shows "Cooling down" banner
+  - `THERMAL_STATUS_CRITICAL`: abort game loop episode; Dashboard shows "Device critical" banner
+- [x] `thermal_status_changed` event emitted to JS → `AgentContext.thermalStatus` → `useAgent()` hook
+- [x] `game_loop_status` event emitted per step → `AgentContext.gameLoopStatus` → `useAgent()` hook
+- [x] Dashboard: "Cooling down — agent throttled" warning banner at `severe` level
+- [x] Dashboard: "Device critical — inference suspended" banner at `critical` level
+- [x] GameLoop: skips step / aborts episode when `ThermalGuard.isInferenceSafe()` returns false
+- [x] Screen capture: throttled via `ThermalGuard.shouldThrottleCapture()` at MODERATE+
 - [ ] `Window.setSustainedPerformanceMode()` during extended sessions
-- [ ] Screen capture: 1-2 FPS (navigation), 0.5 FPS (IRL video), 0 during training
 
 ### 8.3 Inference Performance
 - [ ] Benchmark: target ≥8 tok/s on M31 (sufficient for agent, not conversational)

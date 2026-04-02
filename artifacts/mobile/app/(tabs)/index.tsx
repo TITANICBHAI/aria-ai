@@ -20,6 +20,8 @@ import { MetricCard } from "@/components/MetricCard";
 import { ModuleRow } from "@/components/ModuleRow";
 import { SectionHeader } from "@/components/SectionHeader";
 
+const THERMAL_SEVERE_LEVELS = new Set(["severe", "critical"]);
+
 function formatUptime(start: number | null): string {
   if (!start) return "—";
   const secs = Math.floor((Date.now() - start) / 1000);
@@ -34,7 +36,7 @@ function formatUptime(start: number | null): string {
 export default function DashboardScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { agentState, moduleStatus, isLoading, refresh } = useAgent();
+  const { agentState, moduleStatus, thermalStatus, isLoading, refresh } = useAgent();
 
   const [refreshing, setRefreshing] = React.useState(false);
 
@@ -138,6 +140,50 @@ export default function DashboardScreen() {
           />
         </View>
       </TouchableOpacity>
+
+      {/* Thermal Warning Banner */}
+      {thermalStatus && THERMAL_SEVERE_LEVELS.has(thermalStatus.level) && (
+        <View
+          style={[
+            styles.thermalBanner,
+            {
+              backgroundColor:
+                thermalStatus.level === "critical"
+                  ? colors.destructive + "22"
+                  : "#FF6B0022",
+              borderColor:
+                thermalStatus.level === "critical"
+                  ? colors.destructive
+                  : "#FF6B00",
+            },
+          ]}
+        >
+          <Feather
+            name="thermometer"
+            size={15}
+            color={
+              thermalStatus.level === "critical"
+                ? colors.destructive
+                : "#FF6B00"
+            }
+          />
+          <Text
+            style={[
+              styles.thermalText,
+              {
+                color:
+                  thermalStatus.level === "critical"
+                    ? colors.destructive
+                    : "#FF6B00",
+              },
+            ]}
+          >
+            {thermalStatus.level === "critical"
+              ? "Device critical — inference suspended"
+              : "Cooling down — agent throttled"}
+          </Text>
+        </View>
+      )}
 
       {/* Current App */}
       {agentState?.currentApp ? (
@@ -321,5 +367,19 @@ const styles = StyleSheet.create({
   seeAll: {
     fontSize: 12,
     fontFamily: "Inter_500Medium",
+  },
+  thermalBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  thermalText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    flex: 1,
   },
 });

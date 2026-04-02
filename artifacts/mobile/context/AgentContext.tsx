@@ -17,6 +17,8 @@ import {
   ModuleStatus,
 } from "@/native-bindings/AgentCoreBridge";
 
+export type { GameLoopStatus };
+
 export interface ThermalStatus {
   level: "safe" | "light" | "moderate" | "severe" | "critical";
   inferenceSafe: boolean;
@@ -40,6 +42,7 @@ interface AgentContextValue {
   error: string | null;
   thermalStatus: ThermalStatus | null;
   lastLearningEvent: LearningEvent | null;
+  gameLoopStatus: GameLoopStatus | null;
 
   startAgent: (goal: string) => Promise<void>;
   stopAgent: () => Promise<void>;
@@ -63,22 +66,25 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [thermalStatus, setThermalStatus] = useState<ThermalStatus | null>(null);
   const [lastLearningEvent, setLastLearningEvent] = useState<LearningEvent | null>(null);
+  const [gameLoopStatus, setGameLoopStatus] = useState<GameLoopStatus | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchAll = useCallback(async () => {
     try {
-      const [state, status, logs, memories, cfg] = await Promise.all([
+      const [state, status, logs, memories, cfg, gameSt] = await Promise.all([
         AgentCoreBridge.getAgentState(),
         AgentCoreBridge.getModuleStatus(),
         AgentCoreBridge.getActionLogs(50),
         AgentCoreBridge.getMemoryEntries(30),
         AgentCoreBridge.getConfig(),
+        AgentCoreBridge.getGameLoopStatus(),
       ]);
       setAgentState(state);
       setModuleStatus(status);
       setActionLogs(logs);
       setMemoryEntries(memories);
       setConfig(cfg);
+      setGameLoopStatus(gameSt);
       setError(null);
     } catch (e: any) {
       setError(e?.message ?? "Bridge error");
@@ -136,8 +142,34 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     const onModelDownload = AgentCoreEmitter.addListener(
       "model_download_complete",
       () => {
-        // Model finished downloading — refresh so the UI shows it loaded
         fetchAll();
+      }
+    );
+
+    const onGameLoop = AgentCoreEmitter.addListener(
+      "game_loop_status",
+      (payload: {
+        isActive: boolean;
+        gameType: string;
+        episodeCount: number;
+        stepCount: number;
+        currentScore: number;
+        highScore: number;
+        totalReward: number;
+        lastAction: string;
+        isGameOver: boolean;
+      }) => {
+        setGameLoopStatus({
+          isActive: payload.isActive ?? false,
+          gameType: (payload.gameType ?? "none") as GameLoopStatus["gameType"],
+          episodeCount: payload.episodeCount ?? 0,
+          stepCount: payload.stepCount ?? 0,
+          currentScore: payload.currentScore ?? 0,
+          highScore: payload.highScore ?? 0,
+          totalReward: payload.totalReward ?? 0,
+          lastAction: payload.lastAction ?? "",
+          isGameOver: payload.isGameOver ?? false,
+        });
       }
     );
 
@@ -145,6 +177,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       onLearningComplete.remove();
       onThermal.remove();
       onModelDownload.remove();
+      onGameLoop.remove();
     };
   }, [fetchAll]);
 
@@ -205,6 +238,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         error,
         thermalStatus,
         lastLearningEvent,
+        gameLoopStatus,
         startAgent,
         stopAgent,
         pauseAgent,
