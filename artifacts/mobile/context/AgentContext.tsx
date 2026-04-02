@@ -1,3 +1,30 @@
+/**
+ * AgentContext — Phase 10 (JS Thinning).
+ *
+ * ARCHITECTURE CHANGE in Phase 10:
+ *   Phase 9 and earlier: JS polled Kotlin every 2 seconds while running.
+ *   Phase 10: JS subscribes to Kotlin push events. No polling while running.
+ *
+ * Events subscribed (via NativeEventEmitter → AgentCoreModule.emitEvent):
+ *   agent_status_changed   → updates agentState fields directly (no bridge call)
+ *   action_performed       → prepends new ActionLog entry (no bridge call)
+ *   token_generated        → updates agentState.tokenRate (no bridge call)
+ *   step_started           → updates currentStep/activity indicator
+ *   thermal_status_changed → updates thermalStatus directly
+ *   learning_cycle_complete → triggers fetchAll (module status changes)
+ *   model_download_complete → triggers fetchAll
+ *   game_loop_status        → updates gameLoopStatus directly
+ *
+ * fetchAll() is still called on:
+ *   - Initial mount (once, to hydrate all state)
+ *   - Start/stop/pause commands (to confirm full sync)
+ *   - Events that change module status (learning complete, model download)
+ *   - Explicit user refresh
+ *
+ * Polling: reduced from 2000ms (running-only) to 30000ms (idle background sync).
+ *   The idle sync catches any state drift (e.g., process restart, background kill).
+ */
+
 import React, {
   createContext,
   useCallback,
@@ -32,6 +59,11 @@ export interface LearningEvent {
   timestamp: number;
 }
 
+export interface StepStatus {
+  stepNumber: number;
+  activity: "observe" | "reason" | "act" | "store" | "idle";
+}
+
 interface AgentContextValue {
   agentState: AgentState | null;
   moduleStatus: ModuleStatus | null;
@@ -43,6 +75,7 @@ interface AgentContextValue {
   thermalStatus: ThermalStatus | null;
   lastLearningEvent: LearningEvent | null;
   gameLoopStatus: GameLoopStatus | null;
+  currentStep: StepStatus | null;   // Phase 10: live step indicator, no polling
 
   startAgent: (goal: string) => Promise<void>;
   stopAgent: () => Promise<void>;
@@ -56,6 +89,17 @@ interface AgentContextValue {
 
 const AgentContext = createContext<AgentContextValue | null>(null);
 
+/** Map a tool name from action_performed event to ActionLog.type */
+function toolToLogType(tool: string): ActionLog["type"] {
+  const t = tool.toLowerCase();
+  if (t === "click" || t === "tap") return "tap";
+  if (t === "swipe" || t === "scroll") return "swipe";
+  if (t === "type")   return "text";
+  if (t === "back")   return "intent";
+  if (t === "wait")   return "observe";
+  return "intent";
+}
+
 export function AgentProvider({ children }: { children: React.ReactNode }) {
   const [agentState, setAgentState] = useState<AgentState | null>(null);
   const [moduleStatus, setModuleStatus] = useState<ModuleStatus | null>(null);
@@ -67,8 +111,13 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   const [thermalStatus, setThermalStatus] = useState<ThermalStatus | null>(null);
   const [lastLearningEvent, setLastLearningEvent] = useState<LearningEvent | null>(null);
   const [gameLoopStatus, setGameLoopStatus] = useState<GameLoopStatus | null>(null);
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [currentStep, setCurrentStep] = useState<StepStatus | null>(null);
 
+  // Idle background sync — catches state drift after process restarts or suspend/resume.
+  // Phase 10: only needed while idle (events handle all running-state updates).
+  const idlePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ── Full state hydration (used on mount, start/stop, learning complete) ──────
   const fetchAll = useCallback(async () => {
     try {
       const [state, status, logs, memories, cfg, gameSt] = await Promise.all([
@@ -93,93 +142,150 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // ── Initial mount — hydrate once ──────────────────────────────────────────
   useEffect(() => {
     fetchAll();
-    pollingRef.current = setInterval(() => {
-      if (agentState?.status === "running") {
-        fetchAll();
-      }
-    }, 2000);
+    // Idle background sync every 30 seconds — much less aggressive than the old 2s poll.
+    // This handles edge cases: crash-restart, background kill, manual Kotlin-side changes.
+    idlePollRef.current = setInterval(fetchAll, 30_000);
     return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
+      if (idlePollRef.current) clearInterval(idlePollRef.current);
     };
-  }, [fetchAll, agentState?.status]);
+  }, [fetchAll]);
 
-  // Native event subscriptions — react immediately without waiting for the poll cycle
+  // ── Phase 10: Native event subscriptions ─────────────────────────────────
   useEffect(() => {
     if (!AgentCoreEmitter) return;
 
-    const onLearningComplete = AgentCoreEmitter.addListener(
+    // agent_status_changed → update agentState directly, no bridge call needed
+    const onStatus = AgentCoreEmitter.addListener(
+      "agent_status_changed",
+      (payload: {
+        status: string; currentTask: string; currentApp: string;
+        stepCount: number; lastAction: string; lastError: string; gameMode: string;
+      }) => {
+        setAgentState((prev) => ({
+          ...(prev ?? {} as AgentState),
+          status: (payload.status ?? "idle") as AgentState["status"],
+          currentTask: payload.currentTask ?? null,
+          currentApp:  payload.currentApp  ?? null,
+          gameMode:    (payload.gameMode ?? "none") as AgentState["gameMode"],
+          actionsPerformed: payload.stepCount ?? prev?.actionsPerformed ?? 0,
+        }));
+      }
+    );
+
+    // action_performed → prepend new log entry; no getActionLogs() call needed
+    const onAction = AgentCoreEmitter.addListener(
+      "action_performed",
+      (payload: {
+        tool: string; nodeId: string; success: boolean;
+        reward: number; stepCount: number; appPackage: string; timestamp: number;
+      }) => {
+        const logEntry: ActionLog = {
+          id:            `evt_${payload.timestamp ?? Date.now()}`,
+          timestamp:     payload.timestamp ?? Date.now(),
+          type:          toolToLogType(payload.tool ?? ""),
+          description:   `${payload.tool ?? "Action"} on ${payload.nodeId || "screen"}`,
+          app:           payload.appPackage ?? "",
+          success:       payload.success ?? false,
+          rewardSignal:  payload.reward ?? 0,
+        };
+        setActionLogs((prev) => [logEntry, ...prev].slice(0, 100));
+        // Also update step indicator to "store" phase momentarily
+        setCurrentStep((prev) => prev ? { ...prev, activity: "store" } : null);
+      }
+    );
+
+    // token_generated → update token rate in agentState (live streaming)
+    const onToken = AgentCoreEmitter.addListener(
+      "token_generated",
+      (payload: { token: string; tokensPerSecond: number }) => {
+        setAgentState((prev) =>
+          prev ? { ...prev, tokenRate: payload.tokensPerSecond ?? prev.tokenRate } : prev
+        );
+        // Step indicator transitions to "reason" phase when tokens arrive
+        setCurrentStep((prev) => prev ? { ...prev, activity: "reason" } : null);
+      }
+    );
+
+    // step_started → update live step indicator (no fetch, pure display)
+    const onStep = AgentCoreEmitter.addListener(
+      "step_started",
+      (payload: { stepNumber: number; activity: string }) => {
+        setCurrentStep({
+          stepNumber: payload.stepNumber ?? 0,
+          activity:   (payload.activity ?? "observe") as StepStatus["activity"],
+        });
+      }
+    );
+
+    // learning_cycle_complete → fetchAll to refresh module status (LoRA version changes)
+    const onLearning = AgentCoreEmitter.addListener(
       "learning_cycle_complete",
       (payload: { loraVersion: number; policyVersion: number; timestamp: number }) => {
         setLastLearningEvent({
-          loraVersion: payload.loraVersion ?? 0,
+          loraVersion:   payload.loraVersion  ?? 0,
           policyVersion: payload.policyVersion ?? 0,
-          timestamp: payload.timestamp ?? Date.now(),
+          timestamp:     payload.timestamp     ?? Date.now(),
         });
-        // Refresh everything so moduleStatus shows the new adapter version
-        fetchAll();
+        fetchAll(); // Module status shows new adapter version
       }
     );
 
+    // thermal_status_changed → update directly (no fetch needed)
     const onThermal = AgentCoreEmitter.addListener(
       "thermal_status_changed",
-      (payload: {
-        level: string;
-        inferenceSafe: boolean;
-        trainingSafe: boolean;
-        emergency: boolean;
-      }) => {
+      (payload: { level: string; inferenceSafe: boolean; trainingSafe: boolean; emergency: boolean }) => {
         setThermalStatus({
-          level: (payload.level ?? "safe") as ThermalStatus["level"],
-          inferenceSafe: payload.inferenceSafe ?? true,
-          trainingSafe: payload.trainingSafe ?? true,
-          emergency: payload.emergency ?? false,
+          level:         (payload.level ?? "safe") as ThermalStatus["level"],
+          inferenceSafe:  payload.inferenceSafe ?? true,
+          trainingSafe:   payload.trainingSafe  ?? true,
+          emergency:      payload.emergency     ?? false,
         });
       }
     );
 
+    // model_download_complete → fetchAll so model readiness refreshes
     const onModelDownload = AgentCoreEmitter.addListener(
       "model_download_complete",
-      () => {
-        fetchAll();
-      }
+      () => { fetchAll(); }
     );
 
+    // game_loop_status → update directly (no fetch)
     const onGameLoop = AgentCoreEmitter.addListener(
       "game_loop_status",
       (payload: {
-        isActive: boolean;
-        gameType: string;
-        episodeCount: number;
-        stepCount: number;
-        currentScore: number;
-        highScore: number;
-        totalReward: number;
-        lastAction: string;
-        isGameOver: boolean;
+        isActive: boolean; gameType: string; episodeCount: number; stepCount: number;
+        currentScore: number; highScore: number; totalReward: number; lastAction: string; isGameOver: boolean;
       }) => {
         setGameLoopStatus({
-          isActive: payload.isActive ?? false,
-          gameType: (payload.gameType ?? "none") as GameLoopStatus["gameType"],
-          episodeCount: payload.episodeCount ?? 0,
-          stepCount: payload.stepCount ?? 0,
-          currentScore: payload.currentScore ?? 0,
-          highScore: payload.highScore ?? 0,
-          totalReward: payload.totalReward ?? 0,
-          lastAction: payload.lastAction ?? "",
-          isGameOver: payload.isGameOver ?? false,
+          isActive:      payload.isActive      ?? false,
+          gameType:      (payload.gameType ?? "none") as GameLoopStatus["gameType"],
+          episodeCount:  payload.episodeCount  ?? 0,
+          stepCount:     payload.stepCount     ?? 0,
+          currentScore:  payload.currentScore  ?? 0,
+          highScore:     payload.highScore     ?? 0,
+          totalReward:   payload.totalReward   ?? 0,
+          lastAction:    payload.lastAction    ?? "",
+          isGameOver:    payload.isGameOver    ?? false,
         });
       }
     );
 
     return () => {
-      onLearningComplete.remove();
+      onStatus.remove();
+      onAction.remove();
+      onToken.remove();
+      onStep.remove();
+      onLearning.remove();
       onThermal.remove();
       onModelDownload.remove();
       onGameLoop.remove();
     };
   }, [fetchAll]);
+
+  // ── Agent control ─────────────────────────────────────────────────────────
 
   const startAgent = useCallback(async (goal: string) => {
     const res = await AgentCoreBridge.startAgent(goal);
@@ -192,11 +298,13 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
   const stopAgent = useCallback(async () => {
     await AgentCoreBridge.stopAgent();
+    setCurrentStep(null);
     await fetchAll();
   }, [fetchAll]);
 
   const pauseAgent = useCallback(async () => {
     await AgentCoreBridge.pauseAgent();
+    setCurrentStep(null);
     await fetchAll();
   }, [fetchAll]);
 
@@ -239,6 +347,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         thermalStatus,
         lastLearningEvent,
         gameLoopStatus,
+        currentStep,
         startAgent,
         stopAgent,
         pauseAgent,

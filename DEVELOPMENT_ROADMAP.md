@@ -778,23 +778,34 @@ These are the "optimized values" — they make the NEXT task loop smarter than t
 
 ---
 
-## Phase 10 — Phase 2: JS Thinning (Future)
+## Phase 10 — JS Thinning
 
-- [ ] Move agent loop from JS context polling → Kotlin push events via TurboModule callbacks
-- [ ] Remove all state from `AgentContext.tsx` — JS only renders what Kotlin pushes
-- [ ] Remove `AgentCoreBridge.ts` stubs → all calls are real
-- [ ] Config moves to Kotlin `DataStore`
-- [ ] JS = rendering layer only
+- [x] `AgentEventBus.kt` — Kotlin `SharedFlow(replay=1, buffer=128)` event backbone
+- [x] `ConfigStore.kt` — `DataStore<Preferences>` replaces SharedPreferences for agent config; `migrateFromSharedPrefs()` copies legacy `aria_config` values on first run
+- [x] `AgentLoop.kt` — `step_started` event emitted at top of every loop iteration; all 4 events (`agent_status_changed`, `token_generated`, `action_performed`, `step_started`) now emit to both `onEvent` callback (React Native) AND `AgentEventBus` (Compose ViewModel)
+- [x] `AgentCoreModule.kt` — `init` block wires `AgentEventBus` for `ThermalGuard` + `LearningScheduler` events; `updateConfig` mirrors writes to DataStore + emits `config_updated` to `AgentEventBus`; `migrateFromSharedPrefs()` called on module init
+- [x] `AgentContext.tsx` — replaced 2000ms running-state polling with 8 event subscriptions (`agent_status_changed`, `action_performed`, `token_generated`, `step_started`, `learning_cycle_complete`, `thermal_status_changed`, `model_download_complete`, `game_loop_status`); idle background sync reduced to 30s
+- [x] `NativeAgentCore.ts` — `step_started` event documented with full payload spec
+- [ ] Remove `AgentCoreBridge.ts` stubs → all calls are real (EAS build needed to verify)
+- [ ] JS = rendering layer only (complete after EAS + Phase 11 launcher switch)
 
 ---
 
-## Phase 11 — Phase 3: Full Kotlin + Jetpack Compose (Future)
+## Phase 11 — Jetpack Compose Native UI
 
-- [ ] Build `android/ui-native/` screens in Jetpack Compose
-  - Dashboard, Control, Activity, Modules, Settings
+- [x] `ARIATheme.kt` — Material3 dark theme matching React Native colors (navy BG, cyan primary, violet accent, green success, amber warning, red error)
+- [x] `AgentViewModel.kt` — AndroidViewModel subscribing to `AgentEventBus` SharedFlow; `StateFlow<AgentUiState>`, `StateFlow<List<ActionLogEntry>>`, `StateFlow<ThermalUiState>`, `StateFlow<StepUiState>`, `StateFlow<ModuleUiState>`, `StateFlow<AriaConfig>` (DataStore-backed); `saveConfig()`, `startAgent()`, `stopAgent()`, `pauseAgent()`, `refreshModuleState()`
+- [x] `DashboardScreen.kt` — status pill, current task/app, step counter, token rate, thermal level, step activity bar (observe→reason→act→store), live token stream, last LoRA version
+- [x] `ControlScreen.kt` — goal input + target app field, readiness checklist, START/PAUSE/STOP buttons wired to `AgentViewModel`, status banners for missing model/permissions
+- [x] `ActivityScreen.kt` — `LazyColumn` of all `action_performed` events with tool icon, node ID, reward, app package, timestamp; live token stream header when reasoning
+- [x] `ModulesScreen.kt` — card-per-module status (LLM, OCR, EfficientDet, MiniLM, Labels, Permissions, Learning); refresh button calls `refreshModuleState()`
+- [x] `SettingsScreen.kt` — editable inference params (contextWindow, maxTokensPerTurn, temperature, nGpuLayers, rlEnabled); saves via `ConfigStore.save()` + `AgentEventBus` `config_updated` event; read-only model info row
+- [x] `ARIAComposeApp.kt` — `NavHost` + Material3 `NavigationBar` with 5 destinations; running-state badge on Control tab; shared `AgentViewModel` instance across all screens
+- [x] `ComposeMainActivity.kt` — `ComponentActivity` + `enableEdgeToEdge()` + `setContent { ARIAComposeApp() }`
+- [x] `AndroidManifest.xml` — `ComposeMainActivity` registered as secondary Activity (NOT launcher yet)
+- [ ] Switch launcher intent-filter from `ReactActivity` → `ComposeMainActivity` (EAS build + device test needed first)
 - [ ] Remove React Native from build
 - [ ] Remove Metro bundler
-- [ ] Pure Kotlin app
 
 ---
 
@@ -949,7 +960,7 @@ These are the "optimized values" — they make the NEXT task loop smarter than t
 | 7 — Learning Scheduler | `[x]` | LearningScheduler: ThermalGuard.isTrainingSafe() check, charging/screen-off triggers, training sequence order, learning_cycle_complete event. |
 | 8 — Optimization | `[x]` | ThermalGuard.kt complete: ThermalManager API 29 listener + battery temp fallback. SAFE/LIGHT/MODERATE/SEVERE/CRITICAL levels. AgentLoop pauses on SEVERE+. LearningScheduler skips on MODERATE+. |
 | 9 — Model Delivery | `[~]` | ModelDownloadService + ModelManager + JS download screen complete. Play Asset Delivery (Play Store path) pending. |
-| 10 — JS Thinning | `[ ]` | Push events, remove state from JS |
-| 11 — Jetpack Compose | `[ ]` | Full Kotlin UI replaces React Native |
+| 10 — JS Thinning | `[x]` | AgentEventBus (SharedFlow), ConfigStore (DataStore), step_started event, AgentContext.tsx 8 event subscriptions replace 2s polling, NativeAgentCore.ts updated. |
+| 11 — Jetpack Compose | `[~]` | ARIATheme, AgentViewModel (StateFlows), DashboardScreen, ControlScreen, ActivityScreen, ModulesScreen, SettingsScreen, ARIAComposeApp NavHost, ComposeMainActivity registered (not launcher yet — EAS needed). |
 | 12 — Object Labeler | `[x]` | ObjectLabelStore (SQLite), 7 Kotlin bridge methods, LLM enrichment, JS types + stubs, full `app/labeler.tsx` screen, Control screen entry point. Labels injected into LLM prompt as [KNOWN ELEMENTS]. |
 | 13 — Auto-detect Extensions | `[x]` | `ObjectDetectorEngine.kt` (MediaPipe EfficientDet-Lite0 INT8, ~4.4MB, ~37ms/frame). Producer-Consumer wiring in AgentLoop step 1d. `[VISUAL DETECTIONS]` block injected into PromptBuilder. 3 new bridge methods. `DetectedObject` TS type. "Auto-detect" button in `labeler.tsx`. Auto-download on module init. |

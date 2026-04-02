@@ -22,9 +22,15 @@
  *   "model_download_progress"  → { percent: number, downloadedMb: number, totalMb: number, speedMbps: number }
  *   "model_download_complete"  → { path: string }
  *   "model_download_error"     → { error: string }
- *   "agent_status_changed"     → { status: string, currentTask: string, currentApp: string, stepCount: number }
+ *   "agent_status_changed"     → { status: string, currentTask: string, currentApp: string, stepCount: number,
+ *                                   lastAction: string, lastError: string, gameMode: string }
  *   "token_generated"          → { token: string, tokensPerSecond: number }
- *   "action_performed"         → { tool: string, nodeId: string, success: boolean, reward: number, stepCount: number }
+ *   "action_performed"         → { tool: string, nodeId: string, success: boolean, reward: number,
+ *                                   stepCount: number, appPackage: string, timestamp: number }
+ *   "step_started"             → { stepNumber: number, activity: "observe" }
+ *                                   Emitted at the START of each agent loop iteration, before any work
+ *                                   begins. Lets the UI show the "OBSERVE" phase spinner immediately.
+ *                                   Phase 10: JS subscribes to this instead of polling getAgentState().
  *   "learning_cycle_complete"  → { loraVersion: number, policyVersion: number }
  */
 
