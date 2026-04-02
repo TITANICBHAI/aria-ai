@@ -357,16 +357,12 @@ Reasons: `use_mmap` is essential for the M31 RAM budget. Vulkan offload is avail
 - [ ] TypeScript codegen spec file: `NativeAgentCore.ts`
 
 ### 1.5 Prompt Design
-- [ ] System prompt:
-  ```
-  You are an autonomous Android agent. You see a structured screen summary.
-  Decide the next single action. Always respond in JSON only.
-  Tools: Click(node_id), Swipe(dir, node_id), Type(node_id, text), Scroll(dir), Back()
-  Example: {"tool":"Click","node_id":"#3","reason":"Search bar to enter query"}
-  ```
-- [ ] Cap input: 512 tokens per turn
-- [ ] Multi-turn window: keep last N turns within 4096 total token budget
-- [ ] Inject relevant memories (top-3 similar past traces) before each inference call
+- [x] System prompt: Llama 3.2-1B Instruct chat template (`<|begin_of_text|>` header blocks).
+  ARIA identity + AVAILABLE ACTIONS + RULES (JSON-only output, prefer KNOWN ELEMENTS, think in "reason" field).
+- [x] Cap input: context window hard-capped at 4096 tokens in `LlamaEngine.load()` — OOM-safe on M31.
+- [x] Multi-turn window: `history.takeLast(5)` in `PromptBuilder.build()` — last 5 actions appended as RECENT ACTIONS.
+- [x] Inject relevant memories (top-3 similar past traces) before each inference call — `memory.take(3)` in RELEVANT MEMORY section.
+- [x] Object Label injection — `[KNOWN ELEMENTS]` section injected before raw node tree; labels sorted by importance score DESC, top 8 shown.
 
 ---
 
@@ -802,6 +798,50 @@ These are the "optimized values" — they make the NEXT task loop smarter than t
 
 ---
 
+## Phase 12 — Object Labeler (Human-in-the-Loop Teaching)
+
+> Lets users manually annotate UI elements on a captured screenshot.
+> Each annotation enriches the LLM's prompt context — the agent recognizes
+> and correctly interacts with labeled elements on future observations.
+> The data also serves as high-quality LoRA training pairs and RL reward shaping signals.
+
+### 12.1 Kotlin Backend
+- [x] `ObjectLabelStore.kt` — SQLite schema (`object_labels` table), CRUD, `toJson()` / `fromJson()` serialization, `toPromptLine()` format for LLM injection.
+- [x] `AgentCoreModule.kt` — 7 bridge methods:
+  - `captureScreenForLabeling()` — MediaProjection capture → JPEG cache → OCR + a11y metadata
+  - `getObjectLabels(appPackage, screenHash)` — load saved labels for a screen
+  - `getAllLabels()` — all enriched labels for the label browser
+  - `saveObjectLabels(appPackage, screenHash, labelsJson)` — batch persist to SQLite
+  - `deleteObjectLabel(id)` — remove by UUID
+  - `enrichLabelsWithLLM(labelsJson, screenContext)` — Llama enriches meaning / interactionHint / reasoningContext / importanceScore
+  - `getLabelStats()` — total + enriched count for Modules screen widget
+- [x] `buildLabelEnrichPrompt()` + `parseLabelEnrichOutput()` private helpers — build Llama 3.2-1B chat template for per-label enrichment, parse JSON response.
+
+### 12.2 Prompt Injection (AgentLoop)
+- [x] `PromptBuilder.build()` accepts `objectLabels: List<ObjectLabel>` — injects `[KNOWN ELEMENTS]` block before raw node tree when labels exist for the current screen.
+- [x] Labels sorted by `importanceScore DESC`, top 8 shown per prompt — avoids bloating context.
+- [x] `ObjectLabelStore.getByScreen(appPackage, screenHash)` called in `AgentLoop` before each LLM inference step.
+
+### 12.3 JS Bridge
+- [x] `ObjectLabel` TypeScript type + `ElementType` union added to `AgentCoreBridge.ts`.
+- [x] `ScreenCapture` and `LabelStats` interfaces added.
+- [x] 7 bridge method stubs wired in `AgentCoreBridge` — real calls on Android, safe stubs for web preview.
+
+### 12.4 Object Labeler UI Screen
+- [x] `app/labeler.tsx` — full-screen Object Labeler:
+  - "Capture Screen" button — captures current foreground app, loads existing labels for that screen.
+  - Screenshot canvas with tap-to-pin — normalized (0–1) coordinates, relative to image layout.
+  - `PinMarker` — absolute-positioned pin dots on the image (gold=unenriched, green=enriched, blue=selected).
+  - `PinEditor` panel — name, context, elementType selector (9 types), importance score 1–10.
+  - Enriched fields section — shows LLM-generated meaning / interaction hint / prompt note after enrichment.
+  - `LabelList` — collapsible list of all pins with quick-delete.
+  - "Enrich All" button — sends all pins to local Llama, updates fields in-place.
+  - "Save Labels" button — persists to SQLite, shows confirmation, navigates back.
+  - `ContextPreview` — collapsible OCR + a11y tree context preview.
+- [x] "Object Labeler" entry card added to Control screen under "Teach the Agent" section.
+
+---
+
 ## Future Ideas — Not Yet Scheduled
 
 > Ideas captured here for future planning. None of these are active tasks.
@@ -809,7 +849,10 @@ These are the "optimized values" — they make the NEXT task loop smarter than t
 
 ---
 
-### Idea: Object Labeler Tool
+### Idea: Object Labeler — Auto-detect Extensions (Future)
+
+> Extensions to Phase 12 for future scheduling.
+> Phase 12 is complete. The items below extend it further.
 
 **Concept:** A modal UI screen where the user can manually annotate objects on a captured screen. Each annotation gives the LLM richer context for reasoning about that screen.
 
@@ -905,9 +948,10 @@ CREATE INDEX idx_labels_screen ON object_labels(app_package, screen_hash);
 | 3 — Action Layer | `[x]` | AgentLoop.kt (Observe→Reason→Act→Store). GestureEngine (tap/swipe/type/scroll/longPress/back). Thermal pause, multi-turn memory, error recovery all implemented. |
 | 4 — Data Collection | `[x]` | ExperienceStore (SQLite) complete. EmbeddingEngine migrated to ONNX Runtime 1.19.2 (MiniLM-L6-v2, 384-dim). Hash fallback when model downloading. |
 | 5 — RL/IRL Processing | `[x]` | PolicyNetwork (real REINFORCE + Adam, adamStep/lastPolicyLoss exposed to JS). IrlModule upgraded to 3-stage pipeline (OCR + ObjectLabelStore + LlamaEngine reasoning). LoraTrainer + LearningScheduler all wired. |
-| 6 — Game Playing | `[ ]` | Game-specific RL loop + score detection |
+| 6 — Game Playing | `[x]` | GameDetector.kt (OCR/package/A11y detection), GameLoop.kt (fast policy-network loop), wired into AgentLoop with game mode switching. |
 | 7 — Learning Scheduler | `[x]` | LearningScheduler: ThermalGuard.isTrainingSafe() check, charging/screen-off triggers, training sequence order, learning_cycle_complete event. |
 | 8 — Optimization | `[x]` | ThermalGuard.kt complete: ThermalManager API 29 listener + battery temp fallback. SAFE/LIGHT/MODERATE/SEVERE/CRITICAL levels. AgentLoop pauses on SEVERE+. LearningScheduler skips on MODERATE+. |
 | 9 — Model Delivery | `[~]` | ModelDownloadService + ModelManager + JS download screen complete. Play Asset Delivery (Play Store path) pending. |
 | 10 — JS Thinning | `[ ]` | Push events, remove state from JS |
 | 11 — Jetpack Compose | `[ ]` | Full Kotlin UI replaces React Native |
+| 12 — Object Labeler | `[x]` | ObjectLabelStore (SQLite), 7 Kotlin bridge methods, LLM enrichment, JS types + stubs, full `app/labeler.tsx` screen, Control screen entry point. Labels injected into LLM prompt as [KNOWN ELEMENTS]. |

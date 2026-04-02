@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
+import { router } from "expo-router";
 import { useAgent } from "@/context/AgentContext";
 import { useColors } from "@/hooks/useColors";
 import { StatusDot } from "@/components/StatusDot";
@@ -261,6 +262,37 @@ export default function ControlScreen() {
         )}
       </View>
 
+      {/* Object Labeler Entry */}
+      <SectionHeader title="Teach the Agent" />
+      <TouchableOpacity
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          router.push("/labeler");
+        }}
+        style={[
+          styles.teachBtn,
+          {
+            backgroundColor: colors.surface1,
+            borderColor: colors.border,
+            borderWidth: 1,
+            borderRadius: 14,
+          },
+        ]}
+      >
+        <View style={[styles.teachIcon, { backgroundColor: colors.accent + "20" }]}>
+          <Feather name="tag" size={20} color={colors.accent} />
+        </View>
+        <View style={styles.teachText}>
+          <Text style={[styles.teachTitle, { color: colors.foreground }]}>
+            Object Labeler
+          </Text>
+          <Text style={[styles.teachSub, { color: colors.mutedForeground }]}>
+            Annotate UI elements · LLM enriches context · Agent learns
+          </Text>
+        </View>
+        <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+      </TouchableOpacity>
+
       {/* Active Task Display */}
       {agentState?.currentTask && (
         <View
@@ -341,4 +373,20 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   taskText: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
+  teachBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    gap: 12,
+  },
+  teachIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  teachText: { flex: 1 },
+  teachTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  teachSub: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
 });

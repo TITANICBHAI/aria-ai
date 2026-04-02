@@ -144,6 +144,43 @@ export interface ExperienceStats {
   edgeCaseCount: number;
 }
 
+export type ElementType =
+  | "button" | "text" | "input" | "icon"
+  | "image" | "container" | "toggle" | "link" | "unknown";
+
+export interface ObjectLabel {
+  id: string;
+  appPackage: string;
+  screenHash: string;
+  x: number;                 // 0–1 normalized
+  y: number;
+  name: string;
+  context: string;
+  elementType: ElementType;
+  ocrText: string;
+  meaning: string;           // LLM-generated
+  interactionHint: string;   // LLM-generated
+  reasoningContext: string;  // LLM-generated — injected into agent prompts
+  importanceScore: number;   // 0–10
+  additionalFields: Record<string, string>;
+  isEnriched: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ScreenCapture {
+  imageUri: string;
+  appPackage: string;
+  screenHash: string;
+  ocrText: string;
+  a11yTree: string;
+}
+
+export interface LabelStats {
+  total: number;
+  enriched: number;
+}
+
 // ─── Bridge ───────────────────────────────────────────────────────────────────
 
 export const AgentCoreBridge = {
@@ -427,5 +464,64 @@ export const AgentCoreBridge = {
   async openNotificationSettings(): Promise<boolean> {
     if (AgentCore) return AgentCore.openNotificationSettings();
     return false;
+  },
+
+  // ─── Object Labeler ──────────────────────────────────────────────────────
+
+  async captureScreenForLabeling(): Promise<ScreenCapture> {
+    if (AgentCore) return AgentCore.captureScreenForLabeling();
+    return {
+      imageUri: "",
+      appPackage: "com.example.app",
+      screenHash: "stub_hash_001",
+      ocrText: "(web preview — no screen capture)",
+      a11yTree: "(web preview — no accessibility service)",
+    };
+  },
+
+  async getObjectLabels(appPackage: string, screenHash: string): Promise<ObjectLabel[]> {
+    if (AgentCore) {
+      const json = await AgentCore.getObjectLabels(appPackage, screenHash);
+      try { return JSON.parse(json) as ObjectLabel[]; } catch { return []; }
+    }
+    return [];
+  },
+
+  async getAllLabels(): Promise<ObjectLabel[]> {
+    if (AgentCore) {
+      const json = await AgentCore.getAllLabels();
+      try { return JSON.parse(json) as ObjectLabel[]; } catch { return []; }
+    }
+    return [];
+  },
+
+  async saveObjectLabels(
+    appPackage: string,
+    screenHash: string,
+    labels: ObjectLabel[]
+  ): Promise<boolean> {
+    if (AgentCore) return AgentCore.saveObjectLabels(appPackage, screenHash, JSON.stringify(labels));
+    return false;
+  },
+
+  async deleteObjectLabel(id: string): Promise<boolean> {
+    if (AgentCore) return AgentCore.deleteObjectLabel(id);
+    return false;
+  },
+
+  async enrichLabelsWithLLM(
+    labels: ObjectLabel[],
+    screenContext: string
+  ): Promise<ObjectLabel[]> {
+    if (AgentCore) {
+      const json = await AgentCore.enrichLabelsWithLLM(JSON.stringify(labels), screenContext);
+      try { return JSON.parse(json) as ObjectLabel[]; } catch { return labels; }
+    }
+    return labels;
+  },
+
+  async getLabelStats(): Promise<LabelStats> {
+    if (AgentCore) return AgentCore.getLabelStats();
+    return { total: 0, enriched: 0 };
   },
 };
