@@ -1,19 +1,21 @@
 /**
- * AgentContext — Phase 10 (JS Thinning).
+ * AgentContext — Phase 10 (JS Thinning) + Phase 16 (Task Queue + App Skills).
  *
  * ARCHITECTURE CHANGE in Phase 10:
  *   Phase 9 and earlier: JS polled Kotlin every 2 seconds while running.
  *   Phase 10: JS subscribes to Kotlin push events. No polling while running.
  *
  * Events subscribed (via NativeEventEmitter → AgentCoreModule.emitEvent):
- *   agent_status_changed   → updates agentState fields directly (no bridge call)
- *   action_performed       → prepends new ActionLog entry (no bridge call)
- *   token_generated        → updates agentState.tokenRate (no bridge call)
- *   step_started           → updates currentStep/activity indicator
- *   thermal_status_changed → updates thermalStatus directly
+ *   agent_status_changed    → updates agentState fields directly (no bridge call)
+ *   action_performed        → prepends new ActionLog entry (no bridge call)
+ *   token_generated         → updates agentState.tokenRate (no bridge call)
+ *   step_started            → updates currentStep/activity indicator
+ *   thermal_status_changed  → updates thermalStatus directly
  *   learning_cycle_complete → triggers fetchAll (module status changes)
  *   model_download_complete → triggers fetchAll
  *   game_loop_status        → updates gameLoopStatus directly
+ *   skill_updated           → updates matching appSkills entry (Phase 16)
+ *   task_chain_advanced     → updates chainedTask banner + refreshes taskQueue (Phase 16)
  *
  * fetchAll() is still called on:
  *   - Initial mount (once, to hydrate all state)
@@ -39,9 +41,11 @@ import {
   AgentCoreEmitter,
   AgentState,
   ActionLog,
+  AppSkill,
   GameLoopStatus,
   MemoryEntry,
   ModuleStatus,
+  QueuedTask,
 } from "@/native-bindings/AgentCoreBridge";
 
 export type { GameLoopStatus };
@@ -64,6 +68,15 @@ export interface StepStatus {
   activity: "observe" | "reason" | "act" | "store" | "idle";
 }
 
+/** Phase 16: notification shown when ARIA auto-chains to a queued task */
+export interface ChainedTaskNotification {
+  taskId: string;
+  goal: string;
+  appPackage: string;
+  queueSize: number;
+  timestamp: number;
+}
+
 interface AgentContextValue {
   agentState: AgentState | null;
   moduleStatus: ModuleStatus | null;
@@ -75,7 +88,10 @@ interface AgentContextValue {
   thermalStatus: ThermalStatus | null;
   lastLearningEvent: LearningEvent | null;
   gameLoopStatus: GameLoopStatus | null;
-  currentStep: StepStatus | null;   // Phase 10: live step indicator, no polling
+  currentStep: StepStatus | null;
+  taskQueue: QueuedTask[];                          // Phase 16
+  appSkills: AppSkill[];                            // Phase 16
+  chainedTask: ChainedTaskNotification | null;      // Phase 16: most recent chain event
 
   startAgent: (goal: string) => Promise<void>;
   stopAgent: () => Promise<void>;
@@ -85,6 +101,17 @@ interface AgentContextValue {
   loadModel: () => Promise<void>;
   requestPermissions: () => Promise<void>;
   refresh: () => Promise<void>;
+
+  // Phase 16: task queue management
+  enqueueTask: (goal: string, appPackage?: string, priority?: number) => Promise<QueuedTask | null>;
+  removeQueuedTask: (taskId: string) => Promise<void>;
+  clearTaskQueue: () => Promise<void>;
+  refreshTaskQueue: () => Promise<void>;
+
+  // Phase 16: app skills
+  refreshAppSkills: () => Promise<void>;
+  clearAppSkills: () => Promise<void>;
+  dismissChainNotification: () => void;
 }
 
 const AgentContext = createContext<AgentContextValue | null>(null);
@@ -113,9 +140,30 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   const [gameLoopStatus, setGameLoopStatus] = useState<GameLoopStatus | null>(null);
   const [currentStep, setCurrentStep] = useState<StepStatus | null>(null);
 
+  // Phase 16
+  const [taskQueue, setTaskQueue] = useState<QueuedTask[]>([]);
+  const [appSkills, setAppSkills] = useState<AppSkill[]>([]);
+  const [chainedTask, setChainedTask] = useState<ChainedTaskNotification | null>(null);
+
   // Idle background sync — catches state drift after process restarts or suspend/resume.
   // Phase 10: only needed while idle (events handle all running-state updates).
   const idlePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ── Phase 16 helpers ──────────────────────────────────────────────────────
+
+  const refreshTaskQueue = useCallback(async () => {
+    try {
+      const q = await AgentCoreBridge.getTaskQueue();
+      setTaskQueue(q);
+    } catch { /* bridge unavailable in web */ }
+  }, []);
+
+  const refreshAppSkills = useCallback(async () => {
+    try {
+      const skills = await AgentCoreBridge.getAllAppSkills();
+      setAppSkills(skills);
+    } catch { /* bridge unavailable in web */ }
+  }, []);
 
   // ── Full state hydration (used on mount, start/stop, learning complete) ──────
   const fetchAll = useCallback(async () => {
@@ -140,7 +188,9 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+    // Phase 16: always sync queue + skills on full refresh
+    await Promise.all([refreshTaskQueue(), refreshAppSkills()]);
+  }, [refreshTaskQueue, refreshAppSkills]);
 
   // ── Initial mount — hydrate once ──────────────────────────────────────────
   useEffect(() => {
@@ -153,7 +203,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     };
   }, [fetchAll]);
 
-  // ── Phase 10: Native event subscriptions ─────────────────────────────────
+  // ── Phase 10 + 16: Native event subscriptions ─────────────────────────────
   useEffect(() => {
     if (!AgentCoreEmitter) return;
 
@@ -273,6 +323,42 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       }
     );
 
+    // ── Phase 16 events ─────────────────────────────────────────────────────
+
+    // skill_updated → merge updated skill record into appSkills list
+    const onSkillUpdated = AgentCoreEmitter.addListener(
+      "skill_updated",
+      (payload: {
+        appPackage: string; taskSuccess: number; taskFailure: number; successRate: number;
+      }) => {
+        setAppSkills((prev) =>
+          prev.map((s) =>
+            s.appPackage === payload.appPackage
+              ? { ...s, taskSuccess: payload.taskSuccess, taskFailure: payload.taskFailure, successRate: payload.successRate }
+              : s
+          )
+        );
+        // Also full-refresh skills so all fields (avgSteps, hint, etc.) are in sync
+        refreshAppSkills();
+      }
+    );
+
+    // task_chain_advanced → show notification banner + refresh task queue
+    const onChainAdvanced = AgentCoreEmitter.addListener(
+      "task_chain_advanced",
+      (payload: { taskId: string; goal: string; appPackage: string; queueSize: number }) => {
+        setChainedTask({
+          taskId:     payload.taskId     ?? "",
+          goal:       payload.goal       ?? "",
+          appPackage: payload.appPackage ?? "",
+          queueSize:  payload.queueSize  ?? 0,
+          timestamp:  Date.now(),
+        });
+        // Queue shrunk by one — refresh so UI removes the item
+        refreshTaskQueue();
+      }
+    );
+
     return () => {
       onStatus.remove();
       onAction.remove();
@@ -282,8 +368,10 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       onThermal.remove();
       onModelDownload.remove();
       onGameLoop.remove();
+      onSkillUpdated.remove();
+      onChainAdvanced.remove();
     };
-  }, [fetchAll]);
+  }, [fetchAll, refreshTaskQueue, refreshAppSkills]);
 
   // ── Agent control ─────────────────────────────────────────────────────────
 
@@ -334,6 +422,39 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     await fetchAll();
   }, [fetchAll]);
 
+  // ── Phase 16: task queue methods ──────────────────────────────────────────
+
+  const enqueueTask = useCallback(async (
+    goal: string,
+    appPackage = "",
+    priority = 0,
+  ): Promise<QueuedTask | null> => {
+    const task = await AgentCoreBridge.enqueueTask(goal, appPackage, priority);
+    await refreshTaskQueue();
+    return task;
+  }, [refreshTaskQueue]);
+
+  const removeQueuedTask = useCallback(async (taskId: string) => {
+    await AgentCoreBridge.removeQueuedTask(taskId);
+    setTaskQueue((prev) => prev.filter((t) => t.id !== taskId));
+  }, []);
+
+  const clearTaskQueue = useCallback(async () => {
+    await AgentCoreBridge.clearTaskQueue();
+    setTaskQueue([]);
+  }, []);
+
+  // ── Phase 16: app skills methods ──────────────────────────────────────────
+
+  const clearAppSkills = useCallback(async () => {
+    await AgentCoreBridge.clearAppSkills();
+    setAppSkills([]);
+  }, []);
+
+  const dismissChainNotification = useCallback(() => {
+    setChainedTask(null);
+  }, []);
+
   return (
     <AgentContext.Provider
       value={{
@@ -348,6 +469,9 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         lastLearningEvent,
         gameLoopStatus,
         currentStep,
+        taskQueue,
+        appSkills,
+        chainedTask,
         startAgent,
         stopAgent,
         pauseAgent,
@@ -356,6 +480,13 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         loadModel,
         requestPermissions,
         refresh: fetchAll,
+        enqueueTask,
+        removeQueuedTask,
+        clearTaskQueue,
+        refreshTaskQueue,
+        refreshAppSkills,
+        clearAppSkills,
+        dismissChainNotification,
       }}
     >
       {children}
