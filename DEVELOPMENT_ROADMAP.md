@@ -849,76 +849,73 @@ These are the "optimized values" — they make the NEXT task loop smarter than t
 
 ---
 
-### Idea: Object Labeler — Auto-detect Extensions (Future)
+## Phase 13 — Object Labeler Auto-detect Extensions
 
-> Extensions to Phase 12 for future scheduling.
-> Phase 12 is complete. The items below extend it further.
+> **Status: `[x]` Complete**
+> Extends Phase 12 with MediaPipe visual detection wired into both the agent loop and the labeler UI.
 
-**Concept:** A modal UI screen where the user can manually annotate objects on a captured screen. Each annotation gives the LLM richer context for reasoning about that screen.
+### 13.1 ObjectDetectorEngine.kt
 
-**Why it matters:** The current perception pipeline (OCR + accessibility tree) extracts what exists on screen but loses semantic meaning — it knows a node is a "Button" but not that it's "the button that starts a payment flow." The object labeler lets humans inject that domain knowledge directly, making the LLM far more accurate on specific apps and workflows.
+- [x] `ObjectDetectorEngine.kt` — `com.ariaagent.mobile.core.perception` package
+  - MediaPipe EfficientDet-Lite0 INT8 model (80 COCO categories)
+  - Downloads ~4.4 MB from `storage.googleapis.com/mediapipe-models/...` on first use
+  - `isModelReady(context): Boolean` — guards all detection paths
+  - `ensureModel(context): Boolean` — suspending download function (Dispatchers.IO)
+  - `detect(context, bitmap): List<DetectedObject>` — Dispatchers.Default, ~37ms on Exynos 9611
+  - `detectFromPath(context, imagePath): List<DetectedObject>` — JPEG path for bridge/UI path
+  - `DetectedObject` data class: label, confidence, normX, normY, normW, normH (bounding box center)
+  - `DetectedObject.toPromptLine(index)` — one-liner for LLM injection
+  - Threshold: 0.40f confidence, max 12 results to avoid bloating LLM context
 
-**How it would work:**
-1. User opens the Object Labeler modal from the Control screen
-2. The modal captures a screenshot (via MediaProjection bridge)
-3. User taps anywhere on the screenshot image to place an annotation pin
-4. Each pin has:
-   - **Name** — user-assigned label (e.g. "Checkout Button")
-   - **Context** — description of purpose (e.g. "Triggers the payment flow")
-   - **Element Type** — button / text / input / icon / image / container / toggle / link
-   - **LLM-generated fields** (via `runInference()`):
-     - `meaning` — what this element means in the broader app context
-     - `interactionHint` — how the agent should use this element
-     - `reasoningContext` — a hint injected into the LLM prompt when this element is visible
-     - `importanceScore` — 0–10 priority for agent attention
-   - **Additional custom fields** — user can add arbitrary key/value pairs
-5. "Auto-detect" button runs MediaPipe object detection + ML Kit OCR on the image, auto-placing pins at detected elements with OCR text pre-filled
-6. "Enrich All" button sends all pins to Llama for bulk field generation
-7. Individual pin "Generate" button enriches a single pin
-8. Annotations are saved to SQLite and injected into the LLM's context whenever the matching screen is observed during agent operation
+### 13.2 PromptBuilder — [VISUAL DETECTIONS] Block
 
-**Tech stack:**
-- UI: React Native modal with `Pressable` + `onLayout` for normalized pin coordinates
-- Screenshot capture: `captureScreenForLabeling()` → Kotlin MediaProjection bridge
-- OCR at point: `runOcrAtPoint(imageUri, normX, normY)` → ML Kit on Kotlin side
-- Object detection: `detectObjectsInImage(imageUri)` → MediaPipe on Kotlin side
-- LLM enrichment: `enrichLabelsWithLLM(labels, screenContext)` → Llama 3.2-1B bridge
-- Persistence: new `object_labels` table in SQLite, keyed by app package + screen hash
-- Retrieval: during agent loop, query stored labels for current screen → inject into LLM prompt
+- [x] `PromptBuilder.build()` accepts `detectedObjects: List<ObjectDetectorEngine.DetectedObject> = emptyList()`
+- [x] `[VISUAL DETECTIONS]` block injected after `[KNOWN ELEMENTS]`, before raw a11y node tree
+  - Top-8 by confidence (maintains 4096-token context budget)
+  - Format: `det-N: label (confidence%, center X%×Y%)`
+- [x] System prompt updated: rule added — if `[VISUAL DETECTIONS]` exists, use `det-N` labels for elements not in a11y tree
+- [x] Import added: `ObjectDetectorEngine` in `PromptBuilder.kt`
 
-**New bridge methods needed (Kotlin side):**
-```kotlin
-@ReactMethod fun captureScreenForLabeling(promise: Promise)
-@ReactMethod fun runOcrAtPoint(imageUri: String, normX: Double, normY: Double, promise: Promise)
-@ReactMethod fun detectObjectsInImage(imageUri: String, promise: Promise)
-@ReactMethod fun enrichLabelsWithLLM(labelsJson: String, screenContext: String, promise: Promise)
-@ReactMethod fun saveObjectLabels(appPackage: String, screenHash: String, labelsJson: String, promise: Promise)
-@ReactMethod fun getObjectLabels(appPackage: String, screenHash: String, promise: Promise)
-```
+### 13.3 AgentLoop — Step 1d
 
-**New SQLite table needed:**
-```sql
-CREATE TABLE object_labels (
-  id TEXT PRIMARY KEY,
-  app_package TEXT,
-  screen_hash TEXT,         -- hash of the OCR+a11y output for this screen
-  name TEXT,
-  context TEXT,
-  x REAL,                   -- 0–1 normalized
-  y REAL,
-  element_type TEXT,
-  meaning TEXT,
-  interaction_hint TEXT,
-  reasoning_context TEXT,
-  importance_score INTEGER,
-  additional_fields TEXT,   -- JSON blob
-  created_at INTEGER,
-  updated_at INTEGER
-);
-CREATE INDEX idx_labels_screen ON object_labels(app_package, screen_hash);
-```
+- [x] Import added: `ObjectDetectorEngine` in `AgentLoop.kt`
+- [x] Step 1d added between OBSERVE (1c) and RETRIEVE (2):
+  - Runs ONLY when `ObjectDetectorEngine.isModelReady(context) && snapshot.bitmap != null`
+  - `runCatching { ... }.getOrDefault(emptyList())` — errors never crash the loop
+  - `detectedObjects` passed to `PromptBuilder.build()`
+  - Runs on `Dispatchers.Default` (Producer); LLM consumes result (Consumer) — no shared threads
 
-**When to implement:** After Phase 2 (Perception) and Phase 4 (Data Collection) are complete, since it depends on MediaProjection, ML Kit, and SQLite being live on-device.
+### 13.4 AgentCoreModule — Bridge Methods
+
+- [x] Import added: `ObjectDetectorEngine` in `AgentCoreModule.kt`
+- [x] Auto-download on module init: `scope.launch { ObjectDetectorEngine.ensureModel(ctx) }`
+- [x] `@ReactMethod fun isDetectorModelReady(promise: Promise)` — synchronous check, returns Boolean
+- [x] `@ReactMethod fun downloadDetectorModel(promise: Promise)` — triggers download, returns Boolean success
+- [x] `@ReactMethod fun detectObjectsInImage(imageUri: String, promise: Promise)` — returns JSON array of `DetectedObject` maps
+
+### 13.5 AgentCoreBridge.ts — Types + Stubs
+
+- [x] `DetectedObject` TypeScript interface: label, confidence, normX, normY, normW, normH
+- [x] `AgentCoreBridge.isDetectorModelReady(): Promise<boolean>` — stub returns false on web
+- [x] `AgentCoreBridge.downloadDetectorModel(): Promise<boolean>` — stub returns false on web
+- [x] `AgentCoreBridge.detectObjectsInImage(imageUri): Promise<DetectedObject[]>` — JSON.parse on Kotlin response; stub returns [] on web
+
+### 13.6 labeler.tsx — Auto-detect Button
+
+- [x] Import: `DetectedObject` added to `AgentCoreBridge` import
+- [x] `inferElementType(cocoLabel)` helper: maps COCO labels to ElementType (pure function, module-level)
+- [x] `detecting` state added
+- [x] `handleAutoDetect()` handler:
+  - Checks model ready → downloads if not (inline progress flow)
+  - Calls `AgentCoreBridge.detectObjectsInImage(capture.imageUri)`
+  - Creates `ObjectLabel[]` from detections: normX/normY as pin centers, name from COCO label (title-cased), elementType from `inferElementType`
+  - Merges with existing labels (does not replace)
+  - Shows confirmation alert with detection count
+- [x] "Auto-detect" button added to actions row (before "Enrich All"):
+  - Feather `aperture` icon
+  - Shows `ActivityIndicator` while detecting
+  - Label changes to "Detecting…" during operation
+  - Disabled while enriching or saving
 
 ---
 
@@ -955,3 +952,4 @@ CREATE INDEX idx_labels_screen ON object_labels(app_package, screen_hash);
 | 10 — JS Thinning | `[ ]` | Push events, remove state from JS |
 | 11 — Jetpack Compose | `[ ]` | Full Kotlin UI replaces React Native |
 | 12 — Object Labeler | `[x]` | ObjectLabelStore (SQLite), 7 Kotlin bridge methods, LLM enrichment, JS types + stubs, full `app/labeler.tsx` screen, Control screen entry point. Labels injected into LLM prompt as [KNOWN ELEMENTS]. |
+| 13 — Auto-detect Extensions | `[x]` | `ObjectDetectorEngine.kt` (MediaPipe EfficientDet-Lite0 INT8, ~4.4MB, ~37ms/frame). Producer-Consumer wiring in AgentLoop step 1d. `[VISUAL DETECTIONS]` block injected into PromptBuilder. 3 new bridge methods. `DetectedObject` TS type. "Auto-detect" button in `labeler.tsx`. Auto-download on module init. |

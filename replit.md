@@ -58,6 +58,7 @@ Samsung Galaxy M31 — Exynos 9611 · Mali-G72 MP3 · 6GB LPDDR4X
 - **Mobile**: Expo (React Native, New Architecture enabled)
 - **LLM**: Llama 3.2-1B via llama.cpp + JNI
 - **OCR**: Google ML Kit
+- **Object detection**: MediaPipe EfficientDet-Lite0 INT8 (Phase 13)
 - **RL**: Custom on-device module
 - **Memory**: SQLite + file-based embeddings
 

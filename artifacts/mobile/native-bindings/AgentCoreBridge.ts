@@ -181,6 +181,20 @@ export interface LabelStats {
   enriched: number;
 }
 
+/**
+ * A single object detected by MediaPipe EfficientDet-Lite0 INT8.
+ * normX/normY are bounding box CENTER coordinates (0–1).
+ * Directly usable as pin coordinates in the Object Labeler.
+ */
+export interface DetectedObject {
+  label: string;        // COCO category name (e.g. "person", "cell phone", "laptop")
+  confidence: number;   // 0.0–1.0
+  normX: number;        // bounding box center X, 0–1
+  normY: number;        // bounding box center Y, 0–1
+  normW: number;        // bounding box width,    0–1
+  normH: number;        // bounding box height,   0–1
+}
+
 // ─── Bridge ───────────────────────────────────────────────────────────────────
 
 export const AgentCoreBridge = {
@@ -431,6 +445,32 @@ export const AgentCoreBridge = {
   async downloadMiniLm(): Promise<boolean> {
     if (AgentCore) return AgentCore.downloadMiniLm();
     return false;
+  },
+
+  // ─── Object Detection (Phase 13 — Auto-detect) ───────────────────────────
+
+  async isDetectorModelReady(): Promise<boolean> {
+    if (AgentCore) return AgentCore.isDetectorModelReady();
+    return false;
+  },
+
+  async downloadDetectorModel(): Promise<boolean> {
+    if (AgentCore) return AgentCore.downloadDetectorModel();
+    return false;
+  },
+
+  /**
+   * Run MediaPipe EfficientDet-Lite0 INT8 on a JPEG file path.
+   * Returns detected objects with normalized bounding box centers (0–1).
+   * normX/normY are CENTER coordinates — directly usable as Object Labeler pin positions.
+   * Returns [] on web preview or if model not yet downloaded.
+   */
+  async detectObjectsInImage(imageUri: string): Promise<DetectedObject[]> {
+    if (AgentCore) {
+      const json = await AgentCore.detectObjectsInImage(imageUri);
+      try { return JSON.parse(json) as DetectedObject[]; } catch { return []; }
+    }
+    return [];
   },
 
   async isAccessibilityEnabled(): Promise<boolean> {

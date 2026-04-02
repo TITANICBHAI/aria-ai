@@ -37,6 +37,7 @@ import { router } from "expo-router";
 import { useColors } from "@/hooks/useColors";
 import {
   AgentCoreBridge,
+  DetectedObject,
   ElementType,
   ObjectLabel,
   ScreenCapture,
@@ -46,6 +47,18 @@ const ELEMENT_TYPES: ElementType[] = [
   "button", "input", "text", "toggle",
   "link", "icon", "image", "container", "unknown",
 ];
+
+/**
+ * Infer a rough ElementType from a COCO detection label.
+ * Used to pre-fill the element type when Auto-detect creates pins.
+ */
+function inferElementType(cocoLabel: string): ElementType {
+  const l = cocoLabel.toLowerCase();
+  if (l.includes("cell phone") || l.includes("remote") || l.includes("keyboard") || l.includes("mouse")) return "button";
+  if (l.includes("book") || l.includes("laptop") || l.includes("tv") || l.includes("monitor")) return "image";
+  if (l.includes("person") || l.includes("face")) return "icon";
+  return "unknown";
+}
 
 function makeLabel(
   appPackage: string,
@@ -82,6 +95,7 @@ export default function LabelerScreen() {
   const [labels, setLabels] = useState<ObjectLabel[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
+  const [detecting, setDetecting] = useState(false);
   const [enriching, setEnriching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [imgSize, setImgSize] = useState({ width: 1, height: 1 });
@@ -176,6 +190,52 @@ export default function LabelerScreen() {
       setSaving(false);
     }
   };
+
+  // ── Auto-detect: run MediaPipe EfficientDet-Lite0 on the captured screenshot ──
+  // Places pins at detected bounding box centers; pre-fills name from COCO category.
+  // Model downloads once in background (~4.4MB) on first use.
+  const handleAutoDetect = async () => {
+    if (!capture?.imageUri) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    setDetecting(true);
+    try {
+      const isReady = await AgentCoreBridge.isDetectorModelReady();
+      if (!isReady) {
+        const ok = await AgentCoreBridge.downloadDetectorModel();
+        if (!ok) {
+          Alert.alert(
+            "Download Failed",
+            "Could not download the object detection model (~4.4 MB). Check your connection and try again."
+          );
+          return;
+        }
+      }
+      const detections = await AgentCoreBridge.detectObjectsInImage(capture.imageUri);
+      if (detections.length === 0) {
+        Alert.alert(
+          "No Objects Detected",
+          "EfficientDet found no UI elements above 40% confidence. Try adding pins manually."
+        );
+        return;
+      }
+      const newLabels: ObjectLabel[] = detections.map((det) => ({
+        ...makeLabel(capture.appPackage, capture.screenHash, det.normX, det.normY),
+        name: det.label.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+        elementType: inferElementType(det.label),
+        importanceScore: Math.max(1, Math.min(10, Math.round(det.confidence * 10))),
+      }));
+      setLabels((prev) => [...prev, ...newLabels]);
+      Alert.alert(
+        `${detections.length} Object${detections.length !== 1 ? "s" : ""} Detected`,
+        "Pins placed at detected elements. Review names, then tap Enrich All to add semantic context."
+      );
+    } catch (e: any) {
+      Alert.alert("Detection Failed", e?.message ?? "Auto-detect error.");
+    } finally {
+      setDetecting(false);
+    }
+  };
+
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
@@ -302,6 +362,31 @@ export default function LabelerScreen() {
         {/* ── Actions ────────────────────────────────────────────────────── */}
         {capture && (
           <View style={styles.actions}>
+            {/* Auto-detect: MediaPipe EfficientDet-Lite0 INT8 — places pins at visual element centers */}
+            <TouchableOpacity
+              onPress={handleAutoDetect}
+              disabled={detecting || enriching || saving}
+              style={[
+                styles.actionBtn,
+                {
+                  backgroundColor: detecting
+                    ? colors.surface2
+                    : colors.secondary + "22",
+                  borderColor: colors.secondary + "55",
+                  flex: 1,
+                },
+              ]}
+            >
+              {detecting ? (
+                <ActivityIndicator size="small" color={colors.mutedForeground} />
+              ) : (
+                <Feather name="aperture" size={16} color={colors.mutedForeground} />
+              )}
+              <Text style={[styles.actionBtnText, { color: colors.mutedForeground }]}>
+                {detecting ? "Detecting…" : "Auto-detect"}
+              </Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
               onPress={handleEnrichAll}
               disabled={enriching || saving || labels.length === 0}
