@@ -1,6 +1,6 @@
 # ARIA AI — Error Registry
 
-> **Last updated:** 2026-04-03  
+> **Last updated:** 2026-04-03 (session 3 — EAS llama.cpp hook + ModelBootstrap)  
 > **Scanned:** TypeScript compile · Android build config · Kotlin native modules · Expo/RN dependency audit · iOS code paths · Resource files · Workspace config
 
 ---
@@ -17,9 +17,9 @@
 ---
 
 ## Status Summary
-| ✅ Fixed | ⚠️ Open (manual step only) | ⚙️ Auto-fix on native build |
-|---------|--------------------------|----------------------------|
-| E01 E02 E05 E06 E07 E08 E09 | E03 | E10a E10b |
+| ✅ Fixed | ⚙️ Auto-fix on native build |
+|---------|----------------------------|
+| E01 E02 E03 E05 E06 E07 E08 E09 | E10a E10b |
 
 ---
 
@@ -29,7 +29,7 @@
 |----|-----|------|----------|-------------|--------|
 | E01 | 🟠 HIGH | TypeScript | `artifacts/mockup-sandbox/src/components/ui/calendar.tsx:132` | TS2322 React 19 ref callback type incompatibility (`VoidOrUndefinedOnly`). | ✅ FIXED — cast to `RefCallback<HTMLDivElement>` |
 | E02 | 🟠 HIGH | TypeScript | `artifacts/mockup-sandbox/src/components/ui/spinner.tsx:7` | TS2322 conflicting `@types/react` copies; ref spread onto Lucide icon. | ✅ FIXED — simplified Spinner to `{ className?: string }` |
-| E03 | 🔴 CRITICAL | Native Build | `artifacts/mobile/android/app/src/main/cpp/llama.cpp/` | **llama.cpp submodule missing.** `CMakeLists.txt` calls `add_subdirectory(llama.cpp)` but directory doesn't exist. Android native JNI build fails. JS/Expo Go unaffected (LlamaEngine auto-stubs). | ⚠️ OPEN — `git submodule add https://github.com/ggerganov/llama.cpp …/llama.cpp` (~400 MB, manual step when building for device) |
+| E03 | 🔴 CRITICAL | Native Build | `artifacts/mobile/android/app/src/main/cpp/llama.cpp/` | **llama.cpp submodule missing.** `CMakeLists.txt` calls `add_subdirectory(llama.cpp)` but directory doesn't exist. Android native JNI build fails. JS/Expo Go unaffected (LlamaEngine auto-stubs). | ✅ FIXED — `eas-build-pre-install` hook (`scripts/eas-pre-install.sh`) shallow-clones llama.cpp before NDK build. EAS Cloud picks it up automatically via `package.json` script. |
 | E04 | 🟡 MEDIUM | iOS-only API | `artifacts/mobile/app/(tabs)/_layout.tsx` | `expo-router/unstable-native-tabs` — unstable iOS-18+ experimental API. Subsumed by E06. | ✅ FIXED via E06 |
 | E05 | 🟢 LOW | Workspace | `pnpm-workspace.yaml` | `lib/*` and `lib/integrations/*` point to empty directory — pnpm install warnings. | ✅ FIXED — removed stale globs |
 | E06 | 🟡 MEDIUM | iOS-only Code | `artifacts/mobile/app/(tabs)/_layout.tsx` | Entire `NativeTabLayout` block uses iOS-18+ APIs (`NativeTabs`, `Icon`, `Label`, `SymbolView`, `isLiquidGlassAvailable`). `isIOS` conditionals throughout `ClassicTabLayout`. All dead code on Android. | ✅ FIXED — rewrote to pure Android tab layout; removed all iOS branches and dead imports |
@@ -53,13 +53,35 @@
 
 ---
 
-## E03 — When Ready to Build for Device
+## EAS Build & Runtime Download Flow
 
-```bash
-cd artifacts/mobile/android/app/src/main/cpp
-git submodule add https://github.com/ggerganov/llama.cpp llama.cpp
-git submodule update --init --recursive
+### Build time (EAS Cloud — automatic)
+```
 eas build --profile development --platform android
+  └─ package.json: "eas-build-pre-install" → scripts/eas-pre-install.sh
+       └─ git clone --depth=1 https://github.com/ggerganov/llama.cpp
+              → android/app/src/main/cpp/llama.cpp/
+  └─ Gradle → CMake → NDK arm64-v8a compile
+       └─ libllama-jni.so compiled into APK  ← E10a + E10b auto-resolve here
+```
+
+### Runtime (first launch — sequential, in order)
+```
+Step 1  GGUF model         ~870 MB  HuggingFace   (user-triggered via startModelDownload())
+        ModelDownloadService foreground service — resumable, progress notification
+        Event: model_download_progress / model_download_complete
+
+Step 2  MiniLM-L6-v2 ONNX  ~23 MB  HuggingFace   (auto, after GGUF ready)
+        EmbeddingModelManager.download() — resumable
+        Event: bootstrap_stage { stage:"downloading_minilm", step:2, percent }
+
+Step 3  EfficientDet-Lite0  ~4.4 MB Google CDN    (auto, after MiniLM ready)
+        ObjectDetectorEngine.ensureModel() — simple single-pass
+        Event: bootstrap_stage { stage:"downloading_detector", step:3, percent }
+
+Step 4  READY
+        All models on disk. AgentLoop can run full-capability steps.
+        Event: bootstrap_stage { stage:"ready", step:4, percent:100 }
 ```
 
 Once compiled, **E10a and E10b auto-resolve** — both `LlamaEngine` and `LoraTrainer`
