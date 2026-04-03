@@ -23,10 +23,9 @@
 #        runs AFTER this hook). Our patched copy in android/node_modules/ is
 #        checked FIRST by settings.gradle, ensuring Gradle always uses it.
 #
-#   3. Enforce Gradle wrapper at 8.8 — the version @react-native/gradle-plugin
-#      0.81.x was validated against. Gradle 8.10+ changed how settings plugins
-#      are resolved from composite included builds, breaking the
-#      com.facebook.react.settings registration.
+#   3. Enforce Gradle wrapper at 8.13 — the minimum version required by
+#      AGP 8.8.0 (com.android.tools.build:gradle:8.8.0). Gradle 8.13 is also
+#      compatible with @react-native/gradle-plugin 0.81.x.
 # ──────────────────────────────────────────────────────────────────────────────
 set -eu
 
@@ -89,29 +88,29 @@ fi
 
 # ── Task 3: Enforce Gradle wrapper version ──────────────────────────────────
 #
-# Pin the main project's Gradle wrapper to 8.8. This is a build-time guard
-# so the version cannot drift back to 8.14.3+ from a future edit or update.
+# Pin the main project's Gradle wrapper to 8.13. This is the minimum version
+# required by AGP 8.8.0 (com.android.tools.build:gradle:8.8.0).
 #
 GRADLE_PROPS="android/gradle/wrapper/gradle-wrapper.properties"
 
 echo "=== ARIA EAS pre-install: enforcing Gradle wrapper version ==="
 
 if [ -f "$GRADLE_PROPS" ]; then
-    if ! grep -q "gradle-8.8-all" "$GRADLE_PROPS"; then
+    if ! grep -q "gradle-8.13-all" "$GRADLE_PROPS"; then
         node -e "
 const fs = require('fs');
 const path = '$GRADLE_PROPS';
 let content = fs.readFileSync(path, 'utf8');
 content = content.replace(
   /distributionUrl=.*gradle-[^\\n]+\.zip/,
-  'distributionUrl=https\\\\://services.gradle.org/distributions/gradle-8.8-all.zip'
+  'distributionUrl=https\\\\://services.gradle.org/distributions/gradle-8.13-all.zip'
 );
 fs.writeFileSync(path, content);
-console.log('Enforced gradle-8.8 in ' + path);
+console.log('Enforced gradle-8.13 in ' + path);
 "
-        echo "=== Enforced Gradle wrapper: pinned to 8.8 in $GRADLE_PROPS ==="
+        echo "=== Enforced Gradle wrapper: pinned to 8.13 in $GRADLE_PROPS ==="
     else
-        echo "=== Gradle wrapper already at 8.8 — no change needed ==="
+        echo "=== Gradle wrapper already at 8.13 — no change needed ==="
     fi
 else
     echo "WARNING: $GRADLE_PROPS not found — skipping Gradle version enforcement"
