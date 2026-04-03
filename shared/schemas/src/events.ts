@@ -61,6 +61,7 @@ export interface ThermalStatusChangedEvent {
   level: ThermalLevel;
   inferenceSafe: boolean;
   trainingSafe: boolean;
+  throttleCapture: boolean;
   emergency: boolean;
 }
 
