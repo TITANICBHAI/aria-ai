@@ -51,6 +51,9 @@ function inlineExpoRouterEnvPlugin() {
             type: "StringLiteral",
             value: APP_ROOT.replace(/\\/g, "/"),
           });
+        } else if (envKey === "EXPO_ROUTER_IMPORT_MODE") {
+          // 'sync' for production builds; 'lazy' only when async routes are enabled
+          nodePath.replaceWith({ type: "StringLiteral", value: "sync" });
         }
       },
     },
