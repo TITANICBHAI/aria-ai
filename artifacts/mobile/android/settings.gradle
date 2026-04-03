@@ -1,36 +1,58 @@
 pluginManagement {
     // Locate @react-native/gradle-plugin robustly.
     //
+    // Strategy 0 – read WORKSPACE_ROOT from gradle.properties (most reliable on EAS:
+    //              pnpm hoists packages to the workspace root, not artifacts/mobile/).
     // Strategy 1 – dynamic Node.js resolution (works locally and on most CI).
     // Strategy 2 – walk candidate relative paths (fallback when `node` is not
     //              in Gradle's JVM PATH on EAS cloud builders).
     //
     // settingsDir = android/  (where this file lives)
     // settingsDir.parentFile = artifacts/mobile/  (JS project root)
+    // WORKSPACE_ROOT (../../..) = monorepo root where pnpm hoists node_modules
 
     def rnPluginDir = null
 
-    // Strategy 1: ask Node to resolve the package
+    // Strategy 0: resolve via WORKSPACE_ROOT declared in gradle.properties.
+    // This is the most reliable path on EAS because pnpm hoists @react-native/gradle-plugin
+    // to the workspace root node_modules, not to artifacts/mobile/node_modules.
     try {
-        def proc = ["node", "--print",
-            "require.resolve('@react-native/gradle-plugin/package.json')"
-        ].execute(null, settingsDir.parentFile)
-        proc.waitFor()
-        if (proc.exitValue() == 0) {
-            def resolved = proc.text.trim()
-            if (resolved) {
-                def candidate = new File(resolved).parentFile
-                if (candidate.exists()) rnPluginDir = candidate
+        def propsFile = new File(settingsDir, "gradle.properties")
+        if (propsFile.exists()) {
+            def props = new Properties()
+            propsFile.withInputStream { props.load(it) }
+            def wsRelPath = props.getProperty("WORKSPACE_ROOT")
+            if (wsRelPath) {
+                def wsRoot = new File(settingsDir, wsRelPath).canonicalFile
+                def candidate = new File(wsRoot, "node_modules/@react-native/gradle-plugin")
+                if (candidate.exists()) rnPluginDir = candidate.canonicalFile
             }
         }
     } catch (Exception ignored) {}
 
-    // Strategy 2: scan depths 1-4 up from android/
+    // Strategy 1: ask Node to resolve the package
+    if (rnPluginDir == null) {
+        try {
+            def proc = ["node", "--print",
+                "require.resolve('@react-native/gradle-plugin/package.json')"
+            ].execute(null, settingsDir.parentFile)
+            proc.waitFor()
+            if (proc.exitValue() == 0) {
+                def resolved = proc.text.trim()
+                if (resolved) {
+                    def candidate = new File(resolved).parentFile
+                    if (candidate.exists()) rnPluginDir = candidate.canonicalFile
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    // Strategy 2: scan depths 0-4 up from android/
     if (rnPluginDir == null) {
         def base = settingsDir
         for (int i = 0; i < 5 && rnPluginDir == null; i++) {
             def candidate = new File(base, "node_modules/@react-native/gradle-plugin")
-            if (candidate.exists()) rnPluginDir = candidate
+            if (candidate.exists()) rnPluginDir = candidate.canonicalFile
             base = base.parentFile
         }
     }
@@ -38,7 +60,7 @@ pluginManagement {
     if (rnPluginDir == null) {
         throw new GradleException(
             "Cannot locate @react-native/gradle-plugin. " +
-            "Ensure node_modules are installed."
+            "Ensure node_modules are installed and WORKSPACE_ROOT is set in gradle.properties."
         )
     }
 
