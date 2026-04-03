@@ -107,7 +107,7 @@ android {
         // Migration: remove composeOptions block and apply the Compose compiler
         // Kotlin plugin via 'org.jetbrains.kotlin.plugin.compose' in build.gradle.
         // See: https://developer.android.com/develop/ui/compose/compiler
-        kotlinCompilerExtensionVersion = "1.5.14"
+        kotlinCompilerExtensionVersion = "1.5.15"
     }
 
     buildTypes {
