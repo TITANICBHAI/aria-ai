@@ -3,12 +3,26 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
 react {
-    root = file("../../")
-    reactNativeDir = file("../../../node_modules/react-native")
-    codegenDir = file("../../../node_modules/@react-native/codegen")
-    cliFile = file("../../../node_modules/@react-native/cli/bin/cli.js")
-    jsRootDir = file("../../")
-    hermesCommand = "../../../node_modules/react-native/sdks/hermesc/%OS-BIN%/hermesc"
+    // rootDir = android/ (the Gradle root project dir).
+    // rootDir.parentFile = artifacts/mobile/ (the JS project root).
+    // Node.js resolves from there, traversing up through hoisted or local node_modules.
+    def jsRoot = rootDir.parentFile
+
+    def rnPkg = ["node", "--print",
+        "require.resolve('react-native/package.json')"
+    ].execute(null, jsRoot).text.trim()
+    def rnDir = new File(rnPkg).parentFile
+
+    def codegenPkg = ["node", "--print",
+        "require.resolve('@react-native/codegen/package.json')"
+    ].execute(null, jsRoot).text.trim()
+
+    root        = file("../../")
+    jsRootDir   = file("../../")
+    reactNativeDir = rnDir
+    codegenDir     = new File(codegenPkg).parentFile
+    cliFile        = new File(rnDir, "cli.js")
+    hermesCommand  = new File(rnDir, "sdks/hermesc/%OS-BIN%/hermesc").toString()
 }
 
 android {

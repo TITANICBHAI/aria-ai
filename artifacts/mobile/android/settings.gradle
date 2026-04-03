@@ -1,5 +1,14 @@
 pluginManagement {
-    includeBuild("../../../node_modules/@react-native/gradle-plugin")
+    // settingsDir = the android/ folder containing this file.
+    // settingsDir.parentFile = artifacts/mobile/ (the JS project root).
+    // Node.js traverses up from there so it works whether packages are hoisted
+    // to the workspace root or installed locally (depends on EAS install strategy).
+    def rnPluginPath = ["node", "--print",
+        "require.resolve('@react-native/gradle-plugin/package.json')"
+    ].execute(null, settingsDir.parentFile).text.trim()
+
+    includeBuild(new File(rnPluginPath).parentFile)
+
     repositories {
         google()
         mavenCentral()
