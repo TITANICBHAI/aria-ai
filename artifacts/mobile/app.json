@@ -13,10 +13,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#0a0f1e"
     },
-    "ios": {
-      "supportsTablet": false
+    "android": {
+      "package": "com.ariaagent.mobile"
     },
-    "android": {},
     "web": {
       "favicon": "./assets/images/icon.png"
     },
