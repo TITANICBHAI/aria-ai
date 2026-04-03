@@ -765,4 +765,35 @@ export const AgentCoreBridge = {
     if (AgentCore) return AgentCore.stopLocalServer();
     return true;
   },
+
+  // ─── Phase Post-16: Chat context builder ─────────────────────────────────
+
+  /**
+   * Build the full ARIA chat system prompt on the Kotlin side.
+   *
+   * Replaces the JS-side buildContextPrompt() that made 4 bridge round-trips.
+   * Now Kotlin reads AgentLoop.state, ExperienceStore, TaskQueueManager, and
+   * AppSkillRegistry directly and returns the formatted prompt in a single call.
+   *
+   * @param userMessage The user's current message (for future retrieval lookup)
+   * @param historyJson JSON string of past messages [{role, text}]
+   * @returns           Fully-formatted system prompt string
+   */
+  async buildChatContext(
+    userMessage: string,
+    historyJson: string,
+  ): Promise<string> {
+    if (AgentCore) return AgentCore.buildChatContext(userMessage, historyJson);
+    // Web/stub fallback — minimal system prompt for web preview mode
+    return [
+      "You are ARIA (Adaptive Reasoning Intelligence Agent), an on-device Android AI agent",
+      "running locally on a Samsung Galaxy M31 (Exynos 9611, 6 GB LPDDR4X RAM).",
+      "You reason and act entirely on-device. No cloud. No internet.",
+      "",
+      "[DEVICE STATE]",
+      "Agent status    : idle",
+      "LLM loaded      : no — running in web preview stub mode",
+      "Current task    : none",
+    ].join("\n");
+  },
 };

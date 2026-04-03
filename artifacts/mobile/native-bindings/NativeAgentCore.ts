@@ -167,6 +167,11 @@ export interface Spec extends TurboModule {
   isAccessibilityEnabled(): Promise<boolean>;
   openAccessibilitySettings(): Promise<boolean>;
 
+  // Chat context builder — replaces the JS-side buildContextPrompt() function.
+  // Reads agent state, memory, task queue, and app skills in Kotlin and returns
+  // the fully-formatted system prompt. Reduces 4× bridge round-trips to 1.
+  buildChatContext(userMessage: string, historyJson: string): Promise<string>;
+
   // Event emitter boilerplate (required by React Native event system)
   addListener(eventName: string): void;
   removeListeners(count: number): void;

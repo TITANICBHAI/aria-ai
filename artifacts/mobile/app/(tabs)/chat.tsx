@@ -30,107 +30,6 @@ interface Message {
   ts: number;
 }
 
-// ─── Context prompt builder ────────────────────────────────────────────────────
-
-async function buildContextPrompt(
-  history: Message[],
-  userMessage: string,
-): Promise<string> {
-  const [state, memEntries, queue, appSkills] = await Promise.all([
-    AgentCoreBridge.getAgentState().catch(() => null),
-    AgentCoreBridge.getMemoryEntries(5).catch(() => []),
-    AgentCoreBridge.getTaskQueue().catch(() => []),
-    AgentCoreBridge.getAllAppSkills().catch(() => []),
-  ]);
-
-  const lines: string[] = [];
-
-  // ── System identity ──────────────────────────────────────────────────────
-  lines.push(
-    "You are ARIA (Adaptive Reasoning Intelligence Agent), an on-device Android AI agent",
-    "running locally on a Samsung Galaxy M31 (Exynos 9611, 6 GB LPDDR4X RAM).",
-    "You reason and act entirely on-device. No cloud. No internet. All logic runs in Kotlin.",
-    "You have: llama.cpp LLM inference · ML Kit OCR · AccessibilityService gestures ·",
-    "REINFORCE RL · LoRA fine-tuning · SQLite memory store · per-app skill registry.",
-    "Answer concisely and helpfully. When the user asks you to do something on the device,",
-    "explain that they should use the Control tab to start a task — you cannot act directly",
-    "from this chat interface.",
-    "",
-  );
-
-  // ── Device / agent state ─────────────────────────────────────────────────
-  lines.push("[DEVICE STATE]");
-  if (state) {
-    lines.push(
-      `Agent status    : ${state.status}`,
-      `LLM loaded      : ${state.llmLoaded ? "yes" : "no — load it in Control first"}`,
-      `Current task    : ${state.currentTask ?? "none"}`,
-      `Current app     : ${state.currentApp ?? "none"}`,
-      `Actions taken   : ${state.actionsPerformed}`,
-      `Token rate      : ${state.tokenRate > 0 ? `${state.tokenRate} tok/s` : "—"}`,
-      `RAM used        : ${state.memoryUsedMb > 0 ? `${state.memoryUsedMb} MB` : "—"}`,
-    );
-  } else {
-    lines.push("(agent state unavailable — running on web preview stub)");
-  }
-  lines.push("");
-
-  // ── Memory store ─────────────────────────────────────────────────────────
-  if (memEntries.length > 0) {
-    lines.push("[RECENT MEMORY] (last 5 entries from SQLite)");
-    memEntries.forEach((m, i) => {
-      lines.push(
-        `${i + 1}. [${m.app || "global"}] (conf: ${m.confidence.toFixed(2)}) ${m.summary}`,
-      );
-    });
-    lines.push("");
-  }
-
-  // ── Task queue ───────────────────────────────────────────────────────────
-  if (queue.length > 0) {
-    lines.push(`[TASK QUEUE] (${queue.length} pending)`);
-    queue.slice(0, 3).forEach((t, i) => {
-      lines.push(
-        `${i + 1}. ${t.goal}${t.appPackage ? ` → ${t.appPackage}` : ""}`,
-      );
-    });
-    if (queue.length > 3) lines.push(`   …and ${queue.length - 3} more`);
-    lines.push("");
-  }
-
-  // ── App skills ───────────────────────────────────────────────────────────
-  if (appSkills.length > 0) {
-    lines.push("[LEARNED APP SKILLS]");
-    appSkills.slice(0, 4).forEach((s) => {
-      const name =
-        s.appName || s.appPackage.split(".").pop() || s.appPackage;
-      lines.push(
-        `• ${name}: ${s.taskSuccess} successes / ${s.taskFailure} failures,` +
-          ` avg ${s.avgSteps.toFixed(1)} steps${s.promptHint ? ` — hint: "${s.promptHint}"` : ""}`,
-      );
-    });
-    lines.push("");
-  }
-
-  // ── Conversation history ─────────────────────────────────────────────────
-  const recent = history.filter((m) => m.role !== "system").slice(-8);
-  if (recent.length > 0) {
-    lines.push("[CONVERSATION]");
-    recent.forEach((m) => {
-      lines.push(
-        `${m.role === "user" ? "User" : "ARIA"}: ${m.text}`,
-      );
-    });
-    lines.push("");
-  }
-
-  // ── Current user message ─────────────────────────────────────────────────
-  lines.push(`User: ${userMessage}`);
-  lines.push("ARIA:");
-
-  return lines.join("\n");
-}
-
 // ─── Message bubble ────────────────────────────────────────────────────────────
 
 function Bubble({
@@ -296,7 +195,34 @@ export default function ChatScreen() {
     setThinking(true);
 
     try {
-      const prompt = await buildContextPrompt(messages, text);
+      // Build system context in Kotlin (1 bridge call replaces 4 round-trips).
+      // Kotlin reads AgentLoop.state, ExperienceStore, TaskQueueManager, and
+      // AppSkillRegistry directly — no JSON serialisation across the bridge.
+      const historyForKotlin = JSON.stringify(
+        messages
+          .filter((m) => m.role !== "system")
+          .slice(-8)
+          .map((m) => ({ role: m.role, text: m.text })),
+      );
+      const systemContext = await AgentCoreBridge.buildChatContext(
+        text,
+        historyForKotlin,
+      );
+
+      // Append conversation history and turn structure (UI state — stays in JS).
+      const recentHistory = messages
+        .filter((m) => m.role !== "system")
+        .slice(-8);
+      const historyBlock =
+        recentHistory.length > 0
+          ? "\n[CONVERSATION]\n" +
+            recentHistory
+              .map((m) => `${m.role === "user" ? "User" : "ARIA"}: ${m.text}`)
+              .join("\n") +
+            "\n"
+          : "";
+      const prompt = `${systemContext}${historyBlock}\nUser: ${text}\nARIA:`;
+
       const raw = await AgentCoreBridge.runInference(prompt, 512);
 
       // Strip the "ARIA:" prefix if the model echoes it
