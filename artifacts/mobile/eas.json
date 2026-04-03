@@ -14,7 +14,8 @@
         "withoutCredentials": true
       },
       "env": {
-        "ARIA_BUILD_PROFILE": "development"
+        "ARIA_BUILD_PROFILE": "development",
+        "EXPO_ROUTER_APP_ROOT": "app"
       }
     },
     "preview": {
@@ -24,7 +25,8 @@
         "gradleCommand": ":app:assembleRelease"
       },
       "env": {
-        "ARIA_BUILD_PROFILE": "preview"
+        "ARIA_BUILD_PROFILE": "preview",
+        "EXPO_ROUTER_APP_ROOT": "app"
       }
     },
     "production": {
@@ -33,7 +35,8 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "ARIA_BUILD_PROFILE": "production"
+        "ARIA_BUILD_PROFILE": "production",
+        "EXPO_ROUTER_APP_ROOT": "app"
       }
     }
   }
