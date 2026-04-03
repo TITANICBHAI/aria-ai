@@ -113,12 +113,20 @@ Dashboard connects to `http://{device-LAN-IP}:8765/aria/{endpoint}`. Bridge expo
 
 Snapshot file also written to `{filesDir}/monitoring/snapshot.json` atomically for ADB pull.
 
-## JNI Training Status
+## Native Build Status
 
-- `nativeTrainLora()` declared in `LoraTrainer.kt` + skeleton in `llama_jni.cpp`
-- Gated on `#define LLAMA_HAS_TRAINING` in CMakeLists.txt
-- Until llama.cpp submodule is added, `tryNativeTrainLora()` catches `UnsatisfiedLinkError` → falls to `stubTrainLora()`
-- `policyVersion` now derived from `PolicyNetwork.adamStepCount` (was hardcoded 1)
+- `llama.cpp` (shallow clone, ~160MB) is at `artifacts/mobile/android/app/src/main/cpp/llama.cpp/`
+- All JNI API calls in `llama_jni.cpp` updated to current llama.cpp API:
+  - `llama_model_load_from_file` (replaces deprecated `llama_load_model_from_file`)
+  - `llama_memory_clear(llama_get_memory(ctx), true)` (replaces `llama_kv_cache_clear`)
+  - `llama_vocab_is_eog` / `llama_model_get_vocab` (replaces `llama_token_is_eog(model, tok)`)
+  - `llama_tokenize(vocab, ...)` buffer form (replaces convenience overload)
+  - `llama_token_to_piece(vocab, ...)` (replaces model-based form)
+  - `llama_adapter_lora_init` / `llama_set_adapters_lora` / `llama_adapter_lora_free` (replaces old lora API)
+  - `llama_model_free` (replaces deprecated `llama_free_model`)
+- `LLAMA_HAS_TRAINING` is NOT defined — `nativeTrainLora()` returns false → Kotlin falls to `stubTrainLora()`
+- CMakeLists.txt include paths: `${LLAMA_DIR}/include`, `${LLAMA_DIR}`, `${LLAMA_DIR}/common`, `${LLAMA_DIR}/ggml/include`
+- Build target: arm64-v8a only (Exynos 9611 / Galaxy M31)
 
 ## Key Files
 
