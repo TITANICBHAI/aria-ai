@@ -20,6 +20,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: "play.circle", selected: "play.circle.fill" }} />
         <Label>Control</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="chat">
+        <Icon sf={{ default: "message.circle", selected: "message.circle.fill" }} />
+        <Label>Chat</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="logs">
         <Icon sf={{ default: "list.bullet", selected: "list.bullet.fill" }} />
         <Label>Activity</Label>
@@ -97,6 +101,18 @@ function ClassicTabLayout() {
               <SymbolView name="play.circle" tintColor={color} size={22} />
             ) : (
               <Feather name="play-circle" size={20} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="chat"
+        options={{
+          title: "Chat",
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="message.circle" tintColor={color} size={22} />
+            ) : (
+              <Feather name="message-circle" size={20} color={color} />
             ),
         }}
       />
