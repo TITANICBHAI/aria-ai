@@ -37,6 +37,11 @@ export default function SettingsScreen() {
     screenCapture: false,
     notifications: false,
   });
+  const [serverUrl, setServerUrl] = useState<string | null>(null);
+  const [deviceIp, setDeviceIp] = useState<string | null>(null);
+  const [serverRunning, setServerRunning] = useState(false);
+  const [serverWorking, setServerWorking] = useState(false);
+  const [urlCopied, setUrlCopied] = useState(false);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : 0;
@@ -50,13 +55,50 @@ export default function SettingsScreen() {
     setPerms(status);
   }, []);
 
+  const refreshServer = useCallback(async () => {
+    const [url, ip, running] = await Promise.all([
+      AgentCoreBridge.getLocalServerUrl(),
+      AgentCoreBridge.getDeviceIp(),
+      AgentCoreBridge.isLocalServerRunning(),
+    ]);
+    setServerUrl(url);
+    setDeviceIp(ip);
+    setServerRunning(running);
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       refreshPerms();
+      refreshServer();
       const interval = setInterval(refreshPerms, 3000);
       return () => clearInterval(interval);
-    }, [refreshPerms])
+    }, [refreshPerms, refreshServer])
   );
+
+  const handleToggleServer = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setServerWorking(true);
+    if (serverRunning) {
+      await AgentCoreBridge.stopLocalServer();
+    } else {
+      const url = await AgentCoreBridge.startLocalServer(0);
+      setServerUrl(url);
+    }
+    await refreshServer();
+    setServerWorking(false);
+  };
+
+  const handleCopyUrl = () => {
+    if (!serverUrl) return;
+    Haptics.selectionAsync();
+    Alert.alert(
+      "Dashboard URL",
+      serverUrl,
+      [{ text: "OK" }]
+    );
+    setUrlCopied(true);
+    setTimeout(() => setUrlCopied(false), 2000);
+  };
 
   const patch = (key: keyof AgentConfig, value: any) => {
     setLocal((p) => ({ ...p, [key]: value }));
@@ -479,6 +521,125 @@ export default function SettingsScreen() {
         </View>
       </View>
 
+      {/* Web Dashboard */}
+      <SectionHeader title="Web Dashboard" />
+      <View
+        style={[
+          styles.section,
+          {
+            backgroundColor: colors.surface1,
+            borderColor: serverRunning ? colors.success + "30" : colors.border,
+            borderWidth: 1,
+            borderRadius: 16,
+            gap: 0,
+            padding: 0,
+          },
+        ]}
+      >
+        {/* Server toggle row */}
+        <View style={[styles.serverRow, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
+          <View
+            style={[
+              styles.serverIconWrap,
+              { backgroundColor: serverRunning ? colors.success + "22" : colors.muted },
+            ]}
+          >
+            <Feather
+              name="wifi"
+              size={18}
+              color={serverRunning ? colors.success : colors.mutedForeground}
+            />
+          </View>
+          <View style={styles.serverInfo}>
+            <View style={styles.serverTitleRow}>
+              <Text style={[styles.serverTitle, { color: colors.foreground }]}>
+                Local Monitoring Server
+              </Text>
+              <View
+                style={[
+                  styles.serverBadge,
+                  { backgroundColor: serverRunning ? colors.success + "22" : colors.muted },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.serverBadgeText,
+                    { color: serverRunning ? colors.success : colors.mutedForeground },
+                  ]}
+                >
+                  {serverRunning ? "RUNNING" : "STOPPED"}
+                </Text>
+              </View>
+            </View>
+            <Text style={[styles.serverDesc, { color: colors.mutedForeground }]}>
+              Embedded HTTP server (port 8765) — serves live agent telemetry over your LAN. Point the web dashboard at this URL to monitor ARIA remotely.
+            </Text>
+          </View>
+          <Switch
+            value={serverRunning}
+            onValueChange={handleToggleServer}
+            disabled={serverWorking}
+            trackColor={{ false: colors.muted, true: colors.success + "66" }}
+            thumbColor={serverRunning ? colors.success : colors.mutedForeground}
+          />
+        </View>
+
+        {/* Device IP row */}
+        <View style={[styles.serverDetailRow, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
+          <Feather name="radio" size={14} color={colors.mutedForeground} />
+          <Text style={[styles.serverDetailLabel, { color: colors.mutedForeground }]}>
+            Device IP
+          </Text>
+          <Text style={[styles.serverDetailValue, { color: colors.foreground }]}>
+            {deviceIp ?? "—"}
+          </Text>
+        </View>
+
+        {/* Server URL row */}
+        <View style={styles.serverUrlRow}>
+          <View style={styles.serverUrlLeft}>
+            <Feather name="link" size={14} color={colors.mutedForeground} />
+            <Text style={[styles.serverDetailLabel, { color: colors.mutedForeground }]}>
+              Dashboard URL
+            </Text>
+          </View>
+          <View style={styles.serverUrlRight}>
+            <Text
+              style={[styles.serverUrlText, { color: serverRunning ? colors.accent : colors.mutedForeground }]}
+              numberOfLines={1}
+            >
+              {serverUrl ?? "—"}
+            </Text>
+            {serverUrl && serverRunning && (
+              <TouchableOpacity
+                onPress={handleCopyUrl}
+                style={[
+                  styles.copyBtn,
+                  {
+                    backgroundColor: urlCopied ? colors.success + "22" : colors.accent + "18",
+                    borderRadius: 6,
+                  },
+                ]}
+              >
+                <Feather
+                  name={urlCopied ? "check" : "copy"}
+                  size={13}
+                  color={urlCopied ? colors.success : colors.accent}
+                />
+                <Text
+                  style={[
+                    styles.copyBtnText,
+                    { color: urlCopied ? colors.success : colors.accent },
+                  ]}
+                >
+                  {urlCopied ? "Copied!" : "Copy"}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </View>
+
       {/* Architecture Info */}
       <SectionHeader title="Architecture (Read-only)" />
       <View
@@ -629,4 +790,59 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   permBtnText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  serverRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    padding: 16,
+    gap: 12,
+  },
+  serverIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    marginTop: 1,
+  },
+  serverInfo: { flex: 1, gap: 4 },
+  serverTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  serverTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  serverBadge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6 },
+  serverBadgeText: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.6 },
+  serverDesc: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 18 },
+  serverDetailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  serverDetailLabel: { fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 },
+  serverDetailValue: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  serverUrlRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  serverUrlLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
+  serverUrlRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+  serverUrlText: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  copyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  copyBtnText: { fontSize: 12, fontFamily: "Inter_500Medium" },
 });

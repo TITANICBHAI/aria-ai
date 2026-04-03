@@ -1185,7 +1185,56 @@ Sequence:
 - [x] `AgentLoop.kt` — `recordAndChain()` called at all 3 task-end points (Done/max-steps/exception)
 - [x] `AgentCoreModule.kt` — 8 Phase 15 bridge methods wired (task queue + skill registry)
 - [x] `AgentCoreBridge.ts` — `QueuedTask` + `AppSkill` TS interfaces + 8 method stubs
+- [x] `AgentContext.tsx` — `taskQueue`, `appSkills`, `chainedTask` state + all 5 context methods
+- [x] `control.tsx` — Task Queue section (enqueue form + live list + clear button)
+- [x] `control.tsx` — Chained task notification banner (auto-dismiss via context)
+- [x] `modules.tsx` — App Skills Registry section (per-app success rate, steps, hint)
 - [x] `DEVELOPMENT_ROADMAP.md` — Phase 15 section + status table row added
+
+---
+
+## Phase 16 — Local Device Monitoring Server
+
+**Goal:** Expose live agent telemetry (metrics, logs, RL stats, LoRA versions) over a LAN-only HTTP server embedded in the app. Zero cloud. Zero external dependencies. The companion web dashboard (`artifacts/web-dashboard/`) connects directly to this server.
+
+**Architecture:**
+```
+Android app (port 8765)
+  └─ LocalDeviceServer.kt          java.net.ServerSocket — no OkHttp, no Ktor
+       └─ /api/status              AgentState + module status JSON
+       └─ /api/logs                Last N action logs
+       └─ /api/metrics             RL episodes, policy loss, Adam step, LoRA version
+       └─ /api/lora                LoRA adapter version list + active adapter path
+       └─ /api/memory              Memory store embedding count + DB size
+       └─ /api/thermal             Current thermal level + inference/training gating
+Web dashboard (Vite+React)
+  └─ artifacts/web-dashboard/src/lib/api.ts
+       └─ Reads device IP entered by user → fetches all /api/* endpoints
+```
+
+**Implementation checklist:**
+
+- [x] `LocalDeviceServer.kt` — `java.net.ServerSocket` on port 8765, 7 REST endpoints, JSON responses via Gson
+- [x] `AgentCoreModule.kt` — 5 Phase 16 bridge methods: `getLocalServerUrl`, `getDeviceIp`, `isLocalServerRunning`, `startLocalServer`, `stopLocalServer`
+- [x] `AgentCoreBridge.ts` — 5 Phase 16 bridge wrappers (real on Android, stubs on web)
+- [x] `AgentContext.tsx` — `localServerUrl` state exposed via context (passive, no polling)
+- [x] `settings.tsx` — "Web Dashboard" section: start/stop toggle, device IP display, server URL with copy button
+- [x] `artifacts/web-dashboard/src/lib/api.ts` — data layer that fetches all 7 endpoints from device URL
+- [x] `DEVELOPMENT_ROADMAP.md` — Phase 16 section added
+
+**Server endpoints (all GET, JSON):**
+
+| Endpoint | Returns |
+|---|---|
+| `/api/status` | `{ status, currentTask, stepCount, loopCount, startedAt }` |
+| `/api/logs` | `{ logs: ActionLog[] }` last 100 entries |
+| `/api/metrics` | `{ episodesRun, adamStep, lastPolicyLoss, loraVersion, adapterLoaded, untrainedSamples }` |
+| `/api/lora` | `{ versions: LoraVersion[], activePath }` |
+| `/api/memory` | `{ embeddingCount, dbSizeKb, ready }` |
+| `/api/thermal` | `{ level, inferenceSafe, trainingSafe, emergency }` |
+| `/api/labels` | `{ total, enriched }` |
+
+**Security note:** Server binds to all interfaces (0.0.0.0) but serves only JSON telemetry — no write endpoints, no shell access, no file upload. Suitable for LAN-only monitoring. Never enable on untrusted networks.
 
 ---
 
