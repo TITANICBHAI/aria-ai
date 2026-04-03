@@ -9,15 +9,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useState } from "react";
-import { Platform } from "react-native";
+import { Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { FloatingChatBubble } from "@/components/FloatingChatBubble";
+import { ModelDownloadScreen } from "@/components/ModelDownloadScreen";
 import { AgentProvider } from "@/context/AgentContext";
 import { AgentCoreBridge } from "@/native-bindings/AgentCoreBridge";
-import { ModelDownloadScreen } from "@/components/ModelDownloadScreen";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -25,9 +26,12 @@ const queryClient = new QueryClient();
 
 function RootLayoutNav() {
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-    </Stack>
+    <View style={{ flex: 1 }}>
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      </Stack>
+      <FloatingChatBubble />
+    </View>
   );
 }
 
@@ -66,7 +70,7 @@ export default function RootLayout() {
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
           <AgentProvider>
-            <GestureHandlerRootView>
+            <GestureHandlerRootView style={{ flex: 1 }}>
               <KeyboardProvider>
                 {modelReady ? (
                   <RootLayoutNav />
