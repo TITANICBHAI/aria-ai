@@ -316,11 +316,27 @@ EmbeddingEngine from Kotlin scalar math to NEON SIMD automatically.
 
 All five steps required to go from zero stubs to a fully real ARIA:
 
-1. `git submodule add https://github.com/ggerganov/llama.cpp android/app/src/main/cpp/llama.cpp`
-2. Add `add_compile_definitions(LLAMA_HAS_TRAINING)` in `CMakeLists.txt`
-3. `eas build --platform android --profile development` — installs on Galaxy M31
-4. Launch app — MiniLM auto-downloads in background within 60s (Stub 4 gone)
-5. Use the app → collect experience → LearningScheduler fires → real LoRA weights produced (Stub 2 gone)
+```bash
+# Step 1 — Add llama.cpp submodule (one-time, run on any machine with git + NDK)
+cd artifacts/mobile/android/app/src/main/cpp
+git submodule add https://github.com/ggerganov/llama.cpp llama.cpp
+git submodule update --init --recursive
+
+# Step 2 — Enable real LoRA training (add this line to CMakeLists.txt)
+# Open: artifacts/mobile/android/app/src/main/cpp/CMakeLists.txt
+# Add:  add_compile_definitions(LLAMA_HAS_TRAINING)
+
+# Step 3 — Build and sideload the APK onto the Galaxy M31
+eas build --platform android --profile development
+# Then: eas run:android  OR  adb install <downloaded.apk>
+
+# Step 4 — On first launch, MiniLM auto-downloads in background (~23MB, ~30-60s on WiFi)
+# Stub 4 (hash embedding fallback) disappears automatically once the file lands.
+
+# Step 5 — Use the agent, collect experience, plug in to charge
+# LearningScheduler fires a training cycle → LoRA writes real adapter_vN.bin
+# Stub 2 (LoRA training) is gone from this point forward.
+```
 
 Stubs 6 and 7 are production-path polish (Play Store delivery and Compose launcher),
 not required for a fully functional on-device AI agent.
