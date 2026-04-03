@@ -7,9 +7,13 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@workspace/schemas": "workspace:*",
     "@workspace/shared-utils": "workspace:*"
   },
   "peerDependencies": {
     "react": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:"
   }
 }

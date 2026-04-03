@@ -17,6 +17,7 @@
     "recharts": "^2.15.4"
   },
   "devDependencies": {
+    "@types/lodash": "^4.17.0",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
