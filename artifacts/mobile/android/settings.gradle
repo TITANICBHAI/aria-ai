@@ -67,5 +67,57 @@ pluginManagement {
     }
 }
 
+// ─── Manually linked native modules ─────────────────────────────────────────
+// autolinkLibrariesFromCommand (com.facebook.react.settings) was removed to fix
+// Gradle composite-build plugin resolution failures. Every module with native
+// Android code is included here explicitly instead.
+//
+// Search order: local node_modules first (artifacts/mobile/node_modules/),
+// then workspace-root node_modules (hoisted by pnpm with node-linker=hoisted).
+// ─────────────────────────────────────────────────────────────────────────────
+def findNativeModuleAndroidDir = { String modulePath ->
+    def local = new File(settingsDir, "../node_modules/${modulePath}/android")
+    if (local.exists()) return local.canonicalFile
+    def root = new File(settingsDir, "../../../node_modules/${modulePath}/android")
+    if (root.exists()) return root.canonicalFile
+    return null
+}
+
+[
+    // React Native community modules
+    ["async-storage",                    "@react-native-async-storage/async-storage"],
+    ["react-native-gesture-handler",     "react-native-gesture-handler"],
+    ["react-native-keyboard-controller", "react-native-keyboard-controller"],
+    ["react-native-reanimated",          "react-native-reanimated"],
+    ["react-native-safe-area-context",   "react-native-safe-area-context"],
+    ["react-native-screens",             "react-native-screens"],
+    ["react-native-svg",                 "react-native-svg"],
+    ["react-native-worklets",            "react-native-worklets"],
+    // Expo modules
+    ["expo-modules-core",                "expo-modules-core"],
+    ["expo-blur",                        "expo-blur"],
+    ["expo-constants",                   "expo-constants"],
+    ["expo-font",                        "expo-font"],
+    ["expo-haptics",                     "expo-haptics"],
+    ["expo-image",                       "expo-image"],
+    ["expo-image-picker",                "expo-image-picker"],
+    ["expo-linear-gradient",             "expo-linear-gradient"],
+    ["expo-linking",                     "expo-linking"],
+    ["expo-location",                    "expo-location"],
+    ["expo-splash-screen",               "expo-splash-screen"],
+    ["expo-system-ui",                   "expo-system-ui"],
+    ["expo-web-browser",                 "expo-web-browser"],
+].each { tuple ->
+    def projectName = tuple[0]
+    def modulePath  = tuple[1]
+    def moduleDir   = findNativeModuleAndroidDir(modulePath)
+    if (moduleDir != null) {
+        include ":${projectName}"
+        project(":${projectName}").projectDir = moduleDir
+    } else {
+        logger.warn("[ARIA] Could not locate native module android dir: ${modulePath} — skipping")
+    }
+}
+
 rootProject.name = "mobile"
 include(":app")

@@ -2,7 +2,6 @@ package com.ariaagent.mobile
 
 import android.app.Application
 import com.ariaagent.mobile.bridge.AgentCorePackage
-import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeHost
@@ -11,15 +10,36 @@ import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.load
 import com.facebook.react.defaults.DefaultReactNativeHost
 import com.facebook.react.soloader.OpenSourceMergedSoMapping
 import com.facebook.soloader.SoLoader
+import com.reactnativecommunity.asyncstorage.AsyncStoragePackage
+import com.swmansion.gesturehandler.RNGestureHandlerPackage
+import com.reactnativekeyboardcontroller.KeyboardControllerPackage
+import com.swmansion.reanimated.ReanimatedPackage
+import com.th3rdwave.safeareacontext.SafeAreaContextPackage
+import com.swmansion.rnscreens.RNScreensPackage
+import com.horcrux.svg.SvgPackage
+import com.swmansion.worklets.WorkletsPackage
+import expo.modules.adapters.react.ModuleRegistryAdapter
 
 class MainApplication : Application(), ReactApplication {
 
     override val reactNativeHost: ReactNativeHost =
         object : DefaultReactNativeHost(this) {
-            override fun getPackages(): List<ReactPackage> =
-                PackageList(this).packages.apply {
-                    add(AgentCorePackage())
-                }
+            override fun getPackages(): List<ReactPackage> = listOf(
+                // React Native community native modules (manually linked)
+                AsyncStoragePackage(),
+                RNGestureHandlerPackage(),
+                KeyboardControllerPackage(),
+                ReanimatedPackage(),
+                SafeAreaContextPackage(),
+                RNScreensPackage(),
+                SvgPackage(),
+                WorkletsPackage(),
+                // Expo modules — ExpoModulesHelper discovers expo.modules.ExpoModulesPackageList
+                // via reflection; ExpoModulesPackageList is defined in this module's source.
+                ModuleRegistryAdapter(emptyList()),
+                // Custom native bridge
+                AgentCorePackage(),
+            )
 
             override fun getJSMainModuleName(): String = "index"
 
