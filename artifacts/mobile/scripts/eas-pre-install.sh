@@ -10,20 +10,23 @@
 #      patch it so Gradle can compile it reliably as a composite build.
 #
 #      Why patching is needed:
-#        The npm package's settings.gradle.kts declares:
-#          plugins { id("org.gradle.toolchains.foojay-resolver-convention").version("0.5.0") }
-#        This forces Gradle to download foojay from the Gradle Plugin Portal
-#        DURING the settings evaluation phase (before any caching). On a cold
-#        EAS worker, this download silently fails, causing Gradle to report:
-#          "No included builds contain this plugin"
-#        Because EAS provides JDK 17 directly, foojay's JDK auto-resolver is
-#        not needed. Removing the declaration eliminates the failure point.
+#        The npm package's settings.gradle.kts declares a pluginManagement
+#        block that, when used as a composite included build, can interfere
+#        with plugin resolution in Gradle 8.8+. When a project is used as a
+#        composite included build, Gradle ignores its pluginManagement block
+#        but the presence of the block can still break settings plugin
+#        registration. Removing the entire block eliminates the failure point.
 #
 #      Why android/node_modules/:
 #        pnpm hoists @react-native/gradle-plugin to the workspace root's
 #        node_modules/. That workspace-root copy is unpatched (pnpm install
 #        runs AFTER this hook). Our patched copy in android/node_modules/ is
 #        checked FIRST by settings.gradle, ensuring Gradle always uses it.
+#
+#   3. Enforce Gradle wrapper at 8.8.0 — the version @react-native/gradle-plugin
+#      0.81.x was validated against. Gradle 8.10+ changed how settings plugins
+#      are resolved from composite included builds, breaking the
+#      com.facebook.react.settings registration.
 # ──────────────────────────────────────────────────────────────────────────────
 set -eu
 
@@ -84,18 +87,103 @@ else
     echo "@react-native/gradle-plugin already in android/node_modules/"
 fi
 
-# ── Task 3: Patch the included build to remove foojay ───────────────────────
+# ── Task 3: Enforce Gradle wrapper version ──────────────────────────────────
 #
-# The foojay-resolver-convention plugin in settings.gradle.kts forces Gradle
-# to hit the Gradle Plugin Portal during settings evaluation. On a cold EAS
-# worker (no Gradle cache) this download silently fails. Since EAS provides
-# JDK 17, foojay's auto-resolver is unnecessary. Remove it.
+# Pin the main project's Gradle wrapper to 8.8.0. This is a build-time guard
+# so the version cannot drift back to 8.14.3+ from a future edit or update.
+#
+GRADLE_PROPS="android/gradle/wrapper/gradle-wrapper.properties"
+
+echo "=== ARIA EAS pre-install: enforcing Gradle wrapper version ==="
+
+if [ -f "$GRADLE_PROPS" ]; then
+    if ! grep -q "gradle-8.8.0" "$GRADLE_PROPS"; then
+        node -e "
+const fs = require('fs');
+const path = '$GRADLE_PROPS';
+let content = fs.readFileSync(path, 'utf8');
+content = content.replace(
+  /distributionUrl=.*gradle-[^\\n]+\.zip/,
+  'distributionUrl=https\\\\://services.gradle.org/distributions/gradle-8.8.0-all.zip'
+);
+fs.writeFileSync(path, content);
+console.log('Enforced gradle-8.8.0 in ' + path);
+"
+        echo "=== Enforced Gradle wrapper: pinned to 8.8.0 in $GRADLE_PROPS ==="
+    else
+        echo "=== Gradle wrapper already at 8.8.0 — no change needed ==="
+    fi
+else
+    echo "WARNING: $GRADLE_PROPS not found — skipping Gradle version enforcement"
+fi
+
+# ── Task 4: Patch the included build to remove pluginManagement block ────────
+#
+# When @react-native/gradle-plugin is used as a composite included build, its
+# own pluginManagement block is ignored by Gradle but can interfere with plugin
+# resolution in Gradle 8.8+. Remove the entire block (not just foojay) to
+# ensure the included build integrates cleanly.
 #
 SETTINGS_KTS="$GRADLE_PLUGIN_DIR/settings.gradle.kts"
 
-if grep -q "foojay" "$SETTINGS_KTS" 2>/dev/null; then
-    sed -i '/foojay/d' "$SETTINGS_KTS"
-    echo "=== Patched $SETTINGS_KTS: removed foojay plugin declaration ==="
+echo "=== ARIA EAS pre-install: patching @react-native/gradle-plugin settings ==="
+
+if grep -q "pluginManagement" "$SETTINGS_KTS" 2>/dev/null; then
+    node -e "
+const fs = require('fs');
+const path = '$SETTINGS_KTS';
+let text = fs.readFileSync(path, 'utf8');
+
+// Remove the entire pluginManagement { ... } block using a brace-counting state machine
+let out = [];
+let pos = 0;
+let inBlock = false;
+let depth = 0;
+
+while (pos < text.length) {
+  if (!inBlock) {
+    const idx = text.indexOf('pluginManagement', pos);
+    if (idx === -1) {
+      out.push(text.slice(pos));
+      break;
+    }
+    const bracePos = text.indexOf('{', idx);
+    if (bracePos === -1) {
+      out.push(text.slice(pos));
+      break;
+    }
+    // Keep everything before the pluginManagement keyword (strip trailing whitespace)
+    const prefix = text.slice(pos, idx).replace(/\\s+$/, '');
+    if (prefix.length > 0) {
+      out.push(prefix + '\\n');
+    }
+    depth = 1;
+    inBlock = true;
+    pos = bracePos + 1;
+  } else {
+    const nextOpen = text.indexOf('{', pos);
+    const nextClose = text.indexOf('}', pos);
+    if (nextClose === -1) break;
+    if (nextOpen !== -1 && nextOpen < nextClose) {
+      depth++;
+      pos = nextOpen + 1;
+    } else {
+      depth--;
+      pos = nextClose + 1;
+      if (depth === 0) {
+        inBlock = false;
+        // Skip trailing newline after closing brace
+        if (pos < text.length && text[pos] === '\\n') pos++;
+      }
+    }
+  }
+}
+
+const result = out.join('').replace(/^\\n+/, '');
+fs.writeFileSync(path, result);
+console.log('Removed pluginManagement block from ' + path);
+"
+    echo "=== Patched $SETTINGS_KTS: removed pluginManagement block ==="
 else
-    echo "=== $SETTINGS_KTS already foojay-free ==="
+    echo "=== $SETTINGS_KTS already has no pluginManagement block ==="
 fi
