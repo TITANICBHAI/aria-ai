@@ -1,13 +1,48 @@
 pluginManagement {
-    // settingsDir = the android/ folder containing this file.
-    // settingsDir.parentFile = artifacts/mobile/ (the JS project root).
-    // Node.js traverses up from there so it works whether packages are hoisted
-    // to the workspace root or installed locally (depends on EAS install strategy).
-    def rnPluginPath = ["node", "--print",
-        "require.resolve('@react-native/gradle-plugin/package.json')"
-    ].execute(null, settingsDir.parentFile).text.trim()
+    // Locate @react-native/gradle-plugin robustly.
+    //
+    // Strategy 1 – dynamic Node.js resolution (works locally and on most CI).
+    // Strategy 2 – walk candidate relative paths (fallback when `node` is not
+    //              in Gradle's JVM PATH on EAS cloud builders).
+    //
+    // settingsDir = android/  (where this file lives)
+    // settingsDir.parentFile = artifacts/mobile/  (JS project root)
 
-    includeBuild(new File(rnPluginPath).parentFile)
+    def rnPluginDir = null
+
+    // Strategy 1: ask Node to resolve the package
+    try {
+        def proc = ["node", "--print",
+            "require.resolve('@react-native/gradle-plugin/package.json')"
+        ].execute(null, settingsDir.parentFile)
+        proc.waitFor()
+        if (proc.exitValue() == 0) {
+            def resolved = proc.text.trim()
+            if (resolved) {
+                def candidate = new File(resolved).parentFile
+                if (candidate.exists()) rnPluginDir = candidate
+            }
+        }
+    } catch (Exception ignored) {}
+
+    // Strategy 2: scan depths 1-4 up from android/
+    if (rnPluginDir == null) {
+        def base = settingsDir
+        for (int i = 0; i < 5 && rnPluginDir == null; i++) {
+            def candidate = new File(base, "node_modules/@react-native/gradle-plugin")
+            if (candidate.exists()) rnPluginDir = candidate
+            base = base.parentFile
+        }
+    }
+
+    if (rnPluginDir == null) {
+        throw new GradleException(
+            "Cannot locate @react-native/gradle-plugin. " +
+            "Ensure node_modules are installed."
+        )
+    }
+
+    includeBuild(rnPluginDir)
 
     repositories {
         google()

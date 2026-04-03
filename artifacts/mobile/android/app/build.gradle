@@ -3,24 +3,43 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
 react {
-    // rootDir = android/ (the Gradle root project dir).
-    // rootDir.parentFile = artifacts/mobile/ (the JS project root).
-    // Node.js resolves from there, traversing up through hoisted or local node_modules.
-    def jsRoot = rootDir.parentFile
+    // Locate react-native and @react-native/codegen robustly.
+    // Strategy 1: Node.js resolution (works locally and most CI).
+    // Strategy 2: walk candidate paths (fallback when node not in Gradle's PATH).
+    // rootDir = android/  rootDir.parentFile = artifacts/mobile/ (JS project root)
 
-    def rnPkg = ["node", "--print",
-        "require.resolve('react-native/package.json')"
-    ].execute(null, jsRoot).text.trim()
-    def rnDir = new File(rnPkg).parentFile
+    def findPkg = { String pkg ->
+        def dir = null
+        try {
+            def proc = ["node", "--print",
+                "require.resolve('${pkg}/package.json')"
+            ].execute(null, rootDir.parentFile)
+            proc.waitFor()
+            if (proc.exitValue() == 0) {
+                def resolved = proc.text.trim()
+                if (resolved) dir = new File(resolved).parentFile
+            }
+        } catch (Exception ignored) {}
 
-    def codegenPkg = ["node", "--print",
-        "require.resolve('@react-native/codegen/package.json')"
-    ].execute(null, jsRoot).text.trim()
+        if (dir == null || !dir.exists()) {
+            def base = rootDir.parentFile
+            for (int i = 0; i < 5 && dir == null; i++) {
+                def candidate = new File(base, "node_modules/${pkg}")
+                if (candidate.exists()) dir = candidate
+                base = base.parentFile
+            }
+        }
+        if (dir == null) throw new GradleException("Cannot locate ${pkg}")
+        return dir
+    }
 
-    root        = file("../../")
-    jsRootDir   = file("../../")
+    def rnDir          = findPkg("react-native")
+    def rnCodegenDir   = findPkg("@react-native/codegen")
+
+    root           = file("../../")
+    jsRootDir      = file("../../")
     reactNativeDir = rnDir
-    codegenDir     = new File(codegenPkg).parentFile
+    codegenDir     = rnCodegenDir
     cliFile        = new File(rnDir, "cli.js")
     hermesCommand  = new File(rnDir, "sdks/hermesc/%OS-BIN%/hermesc").toString()
 }
