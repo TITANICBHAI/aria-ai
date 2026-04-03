@@ -1,7 +1,7 @@
 # ARIA AI — Error Registry
 
-> **Last updated:** 2026-04-03 (session 3 — EAS llama.cpp hook + ModelBootstrap)  
-> **Scanned:** TypeScript compile · Android build config · Kotlin native modules · Expo/RN dependency audit · iOS code paths · Resource files · Workspace config
+> **Last updated:** 2026-04-03 (session 4 — ThermalGuard · NativeAgentCore spec · import cleanup)  
+> **Scanned:** All 48 Kotlin files · 23 TypeScript/TSX files · AndroidManifest · build configs · web-dashboard · shared schemas · markdown docs
 
 ---
 
@@ -19,7 +19,7 @@
 ## Status Summary
 | ✅ Fixed | ⚙️ Auto-fix on native build |
 |---------|----------------------------|
-| E01 E02 E03 E05 E06 E07 E08 E09 | E10a E10b |
+| E01 E02 E03 E05 E06 E07 E08 E09 E11 E12 E13 | E10a E10b |
 
 ---
 
@@ -38,6 +38,9 @@
 | E09 | 🟡 MEDIUM | Dead Packages | `artifacts/mobile/package.json` | `expo-symbols@~1.0.8` (SF Symbols, iOS-only) and `expo-glass-effect@~0.1.4` (Liquid Glass, iOS-only) installed but fully unused on Android. | ✅ FIXED — removed both packages |
 | E10a | ⚙️ AUTO | Kotlin Stub | `…/core/ai/LlamaEngine.kt` | `jniAvailable=false` when `libllama-jni.so` absent. Returns hardcoded stub JSON. Catches `UnsatisfiedLinkError` in `companion object init`. | ⚙️ AUTO-FIXES when E03 resolved and native build compiles the `.so` |
 | E10b | ⚙️ AUTO | Kotlin Stub | `…/core/rl/LoraTrainer.kt` | `jniTrainingAvailable=false`; `stubTrainLora()` writes metadata-only `.bin` so versioning/hot-reload paths work without real training. | ⚙️ AUTO-FIXES when E03 resolved |
+| E11 | 🔴 CRITICAL | Kotlin API | `…/core/system/ThermalGuard.kt:93` | `clearThermalStatusListeners()` called on `PowerManager` — this method does **NOT exist** in the Android SDK. Causes `Unresolved reference` build failure. Fix: store the `Consumer<Int>` reference at object level; call `removeThermalStatusListener(consumer)` with the same instance. | ✅ FIXED — `thermalConsumer` field stores lambda; `unregisterThermalManager()` calls `removeThermalStatusListener(thermalConsumer)` |
+| E12 | 🟠 HIGH | TS Spec | `artifacts/mobile/native-bindings/NativeAgentCore.ts` | 6 TurboModule spec signatures do not match `AgentCoreModule.kt` implementations. With `newArchEnabled=true`, codegen generates C++ stubs from this spec — mismatches cause calling convention divergence and runtime crashes. Mismatched methods: `getObjectLabels` (missing `screenHash`), `saveObjectLabels` (missing `appPackage`, `screenHash`), `enrichLabelsWithLLM` (missing `screenContext`), `getProgressContext` (wrong return type `Object` vs `string`), `initGoals` (wrong param `goalsJson` vs `goal + subTasksJson`), `enqueueTask` (wrong param `taskJson` vs `goal + appPackage + priority`, wrong return `boolean` vs `Object`). | ✅ FIXED — all 6 signatures corrected to match Kotlin `@ReactMethod` declarations and `AgentCoreBridge.ts` call sites |
+| E13 | 🟢 LOW | Kotlin | `…/core/agent/AgentLoop.kt:28-29` and `…/core/rl/LearningScheduler.kt:14-16` | Redundant self-imports: classes in the same package explicitly imported (`AppSkillRegistry`, `TaskQueueManager` in AgentLoop; `LlmRewardEnricher`, `LoraTrainer`, `PolicyNetwork` in LearningScheduler). Kotlin resolves same-package symbols without imports. Also: `android.util.Log` import appeared after kotlinx imports in AgentLoop (misordered). | ✅ FIXED — removed all same-package imports; reordered AgentLoop import block alphabetically |
 
 ---
 

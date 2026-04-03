@@ -231,22 +231,22 @@ export interface Spec extends TurboModule {
 
   // ── Screen labeler ─────────────────────────────────────────────────────────
   captureScreenForLabeling(): Promise<Object>;
-  getObjectLabels(appPackage: string): Promise<Object[]>;
+  getObjectLabels(appPackage: string, screenHash: string): Promise<Object[]>;
   getAllLabels(): Promise<Object[]>;
-  saveObjectLabels(labelsJson: string): Promise<boolean>;
+  saveObjectLabels(appPackage: string, screenHash: string, labelsJson: string): Promise<boolean>;
   deleteObjectLabel(labelId: string): Promise<boolean>;
-  enrichLabelsWithLLM(labelsJson: string): Promise<Object>;
+  enrichLabelsWithLLM(labelsJson: string, screenContext: string): Promise<Object>;
   getLabelStats(): Promise<Object>;
 
   // ── Progress / goal tracking ───────────────────────────────────────────────
-  getProgressContext(): Promise<Object>;
+  getProgressContext(): Promise<string>;
   clearProgress(): Promise<boolean>;
-  initGoals(goalsJson: string): Promise<boolean>;
+  initGoals(goal: string, subTasksJson: string): Promise<boolean>;
   getGoalSummary(): Promise<Object>;
   markSubTaskPassed(taskId: string): Promise<boolean>;
 
   // ── Task queue ─────────────────────────────────────────────────────────────
-  enqueueTask(taskJson: string): Promise<boolean>;
+  enqueueTask(goal: string, appPackage: string, priority: number): Promise<Object>;
   dequeueTask(): Promise<Object>;
   getTaskQueue(): Promise<Object[]>;
   removeQueuedTask(taskId: string): Promise<boolean>;
