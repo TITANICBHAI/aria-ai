@@ -1,36 +1,40 @@
 pluginManagement {
-    // Locate @react-native/gradle-plugin robustly.
+    // Locate @react-native/gradle-plugin for composite build (includeBuild).
     //
-    // Strategy 0 – read WORKSPACE_ROOT from gradle.properties (most reliable on EAS:
-    //              pnpm hoists packages to the workspace root, not artifacts/mobile/).
-    // Strategy 1 – dynamic Node.js resolution (works locally and on most CI).
-    // Strategy 2 – walk candidate relative paths (fallback when `node` is not
-    //              in Gradle's JVM PATH on EAS cloud builders).
+    // Priority order:
+    //   1. android/node_modules/  — written + patched by eas-pre-install.sh
+    //                               (foojay declaration removed so Gradle never
+    //                               hits the Plugin Portal during settings eval)
+    //   2. ../../../node_modules/ — workspace root, where pnpm hoists packages
+    //                               (node-linker=hoisted in .npmrc)
+    //   3. Node.js require.resolve — runtime fallback for local dev
     //
-    // settingsDir = android/  (where this file lives)
-    // settingsDir.parentFile = artifacts/mobile/  (JS project root)
-    // WORKSPACE_ROOT (../../..) = monorepo root where pnpm hoists node_modules
+    // Why patching matters:
+    //   The npm package ships settings.gradle.kts with:
+    //     plugins { id("org.gradle.toolchains.foojay-resolver-convention").version("0.5.0") }
+    //   Gradle downloads this from the Plugin Portal during settings phase.
+    //   On a cold EAS worker (no Gradle cache) the download silently fails →
+    //   "No included builds contain this plugin". EAS provides JDK 17 directly,
+    //   so foojay is not needed. eas-pre-install.sh removes it from the copy in
+    //   android/node_modules/, which this block uses first.
 
     def rnPluginDir = null
 
-    // Strategy 0: resolve via WORKSPACE_ROOT declared in gradle.properties.
-    // This is the most reliable path on EAS because pnpm hoists @react-native/gradle-plugin
-    // to the workspace root node_modules, not to artifacts/mobile/node_modules.
-    try {
-        def propsFile = new File(settingsDir, "gradle.properties")
-        if (propsFile.exists()) {
-            def props = new Properties()
-            propsFile.withInputStream { props.load(it) }
-            def wsRelPath = props.getProperty("WORKSPACE_ROOT")
-            if (wsRelPath) {
-                def wsRoot = new File(settingsDir, wsRelPath).canonicalFile
-                def candidate = new File(wsRoot, "node_modules/@react-native/gradle-plugin")
-                if (candidate.exists()) rnPluginDir = candidate.canonicalFile
-            }
-        }
-    } catch (Exception ignored) {}
+    // 1. android/node_modules — patched by eas-pre-install.sh
+    def localCandidate = new File(settingsDir, "node_modules/@react-native/gradle-plugin")
+    if (localCandidate.exists()) {
+        rnPluginDir = localCandidate.canonicalFile
+    }
 
-    // Strategy 1: ask Node to resolve the package
+    // 2. workspace root node_modules (pnpm hoisted, node-linker=hoisted)
+    if (rnPluginDir == null) {
+        def wsCandidate = new File(settingsDir, "../../../node_modules/@react-native/gradle-plugin").canonicalFile
+        if (wsCandidate.exists()) {
+            rnPluginDir = wsCandidate
+        }
+    }
+
+    // 3. Node.js require.resolve — local dev fallback
     if (rnPluginDir == null) {
         try {
             def proc = ["node", "--print",
@@ -47,20 +51,10 @@ pluginManagement {
         } catch (Exception ignored) {}
     }
 
-    // Strategy 2: scan depths 0-4 up from android/
-    if (rnPluginDir == null) {
-        def base = settingsDir
-        for (int i = 0; i < 5 && rnPluginDir == null; i++) {
-            def candidate = new File(base, "node_modules/@react-native/gradle-plugin")
-            if (candidate.exists()) rnPluginDir = candidate.canonicalFile
-            base = base.parentFile
-        }
-    }
-
     if (rnPluginDir == null) {
         throw new GradleException(
-            "Cannot locate @react-native/gradle-plugin. " +
-            "Ensure node_modules are installed and WORKSPACE_ROOT is set in gradle.properties."
+            "Cannot locate @react-native/gradle-plugin.\n" +
+            "Ensure pnpm install has run and eas-pre-install.sh has executed."
         )
     }
 

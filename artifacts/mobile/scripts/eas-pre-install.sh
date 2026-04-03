@@ -6,17 +6,24 @@
 #   1. Clone llama.cpp into the NDK build tree so CMake can compile
 #      libllama-jni.so into the APK at build time.
 #
-#   2. Install @react-native/gradle-plugin into android/node_modules/ so
-#      Gradle can reliably find it in this pnpm monorepo.
+#   2. Install @react-native/gradle-plugin into android/node_modules/ and
+#      patch it so Gradle can compile it reliably as a composite build.
 #
-#      Why this is needed:
-#        In a pnpm workspace, packages are hoisted to the workspace root's
-#        node_modules/ as entries in pnpm's virtual store (.pnpm/).
-#        Gradle's includeBuild() can fail to compile and register
-#        com.facebook.react.settings when the source lives behind pnpm's
-#        symlink chain. A real npm-installed copy in android/node_modules/
-#        gives Gradle a clean, writable directory it can build reliably.
-#        This location is checked first by settings.gradle (Strategy 2, i=0).
+#      Why patching is needed:
+#        The npm package's settings.gradle.kts declares:
+#          plugins { id("org.gradle.toolchains.foojay-resolver-convention").version("0.5.0") }
+#        This forces Gradle to download foojay from the Gradle Plugin Portal
+#        DURING the settings evaluation phase (before any caching). On a cold
+#        EAS worker, this download silently fails, causing Gradle to report:
+#          "No included builds contain this plugin"
+#        Because EAS provides JDK 17 directly, foojay's JDK auto-resolver is
+#        not needed. Removing the declaration eliminates the failure point.
+#
+#      Why android/node_modules/:
+#        pnpm hoists @react-native/gradle-plugin to the workspace root's
+#        node_modules/. That workspace-root copy is unpatched (pnpm install
+#        runs AFTER this hook). Our patched copy in android/node_modules/ is
+#        checked FIRST by settings.gradle, ensuring Gradle always uses it.
 # ──────────────────────────────────────────────────────────────────────────────
 set -eu
 
@@ -45,15 +52,13 @@ else
     echo "=== llama.cpp cloned (commit: $CLONED_COMMIT) — ready for NDK build ==="
 fi
 
-# ── Task 2: @react-native/gradle-plugin ─────────────────────────────────────
+# ── Task 2: @react-native/gradle-plugin (install + patch) ───────────────────
 RN_PLUGIN_VERSION="0.81.5"
 GRADLE_PLUGIN_DIR="android/node_modules/@react-native/gradle-plugin"
 
 echo "=== ARIA EAS pre-install: checking @react-native/gradle-plugin ==="
 
-if [ -d "$GRADLE_PLUGIN_DIR" ]; then
-    echo "@react-native/gradle-plugin already in android/node_modules/ — skipping install"
-else
+if [ ! -d "$GRADLE_PLUGIN_DIR" ]; then
     echo "Installing @react-native/gradle-plugin@${RN_PLUGIN_VERSION} into android/node_modules/…"
 
     RN_PLUGIN_TMP=$(mktemp -d)
@@ -68,8 +73,28 @@ else
               "$GRADLE_PLUGIN_DIR"
         echo "=== @react-native/gradle-plugin installed at $GRADLE_PLUGIN_DIR ==="
     else
-        echo "WARNING: npm install for @react-native/gradle-plugin failed — Gradle may not locate the plugin"
+        echo "WARNING: npm install for @react-native/gradle-plugin failed"
+        rm -rf "$RN_PLUGIN_TMP"
+        exit 0
     fi
 
     rm -rf "$RN_PLUGIN_TMP"
+else
+    echo "@react-native/gradle-plugin already in android/node_modules/"
+fi
+
+# ── Task 3: Patch the included build to remove foojay ───────────────────────
+#
+# The foojay-resolver-convention plugin in settings.gradle.kts forces Gradle
+# to hit the Gradle Plugin Portal during settings evaluation. On a cold EAS
+# worker (no Gradle cache) this download silently fails. Since EAS provides
+# JDK 17, foojay's auto-resolver is unnecessary. Remove it.
+#
+SETTINGS_KTS="$GRADLE_PLUGIN_DIR/settings.gradle.kts"
+
+if grep -q "foojay" "$SETTINGS_KTS" 2>/dev/null; then
+    sed -i '/foojay/d' "$SETTINGS_KTS"
+    echo "=== Patched $SETTINGS_KTS: removed foojay plugin declaration ==="
+else
+    echo "=== $SETTINGS_KTS already foojay-free ==="
 fi
