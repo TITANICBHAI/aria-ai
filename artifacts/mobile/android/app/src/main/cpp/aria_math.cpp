@@ -11,7 +11,7 @@
  * Operations exposed to Kotlin via JNI:
  *   nativeCosineSimilarity(a, b): Float   → EmbeddingEngine.retrieve()
  *   nativeL2Normalize(v): FloatArray      → EmbeddingEngine.embed()
- *   nativeMatMulRelu(W, x, rows, cols)    → PolicyNetwork.forward()
+ *   nativeMatVecRelu(W, x, rows, cols)    → PolicyNetwork.forward()
  *   nativeSoftmax(logits): FloatArray     → PolicyNetwork.selectAction()
  *   nativeDotProduct(a, b): Float         → general purpose
  *

@@ -6,8 +6,12 @@
 #include <atomic>
 
 #include "llama.h"
-#include "common/common.h"
-#include "ggml-opt.h"          // llama_opt_init / llama_opt_epoch / ggml_opt_dataset_t
+// In llama.cpp b4200, common.h is included directly (the common/ subdir is in
+// the include path via CMakeLists.txt target_include_directories).
+#include "common.h"
+// NOTE: ggml-opt.h is only needed when LLAMA_HAS_TRAINING is defined.
+// That flag is currently disabled pending API verification against b4200.
+// #include "ggml-opt.h"          // llama_opt_init / llama_opt_epoch / ggml_opt_dataset_t
 
 #define TAG "LlamaJNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)

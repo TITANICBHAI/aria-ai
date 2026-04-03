@@ -41,9 +41,10 @@ else
         rm -rf "$LLAMA_DIR"
     fi
 
-    echo "Cloning llama.cpp (shallow, default branch)…"
+    echo "Cloning llama.cpp (pinned to b4200 for reproducible NDK builds)…"
     git clone \
         --depth=1 \
+        --branch b4200 \
         --single-branch \
         https://github.com/ggerganov/llama.cpp.git \
         "$LLAMA_DIR"

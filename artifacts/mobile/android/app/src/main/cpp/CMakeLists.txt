@@ -24,6 +24,10 @@ set(LLAMA_NATIVE OFF CACHE BOOL "Cross-compiling for arm64-v8a" FORCE)
 set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+# LLAMA_BUILD_COMMON defaults to LLAMA_STANDALONE, which is OFF when llama.cpp
+# is consumed via add_subdirectory (not a top-level build). Force it ON so the
+# 'common' CMake target is always produced and can be linked by llama-jni.
+set(LLAMA_BUILD_COMMON ON CACHE BOOL "Build llama.cpp common utilities" FORCE)
 
 # ─── Add llama.cpp as a static library ───────────────────────────────────────
 add_subdirectory(${LLAMA_DIR} llama_build)
@@ -50,11 +54,17 @@ target_include_directories(llama-jni PRIVATE
     ${LLAMA_DIR}
     ${LLAMA_DIR}/common
     ${LLAMA_DIR}/ggml/include
+    ${LLAMA_DIR}/ggml/src
 )
 
+# NOTE: In llama.cpp post-b3800 the 'common' library was split into multiple
+# targets. For the pinned b4200 tag the target is still 'common' but the
+# include path is now directly ${LLAMA_DIR}/common (already listed above).
+# If the build fails with 'common not found', check the tag's CMakeLists.txt
+# and update the target name here accordingly.
 target_link_libraries(llama-jni
     llama           # llama.cpp core
-    common          # llama.cpp common utilities
+    common          # llama.cpp common utilities (b4200 layout)
     ${VULKAN_LIB}   # Mali-G72 GPU offload
     ${LOG_LIB}      # __android_log_print
     android         # ANativeWindow (Vulkan surface)
@@ -64,14 +74,26 @@ target_link_libraries(llama-jni
 target_compile_options(llama-jni PRIVATE
     -O3                  # Maximum optimization
     -march=armv8-a       # Exynos 9611 is ARMv8-A
-    -mfpu=neon           # NEON SIMD (always present on arm64)
+    # NOTE: -mfpu=neon is intentionally omitted. It is a 32-bit ARM flag only.
+    # On arm64-v8a (AArch64), NEON is always available and requires no flag.
+    # NDK r23+ rejects -mfpu=neon on AArch64 with a compiler error.
     -ffast-math          # Aggressive float optimization for inference
     -funroll-loops
 )
 
-# ─── Enable on-device LoRA training via llama_opt_* API ─────────────────────
-# Activates the real gradient-descent training path in nativeTrainLora().
-# Requires llama.cpp present (already cloned to llama.cpp/).
-# Uses ggml_opt_init / llama_opt_init / llama_opt_epoch from ggml-opt.h.
-# The ggml-opt.o target is compiled by add_subdirectory(llama_build) above.
-add_compile_definitions(LLAMA_HAS_TRAINING)
+# ─── On-device LoRA training via llama_opt_* API ─────────────────────────────
+# DISABLED: The ggml_opt_* / llama_opt_* training API (llama_opt_init,
+# llama_opt_epoch, ggml_opt_dataset_t, etc.) is not stable in llama.cpp b4200.
+# The API surface changed significantly between b3800 and b4200; enabling this
+# without verification causes compile errors.
+#
+# To re-enable: verify that the pinned llama.cpp tag exports:
+#   llama_opt_init, llama_opt_epoch, ggml_opt_dataset_t, ggml_opt_dataset_init,
+#   ggml_opt_dataset_data, llama_opt_params, llama_opt_param_filter_all,
+#   ggml_opt_get_constant_optimizer_params
+# Then uncomment the line below.
+#
+# add_compile_definitions(LLAMA_HAS_TRAINING)
+#
+# Without LLAMA_HAS_TRAINING, nativeTrainLora() returns JNI_FALSE and Kotlin
+# falls back to stubTrainLora() — safe, no inference regression.

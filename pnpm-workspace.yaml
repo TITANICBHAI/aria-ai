@@ -157,3 +157,13 @@ overrides:
   # drizzle-kit uses esbuild internally on an older version that's vulnerable, this overrides it
   "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0"
   esbuild: "0.27.3"
+  # Security: CVE fixes for transitive dependencies
+  # picomatch >=4.0.4 — fixes ReDoS via extglob quantifiers
+  # (GHSA-c2c7-rcm5-vvqj, GHSA-3v7f-55p6-f55p) — transitive via expo/cli → metro
+  picomatch: ">=4.0.4"
+  # lodash >=4.18.0 — fixes code injection + prototype pollution
+  # (GHSA-c2c7-rcm5-vvqj, GHSA-f23m-r3pf-42rh) — transitive via recharts
+  lodash: ">=4.18.0"
+  # yaml >=2.8.3 — fixes stack overflow via deeply nested YAML
+  # (GHSA-48c2-rrv3-qjmp) — transitive via expo/cli → metro
+  yaml: ">=2.8.3"

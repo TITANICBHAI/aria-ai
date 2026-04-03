@@ -102,6 +102,11 @@ android {
     }
 
     composeOptions {
+        // TODO(kotlin2.0): In Kotlin 2.0+, the Compose compiler is a first-party
+        // Kotlin plugin and kotlinCompilerExtensionVersion is no longer used.
+        // Migration: remove composeOptions block and apply the Compose compiler
+        // Kotlin plugin via 'org.jetbrains.kotlin.plugin.compose' in build.gradle.
+        // See: https://developer.android.com/develop/ui/compose/compiler
         kotlinCompilerExtensionVersion = "1.5.14"
     }
 
@@ -157,6 +162,14 @@ dependencies {
 
     // DataStore — Phase 10, replaces SharedPreferences for agent config (async, crash-safe)
     implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+    // AppCompat — required by AppTheme (Theme.AppCompat.Light.NoActionBar) in styles.xml
+    // Version 1.7.0 is compatible with compose-bom:2024.09.00
+    implementation("androidx.appcompat:appcompat:1.7.0")
+
+    // Material Components — required by Theme.ARIAAgent (Theme.MaterialComponents.DayNight.NoActionBar)
+    // Version 1.12.0 is compatible with compose-bom:2024.09.00 and Material3
+    implementation("com.google.android.material:material:1.12.0")
 
     // Jetpack Compose — Phase 11, native Android UI replacing React Native shell
     implementation(platform("androidx.compose:compose-bom:2024.09.00"))

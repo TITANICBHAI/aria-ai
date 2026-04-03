@@ -8,7 +8,6 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "prebuildCommand": "sh scripts/eas-pre-install.sh",
       "android": {
         "buildType": "apk",
         "gradleCommand": ":app:assembleDebug",
@@ -21,7 +20,6 @@
     },
     "preview": {
       "distribution": "internal",
-      "prebuildCommand": "sh scripts/eas-pre-install.sh",
       "android": {
         "buildType": "apk",
         "gradleCommand": ":app:assembleRelease"
