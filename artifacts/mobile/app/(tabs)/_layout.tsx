@@ -25,7 +25,7 @@ function NativeTabLayout() {
         <Label>Chat</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="logs">
-        <Icon sf={{ default: "list.bullet", selected: "list.bullet.fill" }} />
+        <Icon sf={{ default: "list.bullet", selected: "list.bullet" }} />
         <Label>Activity</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="modules">

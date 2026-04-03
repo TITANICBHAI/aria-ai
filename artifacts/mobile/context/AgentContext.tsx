@@ -409,8 +409,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
   const loadModel = useCallback(async () => {
     setIsLoading(true);
-    const res = await AgentCoreBridge.loadModel();
-    if (!res.success) setError(res.error ?? "Model load failed");
+    const ok = await AgentCoreBridge.loadModel();
+    if (!ok) setError("Model load failed");
     await fetchAll();
   }, [fetchAll]);
 
