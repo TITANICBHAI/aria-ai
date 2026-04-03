@@ -140,7 +140,7 @@ What IS built from zero is:
 | Directory | Content Type | Technical Purpose |
 |-----------|--------------|-------------------|
 | `apps/mobile-agent/` | React Native (TS/Kotlin) | Primary Android app — bridge, manifest, entry point |
-| `apps/web-dashboard/` | React / Next.js | Local web UI for monitoring agent logs and RL metrics |
+| `apps/web-dashboard/` | Vite / React | Local web UI for monitoring agent logs and RL metrics |
 | `packages/brain/` | Kotlin / C++ | Core AI logic, LLM inference wrappers, JNI implementations |
 | `packages/learning/` | Kotlin / DL4J | RL modules (REINFORCE policy gradient) + LoRA fine-tuning logic |
 | `packages/ui-core/` | TypeScript / React | Shared UI components used across mobile app and web dashboard |
