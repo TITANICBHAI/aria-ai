@@ -48,10 +48,8 @@ export interface ActionPerformedEvent {
 }
 
 export interface StepStartedEvent {
-  stepCount: number;
-  phase: "observe" | "detect" | "retrieve" | "reason" | "act" | "store";
-  goal: string;
-  app: string;
+  stepNumber: number;
+  activity: "observe" | "reason" | "act" | "store" | "idle";
 }
 
 export interface LearningCycleCompleteEvent {

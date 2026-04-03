@@ -54,6 +54,7 @@ export interface ThermalStatus {
   level: "safe" | "light" | "moderate" | "severe" | "critical";
   inferenceSafe: boolean;
   trainingSafe: boolean;
+  throttleCapture: boolean;
   emergency: boolean;
 }
 
@@ -286,12 +287,13 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     // thermal_status_changed → update directly (no fetch needed)
     const onThermal = AgentCoreEmitter.addListener(
       "thermal_status_changed",
-      (payload: { level: string; inferenceSafe: boolean; trainingSafe: boolean; emergency: boolean }) => {
+      (payload: { level: string; inferenceSafe: boolean; trainingSafe: boolean; throttleCapture: boolean; emergency: boolean }) => {
         setThermalStatus({
-          level:         (payload.level ?? "safe") as ThermalStatus["level"],
-          inferenceSafe:  payload.inferenceSafe ?? true,
-          trainingSafe:   payload.trainingSafe  ?? true,
-          emergency:      payload.emergency     ?? false,
+          level:           (payload.level ?? "safe") as ThermalStatus["level"],
+          inferenceSafe:    payload.inferenceSafe   ?? true,
+          trainingSafe:     payload.trainingSafe    ?? true,
+          throttleCapture:  payload.throttleCapture ?? false,
+          emergency:        payload.emergency       ?? false,
         });
       }
     );

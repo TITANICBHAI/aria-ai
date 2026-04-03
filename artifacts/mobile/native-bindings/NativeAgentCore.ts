@@ -27,10 +27,12 @@
  *   "token_generated"          → { token: string, tokensPerSecond: number }
  *   "action_performed"         → { tool: string, nodeId: string, success: boolean, reward: number,
  *                                   stepCount: number, appPackage: string, timestamp: number }
- *   "step_started"             → { stepNumber: number, activity: "observe" }
+ *   "step_started"             → { stepNumber: number, activity: "observe" | "reason" | "act" | "store" | "idle" }
  *                                   Emitted at the START of each agent loop iteration, before any work
- *                                   begins. Lets the UI show the "OBSERVE" phase spinner immediately.
+ *                                   begins. Lets the UI show the current phase spinner immediately.
  *                                   Phase 10: JS subscribes to this instead of polling getAgentState().
+ *   "thermal_status_changed"   → { level: string, inferenceSafe: boolean, trainingSafe: boolean,
+ *                                   throttleCapture: boolean, emergency: boolean }
  *   "learning_cycle_complete"  → { loraVersion: number, policyVersion: number }
  */
 
@@ -120,59 +122,157 @@ export interface LearningStatus {
   policyReady: boolean;
 }
 
+export interface AgentConfig {
+  modelPath: string;
+  quantization: string;
+  contextWindow: number;
+  maxTokensPerTurn: number;
+  temperatureX100: number;
+  nGpuLayers: number;
+  loraAdapterPath: string | null;
+  rlEnabled: boolean;
+  learningRate: number;
+}
+
+export interface ThermalStatus {
+  level: string;           // "safe" | "light" | "moderate" | "severe" | "critical"
+  inferenceSafe: boolean;
+  trainingSafe: boolean;
+  throttleCapture: boolean;
+  emergency: boolean;
+}
+
+export interface PermissionsStatus {
+  accessibility: boolean;
+  screenCapture: boolean;
+  notifications: boolean;
+}
+
+export interface GameLoopStatus {
+  isActive: boolean;
+  gameType: string;
+  episodeCount: number;
+  stepCount: number;
+  currentScore: number;
+  highScore: number;
+  totalReward: number;
+  lastAction: string;
+  isGameOver: boolean;
+}
+
 // ─── TurboModule spec ─────────────────────────────────────────────────────────
 
 export interface Spec extends TurboModule {
-  // Model readiness
+  // ── Model readiness ────────────────────────────────────────────────────────
   checkModelReady(): Promise<boolean>;
   getModelInfo(): Promise<ModelInfo>;
 
-  // Model download
+  // ── Model download ─────────────────────────────────────────────────────────
   startModelDownload(): Promise<boolean>;
   cancelModelDownload(): Promise<boolean>;
 
-  // LLM inference
+  // ── LLM inference ──────────────────────────────────────────────────────────
   loadModel(): Promise<boolean>;
   runInference(prompt: string, maxTokens: number): Promise<string>;
   getLlmStatus(): Promise<LlmStatus>;
 
-  // Perception
+  // ── Perception ─────────────────────────────────────────────────────────────
   observeScreen(): Promise<string>;
   runOcr(imagePath: string): Promise<string>;
   getAccessibilityTree(): Promise<string>;
 
-  // Actions
+  // ── Actions ────────────────────────────────────────────────────────────────
   executeAction(actionJson: string): Promise<boolean>;
 
-  // Agent loop control
+  // ── Agent loop control ─────────────────────────────────────────────────────
   startAgent(goal: string, appPackage: string): Promise<boolean>;
   stopAgent(): Promise<boolean>;
   pauseAgent(): Promise<boolean>;
   getAgentLoopStatus(): Promise<AgentLoopStatus>;
 
-  // Memory / experience
+  // ── Agent status (combined) ────────────────────────────────────────────────
+  getAgentStatus(): Promise<AgentStatus>;
+
+  // ── Module status (all subsystem health in one call) ──────────────────────
+  getModuleStatus(): Promise<Object>;
+
+  // ── Memory / experience ────────────────────────────────────────────────────
   getExperienceStats(): Promise<ExperienceStats>;
   getRecentExperiences(limit: number): Promise<ExperienceEntry[]>;
   clearMemory(): Promise<boolean>;
 
-  // RL / Learning
+  // ── RL / Learning ──────────────────────────────────────────────────────────
   runRlCycle(): Promise<RlCycleResult>;
   processIrlVideo(videoPath: string, taskGoal: string, appPackage: string): Promise<IrlResult>;
   getLearningStatus(): Promise<LearningStatus>;
 
-  // Agent status (combined)
-  getAgentStatus(): Promise<AgentStatus>;
+  // ── Config ─────────────────────────────────────────────────────────────────
+  getConfig(): Promise<AgentConfig>;
+  updateConfig(config: Object): Promise<boolean>;
 
-  // Permissions
+  // ── Thermal guard ──────────────────────────────────────────────────────────
+  getThermalStatus(): Promise<ThermalStatus>;
+
+  // ── MiniLM embedding model ─────────────────────────────────────────────────
+  getMiniLmStatus(): Promise<Object>;
+  downloadMiniLm(): Promise<boolean>;
+
+  // ── Object detector model ──────────────────────────────────────────────────
+  isDetectorModelReady(): Promise<boolean>;
+  downloadDetectorModel(): Promise<boolean>;
+  detectObjectsInImage(imagePath: string): Promise<Object>;
+
+  // ── Permissions ────────────────────────────────────────────────────────────
   isAccessibilityEnabled(): Promise<boolean>;
   openAccessibilitySettings(): Promise<boolean>;
+  getPermissionsStatus(): Promise<PermissionsStatus>;
+  openNotificationSettings(): Promise<boolean>;
 
-  // Chat context builder — replaces the JS-side buildContextPrompt() function.
+  // ── Screen labeler ─────────────────────────────────────────────────────────
+  captureScreenForLabeling(): Promise<Object>;
+  getObjectLabels(appPackage: string): Promise<Object[]>;
+  getAllLabels(): Promise<Object[]>;
+  saveObjectLabels(labelsJson: string): Promise<boolean>;
+  deleteObjectLabel(labelId: string): Promise<boolean>;
+  enrichLabelsWithLLM(labelsJson: string): Promise<Object>;
+  getLabelStats(): Promise<Object>;
+
+  // ── Progress / goal tracking ───────────────────────────────────────────────
+  getProgressContext(): Promise<Object>;
+  clearProgress(): Promise<boolean>;
+  initGoals(goalsJson: string): Promise<boolean>;
+  getGoalSummary(): Promise<Object>;
+  markSubTaskPassed(taskId: string): Promise<boolean>;
+
+  // ── Task queue ─────────────────────────────────────────────────────────────
+  enqueueTask(taskJson: string): Promise<boolean>;
+  dequeueTask(): Promise<Object>;
+  getTaskQueue(): Promise<Object[]>;
+  removeQueuedTask(taskId: string): Promise<boolean>;
+  clearTaskQueue(): Promise<boolean>;
+
+  // ── App skill store ────────────────────────────────────────────────────────
+  getAppSkill(appPackage: string): Promise<Object>;
+  getAllAppSkills(): Promise<Object[]>;
+  clearAppSkills(): Promise<boolean>;
+
+  // ── Local inference server ─────────────────────────────────────────────────
+  getSnapshotPath(): Promise<string>;
+  getLocalServerUrl(): Promise<string>;
+  getDeviceIp(): Promise<string>;
+  isLocalServerRunning(): Promise<boolean>;
+  startLocalServer(): Promise<boolean>;
+  stopLocalServer(): Promise<boolean>;
+
+  // ── Game loop ──────────────────────────────────────────────────────────────
+  getGameLoopStatus(): Promise<GameLoopStatus>;
+
+  // ── Chat context builder ───────────────────────────────────────────────────
   // Reads agent state, memory, task queue, and app skills in Kotlin and returns
   // the fully-formatted system prompt. Reduces 4× bridge round-trips to 1.
   buildChatContext(userMessage: string, historyJson: string): Promise<string>;
 
-  // Event emitter boilerplate (required by React Native event system)
+  // ── Event emitter boilerplate (required by React Native event system) ──────
   addListener(eventName: string): void;
   removeListeners(count: number): void;
 }

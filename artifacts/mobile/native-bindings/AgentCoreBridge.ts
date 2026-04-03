@@ -17,7 +17,7 @@
  *   token_generated          { token }
  *   agent_status_changed     { status, currentTask, currentApp, gameMode }
  *   learning_cycle_complete  { loraVersion, policyVersion }
- *   thermal_status_changed   { level, inferenceSafe, trainingSafe, emergency }
+ *   thermal_status_changed   { level, inferenceSafe, trainingSafe, throttleCapture, emergency }
  *   game_loop_status         { isActive, gameType, episodeCount, stepCount, currentScore, highScore, totalReward, lastAction, isGameOver }
  */
 
