@@ -344,6 +344,18 @@ export const AgentCoreBridge = {
     return { success: false, error: "web preview — agent loop requires Android device" };
   },
 
+  async startLearnOnly(goal: string, appPackage: string = ""): Promise<{ success: boolean; error?: string }> {
+    if (AgentCore) {
+      try {
+        await AgentCore.startAgentLearnOnly(goal, appPackage);
+        return { success: true };
+      } catch (e: any) {
+        return { success: false, error: e.message };
+      }
+    }
+    return { success: false, error: "web preview — learn-only mode requires Android device" };
+  },
+
   async stopAgent(): Promise<{ success: boolean }> {
     if (AgentCore) await AgentCore.stopAgent();
     return { success: true };

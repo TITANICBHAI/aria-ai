@@ -5,6 +5,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -35,6 +36,7 @@ export default function ControlScreen() {
   const {
     agentState,
     startAgent,
+    startLearnOnly,
     stopAgent,
     pauseAgent,
     loadModel,
@@ -50,6 +52,7 @@ export default function ControlScreen() {
 
   const [goal, setGoal] = useState("");
   const [working, setWorking] = useState(false);
+  const [learnOnly, setLearnOnly] = useState(false);
   const [queueGoal, setQueueGoal] = useState("");
   const [queueApp, setQueueApp] = useState("");
   const [enqueueing, setEnqueueing] = useState(false);
@@ -67,7 +70,11 @@ export default function ControlScreen() {
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setWorking(true);
-    await startAgent(goal.trim());
+    if (learnOnly) {
+      await startLearnOnly(goal.trim());
+    } else {
+      await startAgent(goal.trim());
+    }
     setWorking(false);
   };
 
@@ -286,6 +293,59 @@ export default function ControlScreen() {
         ))}
       </View>
 
+      {/* Learn-Only Mode Toggle */}
+      <View
+        style={[
+          styles.learnOnlyRow,
+          {
+            backgroundColor: learnOnly
+              ? colors.accent + "18"
+              : colors.surface1,
+            borderColor: learnOnly ? colors.accent + "55" : colors.border,
+            borderWidth: 1,
+            borderRadius: 14,
+          },
+        ]}
+      >
+        <View style={styles.learnOnlyLeft}>
+          <Feather
+            name="book-open"
+            size={18}
+            color={learnOnly ? colors.accent : colors.mutedForeground}
+          />
+          <View style={{ flex: 1 }}>
+            <Text
+              style={[
+                styles.learnOnlyTitle,
+                { color: learnOnly ? colors.accent : colors.foreground },
+              ]}
+            >
+              Learn-Only Mode
+            </Text>
+            <Text
+              style={[styles.learnOnlySub, { color: colors.mutedForeground }]}
+            >
+              {learnOnly
+                ? "Observing & reasoning — no gestures dispatched"
+                : "Observe, reason, and act on the device"}
+            </Text>
+          </View>
+        </View>
+        <Switch
+          value={learnOnly}
+          onValueChange={(v) => {
+            Haptics.selectionAsync();
+            setLearnOnly(v);
+          }}
+          trackColor={{
+            false: colors.border,
+            true: colors.accent + "88",
+          }}
+          thumbColor={learnOnly ? colors.accent : colors.mutedForeground}
+          disabled={status === "running"}
+        />
+      </View>
+
       {/* Action Buttons */}
       <View style={styles.actionRow}>
         {status === "idle" || status === "error" ? (
@@ -316,7 +376,11 @@ export default function ControlScreen() {
                 },
               ]}
             >
-              {llmLoaded ? "Start Agent" : "Load Model First"}
+              {!llmLoaded
+                ? "Load Model First"
+                : learnOnly
+                ? "Start Learning"
+                : "Start Agent"}
             </Text>
           </TouchableOpacity>
         ) : (
@@ -734,4 +798,19 @@ const styles = StyleSheet.create({
   teachText: { flex: 1 },
   teachTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   teachSub: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
+  learnOnlyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    gap: 12,
+    marginBottom: 4,
+  },
+  learnOnlyLeft: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  learnOnlyTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  learnOnlySub: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
 });

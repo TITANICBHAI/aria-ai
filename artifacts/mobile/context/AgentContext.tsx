@@ -95,6 +95,7 @@ interface AgentContextValue {
   chainedTask: ChainedTaskNotification | null;      // Phase 16: most recent chain event
 
   startAgent: (goal: string) => Promise<void>;
+  startLearnOnly: (goal: string) => Promise<void>;
   stopAgent: () => Promise<void>;
   pauseAgent: () => Promise<void>;
   clearMemory: () => Promise<void>;
@@ -386,6 +387,15 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     }
   }, [fetchAll]);
 
+  const startLearnOnly = useCallback(async (goal: string) => {
+    const res = await AgentCoreBridge.startLearnOnly(goal);
+    if (res.success) {
+      await fetchAll();
+    } else {
+      setError(res.error ?? "Failed to start learn-only mode");
+    }
+  }, [fetchAll]);
+
   const stopAgent = useCallback(async () => {
     await AgentCoreBridge.stopAgent();
     setCurrentStep(null);
@@ -475,6 +485,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         appSkills,
         chainedTask,
         startAgent,
+        startLearnOnly,
         stopAgent,
         pauseAgent,
         clearMemory,

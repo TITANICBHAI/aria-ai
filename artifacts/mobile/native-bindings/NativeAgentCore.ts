@@ -186,6 +186,7 @@ export interface Spec extends TurboModule {
 
   // ── Agent loop control ─────────────────────────────────────────────────────
   startAgent(goal: string, appPackage: string): Promise<boolean>;
+  startAgentLearnOnly(goal: string, appPackage: string): Promise<boolean>;
   stopAgent(): Promise<boolean>;
   pauseAgent(): Promise<boolean>;
   getAgentLoopStatus(): Promise<AgentLoopStatus>;
@@ -261,7 +262,7 @@ export interface Spec extends TurboModule {
   getLocalServerUrl(): Promise<string>;
   getDeviceIp(): Promise<string>;
   isLocalServerRunning(): Promise<boolean>;
-  startLocalServer(): Promise<boolean>;
+  startLocalServer(port: number): Promise<string>;
   stopLocalServer(): Promise<boolean>;
 
   // ── Game loop ──────────────────────────────────────────────────────────────
