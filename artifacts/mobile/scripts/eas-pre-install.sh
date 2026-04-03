@@ -14,7 +14,7 @@
 # If the directory already exists (e.g., a cached EAS build layer), the script
 # skips the clone entirely so incremental builds stay fast.
 # ──────────────────────────────────────────────────────────────────────────────
-set -euo pipefail
+set -eu
 
 LLAMA_DIR="android/app/src/main/cpp/llama.cpp"
 
