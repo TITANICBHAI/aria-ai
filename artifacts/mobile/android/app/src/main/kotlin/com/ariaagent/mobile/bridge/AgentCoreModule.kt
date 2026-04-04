@@ -107,26 +107,34 @@ class AgentCoreModule(private val ctx: ReactApplicationContext) :
         }
 
         // ThermalGuard → JS "thermal_status_changed" event + AgentEventBus
-        ThermalGuard.register(ctx, object : ThermalGuard.ThermalListener {
-            override fun onThermalLevelChanged(level: ThermalGuard.ThermalLevel) {
-                val data = mapOf(
-                    "level" to level.name.lowercase(),
-                    "inferenceSafe" to ThermalGuard.isInferenceSafe(),
-                    "trainingSafe" to ThermalGuard.isTrainingSafe(),
-                    "emergency" to ThermalGuard.isEmergency()
-                )
-                emitEvent("thermal_status_changed", Arguments.createMap().apply {
-                    putString("level", level.name.lowercase())
-                    putBoolean("inferenceSafe", ThermalGuard.isInferenceSafe())
-                    putBoolean("trainingSafe", ThermalGuard.isTrainingSafe())
-                    putBoolean("emergency", ThermalGuard.isEmergency())
-                })
-                AgentEventBus.emit("thermal_status_changed", data)
-            }
-        })
+        try {
+            ThermalGuard.register(ctx, object : ThermalGuard.ThermalListener {
+                override fun onThermalLevelChanged(level: ThermalGuard.ThermalLevel) {
+                    val data = mapOf(
+                        "level" to level.name.lowercase(),
+                        "inferenceSafe" to ThermalGuard.isInferenceSafe(),
+                        "trainingSafe" to ThermalGuard.isTrainingSafe(),
+                        "emergency" to ThermalGuard.isEmergency()
+                    )
+                    emitEvent("thermal_status_changed", Arguments.createMap().apply {
+                        putString("level", level.name.lowercase())
+                        putBoolean("inferenceSafe", ThermalGuard.isInferenceSafe())
+                        putBoolean("trainingSafe", ThermalGuard.isTrainingSafe())
+                        putBoolean("emergency", ThermalGuard.isEmergency())
+                    })
+                    AgentEventBus.emit("thermal_status_changed", data)
+                }
+            })
+        } catch (e: Exception) {
+            android.util.Log.w("AgentCoreModule", "ThermalGuard.register failed: ${e.message}")
+        }
 
         // Start the scheduler — it will begin training only when idle + charging
-        learningScheduler.start()
+        try {
+            learningScheduler.start()
+        } catch (e: Exception) {
+            android.util.Log.w("AgentCoreModule", "LearningScheduler.start failed: ${e.message}")
+        }
 
         // Sequential model bootstrap: GGUF → MiniLM → EfficientDet (in order).
         // ModelBootstrap waits for GGUF (user-initiated via startModelDownload()),

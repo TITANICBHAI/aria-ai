@@ -17,7 +17,9 @@ import com.swmansion.reanimated.ReanimatedPackage
 import com.th3rdwave.safeareacontext.SafeAreaContextPackage
 import com.swmansion.rnscreens.RNScreensPackage
 import com.horcrux.svg.SvgPackage
+import expo.modules.ExpoModulesPackageList
 import expo.modules.adapters.react.ModuleRegistryAdapter
+import expo.modules.adapters.react.ReactModuleRegistryProvider
 
 class MainApplication : Application(), ReactApplication {
 
@@ -31,7 +33,16 @@ class MainApplication : Application(), ReactApplication {
                 SafeAreaContextPackage(),
                 RNScreensPackage(),
                 SvgPackage(),
-                ModuleRegistryAdapter(emptyList()),
+                // Pass ExpoModulesPackageList as the ModulesProvider so all Kotlin
+                // expo modules (expo-splash-screen, expo-font, expo-image, expo-haptics,
+                // expo-location, expo-linear-gradient, etc.) are registered.
+                // Previously ModuleRegistryAdapter(emptyList()) was used, which set
+                // ModulesProvider to null — causing all expo native module calls from JS
+                // to fail with "module not found", crashing the app on launch.
+                ModuleRegistryAdapter(
+                    ReactModuleRegistryProvider(emptyList()),
+                    ExpoModulesPackageList()
+                ),
                 AgentCorePackage(),
             )
 
