@@ -16,7 +16,6 @@ import com.swmansion.reanimated.ReanimatedPackage
 import com.th3rdwave.safeareacontext.SafeAreaContextPackage
 import com.swmansion.rnscreens.RNScreensPackage
 import com.horcrux.svg.SvgPackage
-import com.swmansion.worklets.WorkletsPackage
 import expo.modules.adapters.react.ModuleRegistryAdapter
 
 class MainApplication : Application(), ReactApplication {
@@ -31,7 +30,6 @@ class MainApplication : Application(), ReactApplication {
                 SafeAreaContextPackage(),
                 RNScreensPackage(),
                 SvgPackage(),
-                WorkletsPackage(),
                 ModuleRegistryAdapter(emptyList()),
                 AgentCorePackage(),
             )

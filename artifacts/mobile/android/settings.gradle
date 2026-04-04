@@ -173,7 +173,6 @@ includeNativeModule(":react-native-reanimated",          "react-native-reanimate
 includeNativeModule(":react-native-safe-area-context",   "react-native-safe-area-context")
 includeNativeModule(":react-native-screens",             "react-native-screens")
 includeNativeModule(":react-native-svg",                 "react-native-svg")
-includeNativeModule(":react-native-worklets",            "react-native-worklets")
 includeNativeModule(":expo-modules-core",                "expo-modules-core")
 includeNativeModule(":expo-blur",                        "expo-blur")
 includeNativeModule(":expo-constants",                   "expo-constants")

@@ -143,7 +143,6 @@ dependencies {
     implementation project(':react-native-safe-area-context')
     implementation project(':react-native-screens')
     implementation project(':react-native-svg')
-    implementation project(':react-native-worklets')
     implementation project(':expo-modules-core')
     implementation project(':expo-blur')
     implementation project(':expo-constants')
