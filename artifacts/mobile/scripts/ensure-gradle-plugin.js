@@ -1,36 +1,34 @@
-/**
- * Copies @react-native/gradle-plugin into android/node_modules/ so Gradle's
- * includeBuild() finds a real, non-symlinked directory on EAS pnpm monorepo builds.
- * After copying, patches the settings.gradle.kts to remove the pluginManagement
- * block so it works cleanly as a composite included build.
- *
- * Why this is needed:
- *   In a pnpm workspace, @react-native/gradle-plugin is hoisted to the workspace
- *   root's node_modules/ as a symlink into pnpm's virtual store (.pnpm/).
- *   Gradle's composite-build machinery (includeBuild) can fail to compile/register
- *   the com.facebook.react.settings plugin when the source lives behind a symlink
- *   chain in the pnpm store.
- *
- *   Placing a real copy at android/node_modules/@react-native/gradle-plugin
- *   matches the standard React Native template layout and is reliably found by
- *   settings.gradle Strategy 2 (i=0).
- *
- * Why the pluginManagement patch is needed:
- *   When a project is used as a composite included build, Gradle ignores its own
- *   pluginManagement block but the presence of the block can still interfere with
- *   settings plugin resolution in Gradle 8.8+. Removing the entire block ensures
- *   com.facebook.react.settings is registered correctly.
- */
-
 'use strict';
+/**
+ * ensure-gradle-plugin.js — postinstall hook for LOCAL development
+ *
+ * Copies @react-native/gradle-plugin into android/node_modules/ and patches
+ * its settings.gradle.kts so Gradle's composite-build (includeBuild) works
+ * correctly in a pnpm monorepo.
+ *
+ * Why this is needed (local dev only):
+ *   eas-pre-install.sh handles this for EAS builds (runs before pnpm install).
+ *   For local development, this postinstall script ensures the patched copy is
+ *   always present after every `pnpm install`.
+ *
+ * Why patching is needed:
+ *   The npm package ships settings.gradle.kts with a pluginManagement block
+ *   that can interfere with plugin resolution in Gradle 8.8+ when used as
+ *   an includeBuild. Removing the block eliminates the failure point.
+ *
+ * NOTE: expo-module-gradle-plugin (expo-modules-core/expo-module-gradle-plugin)
+ *   does NOT need this — it has no settings.gradle.kts and settings.gradle
+ *   finds it directly from node_modules after pnpm install.
+ */
 
 const path = require('path');
 const fs   = require('fs');
 
 const TARGET = path.join(__dirname, '../android/node_modules/@react-native/gradle-plugin');
 
+// ── Step 1: Copy if not present ───────────────────────────────────────────────
 if (fs.existsSync(TARGET)) {
-  console.log('[ARIA] @react-native/gradle-plugin already present in android/node_modules/ — skipping copy');
+  console.log('[ARIA] @react-native/gradle-plugin already in android/node_modules/ — skip copy');
 } else {
   let pluginSrc;
   try {
@@ -45,9 +43,7 @@ if (fs.existsSync(TARGET)) {
   console.log('[ARIA] Copied @react-native/gradle-plugin →', TARGET);
 }
 
-// Patch settings.gradle.kts: remove the entire pluginManagement { ... } block.
-// When used as a composite included build, Gradle ignores the block anyway, but
-// its presence can break settings plugin resolution in Gradle 8.8+.
+// ── Step 2: Patch settings.gradle.kts — remove pluginManagement block ────────
 const settingsKts = path.join(TARGET, 'settings.gradle.kts');
 
 if (!fs.existsSync(settingsKts)) {
@@ -63,34 +59,25 @@ if (!originalText.includes('pluginManagement')) {
 }
 
 // Remove the entire pluginManagement { ... } block using a brace-counting state machine.
-let out = [];
-let pos = 0;
+const out   = [];
+let pos     = 0;
 let inBlock = false;
-let depth = 0;
-const text = originalText;
+let depth   = 0;
+const text  = originalText;
 
 while (pos < text.length) {
   if (!inBlock) {
     const idx = text.indexOf('pluginManagement', pos);
-    if (idx === -1) {
-      out.push(text.slice(pos));
-      break;
-    }
+    if (idx === -1) { out.push(text.slice(pos)); break; }
     const bracePos = text.indexOf('{', idx);
-    if (bracePos === -1) {
-      out.push(text.slice(pos));
-      break;
-    }
-    // Keep everything before the pluginManagement keyword (strip trailing whitespace)
+    if (bracePos === -1) { out.push(text.slice(pos)); break; }
     const prefix = text.slice(pos, idx).replace(/\s+$/, '');
-    if (prefix.length > 0) {
-      out.push(prefix + '\n');
-    }
-    depth = 1;
+    if (prefix.length > 0) out.push(prefix + '\n');
+    depth   = 1;
     inBlock = true;
-    pos = bracePos + 1;
+    pos     = bracePos + 1;
   } else {
-    const nextOpen = text.indexOf('{', pos);
+    const nextOpen  = text.indexOf('{', pos);
     const nextClose = text.indexOf('}', pos);
     if (nextClose === -1) break;
     if (nextOpen !== -1 && nextOpen < nextClose) {
@@ -101,7 +88,6 @@ while (pos < text.length) {
       pos = nextClose + 1;
       if (depth === 0) {
         inBlock = false;
-        // Skip trailing newline after closing brace
         if (pos < text.length && text[pos] === '\n') pos++;
       }
     }
@@ -110,4 +96,4 @@ while (pos < text.length) {
 
 const result = out.join('').replace(/^\n+/, '');
 fs.writeFileSync(settingsKts, result);
-console.log('[ARIA] Patched settings.gradle.kts: removed pluginManagement block');
+console.log('[ARIA] Patched settings.gradle.kts — removed pluginManagement block');
