@@ -169,7 +169,6 @@ def includeNativeModule = { String gradleProject, String npmPackage, String subd
 includeNativeModule(":async-storage",                    "@react-native-async-storage/async-storage")
 includeNativeModule(":react-native-gesture-handler",     "react-native-gesture-handler")
 includeNativeModule(":react-native-keyboard-controller", "react-native-keyboard-controller")
-includeNativeModule(":react-native-reanimated",          "react-native-reanimated")
 includeNativeModule(":react-native-safe-area-context",   "react-native-safe-area-context")
 includeNativeModule(":react-native-screens",             "react-native-screens")
 includeNativeModule(":react-native-svg",                 "react-native-svg")

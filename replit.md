@@ -143,12 +143,54 @@ causes an immediate "app has a bug" crash before JS loads.
 **Fix**: `override val reactHost: ReactHost? = null` — a null `reactHost` tells `ReactActivityDelegate`
 to use the bridge (Old Architecture) path via `reactNativeHost`.
 
+### Reanimated removal (audit fix)
+
+`react-native-reanimated` was registered as a native package in `MainApplication.kt` but its JS version
+(`~3.19.5`) did not match what Expo 54 / RN 0.81 expects (`~4.1.1`), and upgrading to v4 requires New
+Architecture. Nothing in the component code actually used reanimated APIs. The native .so mismatch caused
+a crash on startup.
+
+**Fix**: Removed reanimated from `package.json`, `babel.config.js` (plugin removed), `MainApplication.kt`
+(`ReanimatedPackage` removed), `settings.gradle`, and `app/build.gradle`.
+
 ### Previous fixes applied before root cause was found
 
-1. Added `react-native-reanimated/plugin` to `babel.config.js`
-2. Replaced `return null` with `ActivityIndicator` in `_layout.tsx` loading state
-3. Added `expo-splash-screen` to `app.json` plugins
-4. Added `@DoNotStrip` + TurboModule ProGuard rules
+1. Replaced `return null` with `ActivityIndicator` in `_layout.tsx` loading state
+2. Added `expo-splash-screen` to `app.json` plugins
+3. Added `@DoNotStrip` + TurboModule ProGuard rules
+
+## Audit Fixes (permissions + screen capture)
+
+### Accessibility service config — over-broad permissions
+- `android:accessibilityEventTypes` changed from `typeAllMask` to three specific types only:
+  `typeWindowStateChanged|typeWindowContentChanged|typeViewFocused`
+- Removed `canRequestFilterKeyEvents=true` and `flagRequestFilterKeyEvents` — Play Store treats
+  these as keylogger capabilities, which triggers policy warnings even when not used
+- Kept `canPerformGestures=true` and `canRetrieveWindowContent=true` (required for agent)
+
+### AccessibilityNodeInfo memory leak
+`AgentAccessibilityService.buildSemanticTree()` was storing live `AccessibilityNodeInfo` references
+in `nodeRegistry` without recycling old ones or child refs. Fixed: `obtain()` copies stored in
+registry, old copies recycled on each rebuild, child refs recycled after traversal.
+
+### Screen capture — requestScreenCapturePermission was a stub
+`AgentCoreBridge.requestScreenCapturePermission()` returned `{granted: false}` unconditionally on
+both JS and Kotlin sides. Added full `ActivityEventListener` + `requestScreenCapturePermission`
+method in `AgentCoreModule.kt` that calls `MediaProjectionManager.createScreenCaptureIntent()`,
+handles `onActivityResult`, and starts `ScreenCaptureService` on grant.
+
+### ScreenCaptureService — Android 14 MediaProjection.Callback
+Android 14 (API 34) requires `MediaProjection.registerCallback()` before `createVirtualDisplay()`.
+Without it, projection silently stops. Added callback that cleans up virtual display on system stop.
+
+### ScreenCaptureService — bitmap double-recycle
+`bitmap.recycle()` was called then `if (cropped != bitmap) cropped.recycle()` — when cropped==bitmap
+this left cropped unrecycled (memory leak) and when padding was applied it tried to recycle the
+already-recycled bitmap. Fixed: recycle `cropped` first, then `bitmap` only if they are distinct.
+
+### requestPermissions — parallel vs sequential
+`AgentContext.requestPermissions` used `Promise.all([accessibility, screenCapture])` which fires
+both system UIs simultaneously. Android drops the second intent. Changed to sequential `await`.
 
 ## Agent Preferences
 

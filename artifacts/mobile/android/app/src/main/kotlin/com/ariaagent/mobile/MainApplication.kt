@@ -12,7 +12,6 @@ import com.facebook.soloader.SoLoader
 import com.reactnativecommunity.asyncstorage.AsyncStoragePackage
 import com.swmansion.gesturehandler.RNGestureHandlerPackage
 import com.reactnativekeyboardcontroller.KeyboardControllerPackage
-import com.swmansion.reanimated.ReanimatedPackage
 import com.th3rdwave.safeareacontext.SafeAreaContextPackage
 import com.swmansion.rnscreens.RNScreensPackage
 import com.horcrux.svg.SvgPackage
@@ -28,7 +27,6 @@ class MainApplication : Application(), ReactApplication {
                 AsyncStoragePackage(),
                 RNGestureHandlerPackage(),
                 KeyboardControllerPackage(),
-                ReanimatedPackage(),
                 SafeAreaContextPackage(),
                 RNScreensPackage(),
                 SvgPackage(),

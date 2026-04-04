@@ -427,10 +427,10 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   }, [fetchAll]);
 
   const requestPermissions = useCallback(async () => {
-    await Promise.all([
-      AgentCoreBridge.requestAccessibilityPermission(),
-      AgentCoreBridge.requestScreenCapturePermission(),
-    ]);
+    // Fire sequentially — Android can only surface one system UI at a time.
+    // Opening both simultaneously causes the second intent to be silently dropped.
+    await AgentCoreBridge.requestAccessibilityPermission();
+    await AgentCoreBridge.requestScreenCapturePermission();
     await fetchAll();
   }, [fetchAll]);
 

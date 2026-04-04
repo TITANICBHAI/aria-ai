@@ -88,13 +88,21 @@ class AgentAccessibilityService : AccessibilityService() {
     /**
      * Traverse the UI node tree and build LLM-friendly semantic text.
      * Only includes interactable nodes (clickable, scrollable, editable, focusable).
+     *
+     * Node copies are recycled after extraction to avoid AccessibilityNodeInfo leaks.
+     * The nodeRegistry holds copies (via obtain()) that must be recycled when the
+     * registry is cleared. Copies are safe to hold across calls — only the live
+     * reference obtained from rootInActiveWindow needs recycling immediately.
      */
     private fun buildSemanticTree(): String {
+        // Recycle previously stored node copies before rebuilding
+        nodeRegistry.values.forEach { it.recycle() }
         nodeRegistry.clear()
+
         val root = rootInActiveWindow ?: return "(no active window)"
         val lines = mutableListOf<String>()
-        var idCounter = 1
-        traverseNode(root, lines, idCounter)
+        traverseNode(root, lines, 1)
+        root.recycle()
         return lines.joinToString("\n")
     }
 
@@ -107,7 +115,8 @@ class AgentAccessibilityService : AccessibilityService() {
 
         if (interactable) {
             val nodeId = "#$id"
-            nodeRegistry[nodeId] = node
+            // Store a copy — the original child reference is owned by the caller loop
+            nodeRegistry[nodeId] = AccessibilityNodeInfo.obtain(node)
             id++
 
             val type = getNodeType(node)
@@ -129,7 +138,9 @@ class AgentAccessibilityService : AccessibilityService() {
         }
 
         for (i in 0 until node.childCount) {
-            id = traverseNode(node.getChild(i), lines, id)
+            val child = node.getChild(i) ?: continue
+            id = traverseNode(child, lines, id)
+            child.recycle()
         }
         return id
     }

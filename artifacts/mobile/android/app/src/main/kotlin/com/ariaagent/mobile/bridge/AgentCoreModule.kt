@@ -30,7 +30,12 @@ import com.ariaagent.mobile.system.AgentForegroundService
 import com.ariaagent.mobile.system.accessibility.AgentAccessibilityService
 import com.ariaagent.mobile.system.actions.GestureEngine
 import com.ariaagent.mobile.system.screen.ScreenCaptureService
+import android.app.Activity
+import android.content.Intent
+import android.media.projection.MediaProjectionManager
+import com.facebook.react.bridge.ActivityEventListener
 import com.facebook.react.bridge.Arguments
+import com.facebook.react.bridge.BaseActivityEventListener
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
@@ -69,10 +74,46 @@ class AgentCoreModule(private val ctx: ReactApplicationContext) :
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val learningScheduler = LearningScheduler(ctx)
 
+    // ── MediaProjection permission request state ────────────────────────────
+    // Only one pending request at a time. Stored here so onActivityResult can
+    // resolve/reject it after the system returns from the permission dialog.
+    private var pendingScreenCapturePromise: Promise? = null
+
+    private val activityEventListener: ActivityEventListener =
+        object : BaseActivityEventListener() {
+            override fun onActivityResult(
+                activity: Activity?,
+                requestCode: Int,
+                resultCode: Int,
+                data: Intent?
+            ) {
+                if (requestCode != SCREEN_CAPTURE_REQUEST_CODE) return
+                val promise = pendingScreenCapturePromise ?: return
+                pendingScreenCapturePromise = null
+
+                if (resultCode == Activity.RESULT_OK && data != null) {
+                    // Launch ScreenCaptureService with the granted projection token.
+                    val serviceIntent = Intent(ctx, ScreenCaptureService::class.java).apply {
+                        putExtra("resultCode", resultCode)
+                        putExtra("projectionData", data)
+                    }
+                    ctx.startForegroundService(serviceIntent)
+                    promise.resolve(Arguments.createMap().apply { putBoolean("granted", true) })
+                } else {
+                    promise.resolve(Arguments.createMap().apply { putBoolean("granted", false) })
+                }
+            }
+        }
+
+    companion object {
+        private const val SCREEN_CAPTURE_REQUEST_CODE = 9001
+    }
+
     override fun getName(): String = "AgentCore"
 
     // Wire all Kotlin callbacks → JS DeviceEventEmitter + AgentEventBus on module init
     init {
+        ctx.addActivityEventListener(activityEventListener)
         // ── Migrate legacy SharedPreferences config to DataStore on first boot ──
         scope.launch(Dispatchers.IO) {
             runCatching { ConfigStore.migrateFromSharedPrefs(ctx) }
@@ -862,6 +903,34 @@ class AgentCoreModule(private val ctx: ReactApplicationContext) :
                 promise.reject("SETTINGS_FAILED", e.message)
             }
         }
+    }
+
+    /**
+     * Request MediaProjection (screen capture) permission.
+     *
+     * Shows the system "ARIA will start capturing everything on your screen" dialog.
+     * On RESULT_OK the activity event listener starts ScreenCaptureService and resolves
+     * the promise with { granted: true }. On denial it resolves with { granted: false }.
+     *
+     * If the service is already active this is a no-op and returns { granted: true }.
+     */
+    @ReactMethod
+    fun requestScreenCapturePermission(promise: Promise) {
+        if (ScreenCaptureService.isActive) {
+            promise.resolve(Arguments.createMap().apply { putBoolean("granted", true) })
+            return
+        }
+        val activity = currentActivity
+        if (activity == null) {
+            promise.reject("NO_ACTIVITY", "No foreground activity to launch MediaProjection dialog")
+            return
+        }
+        pendingScreenCapturePromise = promise
+        val pm = activity.getSystemService(MediaProjectionManager::class.java)
+        activity.startActivityForResult(
+            pm.createScreenCaptureIntent(),
+            SCREEN_CAPTURE_REQUEST_CODE
+        )
     }
 
     // ─── Object Labeler ───────────────────────────────────────────────────────

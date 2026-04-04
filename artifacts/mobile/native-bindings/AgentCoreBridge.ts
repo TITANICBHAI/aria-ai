@@ -546,6 +546,13 @@ export const AgentCoreBridge = {
   },
 
   async requestScreenCapturePermission(): Promise<{ granted: boolean }> {
+    if (AgentCore) {
+      try {
+        return await AgentCore.requestScreenCapturePermission();
+      } catch (e: any) {
+        return { granted: false };
+      }
+    }
     return { granted: false };
   },
 

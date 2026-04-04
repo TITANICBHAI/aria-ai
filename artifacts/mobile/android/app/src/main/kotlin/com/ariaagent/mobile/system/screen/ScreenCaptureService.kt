@@ -75,6 +75,21 @@ class ScreenCaptureService : Service() {
         val projectionManager = getSystemService(MediaProjectionManager::class.java)
         mediaProjection = projectionManager.getMediaProjection(resultCode, projectionIntent)
 
+        // Android 14+ (API 34) requires registering a MediaProjection.Callback before
+        // calling createVirtualDisplay(). Without it the system silently stops projection.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            mediaProjection?.registerCallback(object : android.media.projection.MediaProjection.Callback() {
+                override fun onStop() {
+                    android.util.Log.i("ScreenCaptureService", "MediaProjection stopped by system")
+                    isActive = false
+                    virtualDisplay?.release()
+                    virtualDisplay = null
+                    imageReader?.close()
+                    imageReader = null
+                }
+            }, null)
+        }
+
         setupCapture()
         return START_STICKY
     }
@@ -126,8 +141,10 @@ class ScreenCaptureService : Service() {
             cropped.compress(Bitmap.CompressFormat.JPEG, 85, out)
         }
         latestScreenshotPath = screenshotFile.absolutePath
-        bitmap.recycle()
-        if (cropped != bitmap) cropped.recycle()
+        // Recycle cropped first (may be the same object as bitmap if no padding),
+        // then recycle bitmap only when it is a distinct allocation.
+        cropped.recycle()
+        if (cropped !== bitmap) bitmap.recycle()
     }
 
     private fun createNotificationChannel() {
