@@ -130,7 +130,7 @@ Snapshot file also written to `{filesDir}/monitoring/snapshot.json` atomically f
 
 ## Agent Preferences
 
-- **Auto-push to GitHub**: After correcting any error sent by the user, always push the fix to GitHub (`github` remote → `TITANICBHAI/aria-ai`).
+- **Auto-push to GitHub**: Desired, but not possible — GitHub OAuth integration was dismissed and the platform blocks direct git push from the agent. After each fix, inform the user to run `git push github HEAD:main` manually in the Shell. The `github` remote already has credentials embedded.
 
 ## Key Files
 
