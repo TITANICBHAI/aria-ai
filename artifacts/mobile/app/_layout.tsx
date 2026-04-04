@@ -9,7 +9,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Platform, View } from "react-native";
+import { ActivityIndicator, PermissionsAndroid, Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -50,6 +50,22 @@ export default function RootLayout() {
       SplashScreen.hideAsync().catch(() => {});
     }
   }, [fontsLoaded, fontError]);
+
+  // Request POST_NOTIFICATIONS at runtime on Android 13+ (API 33+).
+  // This is required for foreground-service status alerts and download progress.
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    try {
+      if (
+        typeof PermissionsAndroid.request === "function" &&
+        PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
+      ) {
+        PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
+        ).catch(() => {});
+      }
+    } catch { /* API < 33 — permission not needed */ }
+  }, []);
 
   useEffect(() => {
     if (!fontsLoaded && !fontError) return;

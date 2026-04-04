@@ -501,10 +501,10 @@ export default function ModulesScreen() {
           { label: "Capabilities", value: "Tap, swipe, text, long-press" },
           { label: "Owner", value: "Kotlin AccessibilityService" },
         ]}
-        onAction={() => {
+        onAction={!(acc?.granted) ? () => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           requestPermissions();
-        }}
+        } : undefined}
         actionLabel="Grant Permission"
       />
 
@@ -520,10 +520,10 @@ export default function ModulesScreen() {
           { label: "Resolution", value: "512×512 (downsampled)" },
           { label: "Output", value: "Bitmap → OCR + LLM vision" },
         ]}
-        onAction={() => {
+        onAction={!(sc?.granted) ? () => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           requestPermissions();
-        }}
+        } : undefined}
         actionLabel="Grant Permission"
       />
 

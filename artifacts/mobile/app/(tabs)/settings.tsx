@@ -51,19 +51,23 @@ export default function SettingsScreen() {
   }, [config]);
 
   const refreshPerms = useCallback(async () => {
-    const status = await AgentCoreBridge.getPermissionsStatus();
-    setPerms(status);
+    try {
+      const status = await AgentCoreBridge.getPermissionsStatus();
+      setPerms(status);
+    } catch { /* bridge unavailable on web */ }
   }, []);
 
   const refreshServer = useCallback(async () => {
-    const [url, ip, running] = await Promise.all([
-      AgentCoreBridge.getLocalServerUrl(),
-      AgentCoreBridge.getDeviceIp(),
-      AgentCoreBridge.isLocalServerRunning(),
-    ]);
-    setServerUrl(url);
-    setDeviceIp(ip);
-    setServerRunning(running);
+    try {
+      const [url, ip, running] = await Promise.all([
+        AgentCoreBridge.getLocalServerUrl(),
+        AgentCoreBridge.getDeviceIp(),
+        AgentCoreBridge.isLocalServerRunning(),
+      ]);
+      setServerUrl(url);
+      setDeviceIp(ip);
+      setServerRunning(running);
+    } catch { /* bridge unavailable on web */ }
   }, []);
 
   useFocusEffect(

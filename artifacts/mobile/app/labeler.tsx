@@ -42,6 +42,7 @@ import {
   ObjectLabel,
   ScreenCapture,
 } from "@/native-bindings/AgentCoreBridge";
+import { useAgent } from "@/context/AgentContext";
 
 const ELEMENT_TYPES: ElementType[] = [
   "button", "input", "text", "toggle",
@@ -90,6 +91,7 @@ function makeLabel(
 export default function LabelerScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { requestPermissions, moduleStatus } = useAgent();
 
   const [capture, setCapture] = useState<ScreenCapture | null>(null);
   const [labels, setLabels] = useState<ObjectLabel[]>([]);
@@ -110,6 +112,29 @@ export default function LabelerScreen() {
 
   const handleCapture = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    // Gate: screen capture permission is required.
+    // Fetch live permission status — don't trust stale context.
+    let permStatus = { accessibility: false, screenCapture: false, notifications: false };
+    try { permStatus = await AgentCoreBridge.getPermissionsStatus(); } catch { /* bridge down */ }
+
+    if (!permStatus.screenCapture) {
+      Alert.alert(
+        "Screen Capture Required",
+        "ARIA needs screen capture permission to take a screenshot. Grant it now?",
+        [
+          { text: "Not Now", style: "cancel" },
+          {
+            text: "Grant",
+            onPress: async () => {
+              await requestPermissions();
+            },
+          },
+        ]
+      );
+      return;
+    }
+
     setCapturing(true);
     try {
       const result = await AgentCoreBridge.captureScreenForLabeling();
@@ -150,6 +175,15 @@ export default function LabelerScreen() {
     if (!capture) return;
     if (labels.length === 0) {
       Alert.alert("No pins", "Place at least one pin on the screenshot first.");
+      return;
+    }
+    // Gate: LLM must be loaded to enrich labels.
+    const llmLoaded = moduleStatus?.llm?.loaded ?? false;
+    if (!llmLoaded) {
+      Alert.alert(
+        "LLM Not Loaded",
+        "Load the LLM engine first (Control tab → Load LLM Engine) before enriching labels."
+      );
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);

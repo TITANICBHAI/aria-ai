@@ -168,7 +168,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ── Full state hydration (used on mount, start/stop, learning complete) ──────
-  const fetchAll = useCallback(async () => {
+  // silent=true suppresses error state updates (used for background idle poll)
+  const fetchAll = useCallback(async (silent = false) => {
     try {
       const [state, status, logs, memories, cfg, gameSt] = await Promise.all([
         AgentCoreBridge.getAgentState(),
@@ -184,9 +185,10 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       setMemoryEntries(memories);
       setConfig(cfg);
       setGameLoopStatus(gameSt);
-      setError(null);
+      if (!silent) setError(null);
     } catch (e: any) {
-      setError(e?.message ?? "Bridge error");
+      // Don't surface transient bridge errors during background syncs
+      if (!silent) setError(e?.message ?? "Bridge error");
     } finally {
       setIsLoading(false);
     }
@@ -199,7 +201,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     fetchAll();
     // Idle background sync every 30 seconds — much less aggressive than the old 2s poll.
     // This handles edge cases: crash-restart, background kill, manual Kotlin-side changes.
-    idlePollRef.current = setInterval(fetchAll, 30_000);
+    // Use silent=true so transient bridge errors don't flash error UI during background polls.
+    idlePollRef.current = setInterval(() => fetchAll(true), 30_000);
     return () => {
       if (idlePollRef.current) clearInterval(idlePollRef.current);
     };
@@ -381,27 +384,28 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   // not upfront in bulk. Returns true if all required permissions are satisfied.
 
   const ensurePermissions = useCallback(async (): Promise<boolean> => {
-    // Always re-fetch live status so we don't work from stale cached values.
-    let status = moduleStatus;
-    if (!status) {
-      try { status = await AgentCoreBridge.getModuleStatus(); } catch { /* bridge down */ }
-    }
+    // Always fetch live status — never rely on potentially-stale React state.
+    let status: ModuleStatus | null = null;
+    try { status = await AgentCoreBridge.getModuleStatus(); } catch { /* bridge down */ }
+    // Fall back to cached state only if the live fetch failed entirely.
+    const effectiveStatus = status ?? moduleStatus;
 
     // ── Step 1: Accessibility (required to read the screen and inject gestures)
-    const a11yActive = status?.accessibility?.active ?? false;
+    const a11yActive = effectiveStatus?.accessibility?.active ?? false;
     if (!a11yActive) {
       setError(
         "Accessibility permission is required. " +
         "Opening Settings — enable ARIA, then press Start again."
       );
-      await AgentCoreBridge.openAccessibilitySettings();
+      try { await AgentCoreBridge.openAccessibilitySettings(); } catch { /* bridge down */ }
       return false;
     }
 
     // ── Step 2: Screen capture (required to take screenshots)
-    const captureActive = status?.screenCapture?.active ?? false;
+    const captureActive = effectiveStatus?.screenCapture?.active ?? false;
     if (!captureActive) {
-      const result = await AgentCoreBridge.requestScreenCapturePermission();
+      let result = { granted: false };
+      try { result = await AgentCoreBridge.requestScreenCapturePermission(); } catch { /* bridge down */ }
       if (!result.granted) {
         setError("Screen capture permission is required to observe the screen.");
         return false;
@@ -472,25 +476,24 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   }, [fetchAll]);
 
   const requestPermissions = useCallback(async () => {
-    // Re-fetch live status first so we only prompt for what's actually missing.
-    let status = moduleStatus;
-    if (!status) {
-      try { status = await AgentCoreBridge.getModuleStatus(); } catch { /* bridge down */ }
-    }
+    // Always fetch live status — never rely on potentially-stale React state.
+    let status: ModuleStatus | null = null;
+    try { status = await AgentCoreBridge.getModuleStatus(); } catch { /* bridge down */ }
+    const effectiveStatus = status ?? moduleStatus;
 
-    const a11yActive = status?.accessibility?.active ?? false;
-    const captureActive = status?.screenCapture?.active ?? false;
+    const a11yActive = effectiveStatus?.accessibility?.active ?? false;
+    const captureActive = effectiveStatus?.screenCapture?.active ?? false;
 
     if (!a11yActive) {
       // Accessibility can only be granted via Settings — open it and stop here.
       // The user must come back and tap this again once enabled.
-      await AgentCoreBridge.openAccessibilitySettings();
+      try { await AgentCoreBridge.openAccessibilitySettings(); } catch { /* bridge down */ }
       await fetchAll();
       return;
     }
 
     if (!captureActive) {
-      await AgentCoreBridge.requestScreenCapturePermission();
+      try { await AgentCoreBridge.requestScreenCapturePermission(); } catch { /* bridge down */ }
     }
 
     await fetchAll();
@@ -503,9 +506,14 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     appPackage = "",
     priority = 0,
   ): Promise<QueuedTask | null> => {
-    const task = await AgentCoreBridge.enqueueTask(goal, appPackage, priority);
-    await refreshTaskQueue();
-    return task;
+    try {
+      const task = await AgentCoreBridge.enqueueTask(goal, appPackage, priority);
+      await refreshTaskQueue();
+      return task;
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to enqueue task");
+      return null;
+    }
   }, [refreshTaskQueue]);
 
   const removeQueuedTask = useCallback(async (taskId: string) => {
