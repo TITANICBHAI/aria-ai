@@ -1,0 +1,98 @@
+<!--
+  AndroidManifest.xml — FocusFlow native additions reference
+
+  ══════════════════════════════════════════════════════════════════════════════
+  HOW TO BUILD
+  ══════════════════════════════════════════════════════════════════════════════
+
+  1. npx expo prebuild --platform android
+  2. ./android-native/install.sh          ← does everything below automatically
+  3. Manually add FocusDayPackage (see bottom — the one step the script can't do)
+  4. eas build --platform android --profile preview
+
+  ══════════════════════════════════════════════════════════════════════════════
+  WHAT install.sh COPIES AND PATCHES (reference only — do not apply manually)
+  ══════════════════════════════════════════════════════════════════════════════
+
+  Kotlin source:
+    android-native/.../modules/*.kt      → android/.../modules/
+    android-native/.../services/*.kt     → android/.../services/
+    android-native/.../widget/*.kt       → android/.../widget/
+
+  Resources:
+    res/xml/accessibility_service_config.xml
+    res/xml/device_admin.xml
+    res/xml/widget_info.xml
+    res/layout/widget_focusflow.xml
+    res/drawable/widget_background.xml
+
+  strings.xml (patched automatically):
+    accessibility_service_description
+    widget_description
+
+  AndroidManifest.xml permissions (patched automatically):
+    PACKAGE_USAGE_STATS
+    SYSTEM_ALERT_WINDOW
+    FOREGROUND_SERVICE
+    FOREGROUND_SERVICE_SPECIAL_USE
+    RECEIVE_BOOT_COMPLETED
+    REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+    BIND_ACCESSIBILITY_SERVICE
+
+  AndroidManifest.xml components (patched automatically):
+
+    <service android:name="...services.ForegroundTaskService"
+        android:foregroundServiceType="specialUse">
+        <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+            android:value="productivity" />
+    </service>
+
+    <service android:name="...services.AppBlockerAccessibilityService"
+        android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+        <intent-filter>
+            <action android:name="android.accessibilityservice.AccessibilityService" />
+        </intent-filter>
+        <meta-data android:name="android.accessibilityservice"
+            android:resource="@xml/accessibility_service_config" />
+    </service>
+
+    <receiver android:name="...services.BootReceiver">
+        <intent-filter>
+            <action android:name="android.intent.action.BOOT_COMPLETED" />
+            <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+        </intent-filter>
+    </receiver>
+
+    <receiver android:name="...widget.FocusFlowWidget" android:exported="true">
+        <intent-filter>
+            <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        </intent-filter>
+        <meta-data android:name="android.appwidget.provider"
+            android:resource="@xml/widget_info" />
+    </receiver>
+
+    <receiver android:name="...services.FocusDayDeviceAdminReceiver"
+        android:permission="android.permission.BIND_DEVICE_ADMIN">
+        <intent-filter>
+            <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+        </intent-filter>
+        <meta-data android:name="android.app.device_admin"
+            android:resource="@xml/device_admin" />
+    </receiver>
+
+  ══════════════════════════════════════════════════════════════════════════════
+  ONE MANUAL STEP (cannot be scripted safely — edit the file directly)
+  ══════════════════════════════════════════════════════════════════════════════
+
+  File: android/app/src/main/java/com/tbtechs/focusflow/MainApplication.kt
+
+  Add import:
+    import com.tbtechs.focusflow.modules.FocusDayPackage
+
+  In getPackages():
+    override fun getPackages(): List<ReactPackage> {
+        val packages = PackageList(this).packages
+        packages.add(FocusDayPackage())   // ← add this line
+        return packages
+    }
+-->
