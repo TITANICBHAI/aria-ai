@@ -60,60 +60,75 @@ pluginManagement {
 
     includeBuild(rnPluginDir)
 
-    // ── expo-gradle-plugin (required by expo-modules-core for ExpoModuleExtension) ──
-    // Search order:
-    //   1. android/node_modules/expo-gradle-plugin — copied + patched by eas-pre-install.sh
-    //   2. ../node_modules/expo-modules-autolinking/android/expo-gradle-plugin — mobile local
-    //   3. ../../../node_modules/expo-modules-autolinking/android/expo-gradle-plugin — workspace root
-    //   4. Node.js require.resolve fallback
-    def expoGradlePluginDir = null
-
-    def expoLocal1 = new File(settingsDir, "node_modules/expo-gradle-plugin")
-    if (expoLocal1.exists()) {
-        expoGradlePluginDir = expoLocal1.canonicalFile
-    }
-
-    if (expoGradlePluginDir == null) {
-        def expoLocal2 = new File(settingsDir, "../node_modules/expo-modules-autolinking/android/expo-gradle-plugin")
-        if (expoLocal2.exists()) {
-            expoGradlePluginDir = expoLocal2.canonicalFile
-        }
-    }
-
-    if (expoGradlePluginDir == null) {
-        def expoWs = new File(settingsDir, "../../../node_modules/expo-modules-autolinking/android/expo-gradle-plugin").canonicalFile
-        if (expoWs.exists()) {
-            expoGradlePluginDir = expoWs
-        }
-    }
-
-    if (expoGradlePluginDir == null) {
-        try {
-            def proc = ["node", "--print",
-                "require.resolve('expo-modules-autolinking/package.json')"
-            ].execute(null, settingsDir.parentFile)
-            proc.waitFor()
-            if (proc.exitValue() == 0) {
-                def resolved = proc.text.trim()
-                if (resolved) {
-                    def candidate = new File(new File(resolved).parentFile, "android/expo-gradle-plugin")
-                    if (candidate.exists()) expoGradlePluginDir = candidate.canonicalFile
-                }
-            }
-        } catch (Exception ignored) {}
-    }
-
-    if (expoGradlePluginDir != null) {
-        includeBuild(expoGradlePluginDir)
-    } else {
-        logger.warn("[ARIA] Could not locate expo-gradle-plugin — expo module builds may fail")
-    }
-
     repositories {
         google()
         mavenCentral()
         gradlePluginPortal()
     }
+}
+
+// ── expo-module-gradle-plugin ─────────────────────────────────────────────────
+// expo-modules-core/android/build.gradle does a top-level Groovy import:
+//   import expo.modules.plugin.gradle.ExpoModuleExtension
+// and then: apply plugin: 'expo-module-gradle-plugin'
+//
+// ExpoModuleExtension is defined in expo-modules-core's own bundled gradle
+// plugin at: node_modules/expo-modules-core/expo-module-gradle-plugin/
+//
+// For both the class import and the apply plugin to work in subproject
+// build scripts, this plugin MUST be included as a full composite build at
+// the root settings level (outside pluginManagement).
+//
+// includeBuild() inside pluginManagement only covers settings-phase plugin
+// resolution. Project-level build script class imports require a root-level
+// includeBuild() so Gradle puts those classes on the subproject classpath.
+//
+// This plugin is installed by pnpm install (which runs before Gradle) so
+// no special pre-install copying is needed — it is always present by the
+// time settings.gradle is evaluated.
+//
+// Search order:
+//   1. ../node_modules/expo-modules-core/expo-module-gradle-plugin — mobile local (primary)
+//   2. ../../../node_modules/expo-modules-core/expo-module-gradle-plugin — workspace root fallback
+//   3. Node.js require.resolve fallback
+// ─────────────────────────────────────────────────────────────────────────────
+def expoModulePluginDir = null
+
+def expoModulePluginLocal = new File(settingsDir, "../node_modules/expo-modules-core/expo-module-gradle-plugin")
+if (expoModulePluginLocal.exists()) {
+    expoModulePluginDir = expoModulePluginLocal.canonicalFile
+}
+
+if (expoModulePluginDir == null) {
+    def expoModulePluginWs = new File(settingsDir, "../../../node_modules/expo-modules-core/expo-module-gradle-plugin").canonicalFile
+    if (expoModulePluginWs.exists()) {
+        expoModulePluginDir = expoModulePluginWs
+    }
+}
+
+if (expoModulePluginDir == null) {
+    try {
+        def proc = ["node", "--print",
+            "require.resolve('expo-modules-core/package.json')"
+        ].execute(null, settingsDir.parentFile)
+        proc.waitFor()
+        if (proc.exitValue() == 0) {
+            def resolved = proc.text.trim()
+            if (resolved) {
+                def candidate = new File(new File(resolved).parentFile, "expo-module-gradle-plugin")
+                if (candidate.exists()) expoModulePluginDir = candidate.canonicalFile
+            }
+        }
+    } catch (Exception ignored) {}
+}
+
+if (expoModulePluginDir != null) {
+    includeBuild(expoModulePluginDir)
+} else {
+    throw new GradleException(
+        "Cannot locate expo-module-gradle-plugin inside expo-modules-core.\n" +
+        "Ensure pnpm install has run successfully."
+    )
 }
 
 // ─── Manually linked native modules ─────────────────────────────────────────
