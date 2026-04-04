@@ -88,11 +88,19 @@
             category (dataSync/mediaProjection/location). The service manages AgentLoop lifecycle
             and keeps a persistent "ARIA Agent — Running" notification so the OS treats the
             process as user-aware.
+
+            Android 14 (API 34) requires PROPERTY_SPECIAL_USE_FGS_SUBTYPE inside <application>
+            when any service uses foregroundServiceType="specialUse". Without it the OS rejects
+            the service declaration on API 34+ devices.
         -->
         <service
             android:name=".system.AgentForegroundService"
             android:foregroundServiceType="specialUse"
             android:exported="false" />
+
+        <property
+            android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+            android:value="ARIA Agent reasoning loop — on-device LLM inference that does not fit dataSync, mediaProjection, or other standard foreground service types." />
 
     </application>
 </manifest>
