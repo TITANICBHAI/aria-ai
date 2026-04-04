@@ -1,0 +1,47 @@
+{
+  "$schema": "https://raw.githubusercontent.com/expo/eas-cli/main/packages/eas-cli/schema/eas.schema.json",
+  "cli": {
+    "version": ">= 10.0.0",
+    "requireCommit": false
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleDebug",
+        "withoutCredentials": true
+      },
+      "env": {
+        "ARIA_BUILD_PROFILE": "development",
+        "EXPO_ROUTER_APP_ROOT": "app",
+        "NPM_CONFIG_NODE_LINKER": "hoisted"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
+      },
+      "env": {
+        "ARIA_BUILD_PROFILE": "preview",
+        "EXPO_ROUTER_APP_ROOT": "app",
+        "NPM_CONFIG_NODE_LINKER": "hoisted"
+      }
+    },
+    "production": {
+      "distribution": "store",
+      "prebuildCommand": "sh scripts/eas-pre-install.sh",
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "ARIA_BUILD_PROFILE": "production",
+        "EXPO_ROUTER_APP_ROOT": "app",
+        "NPM_CONFIG_NODE_LINKER": "hoisted"
+      }
+    }
+  }
+}

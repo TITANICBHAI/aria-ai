@@ -1,0 +1,622 @@
+Running 'gradlew :app:assembleRelease' in /home/expo/workingdir/build/artifacts/mobile/android
+Downloading https://services.gradle.org/distributions/gradle-8.13-all.zip
+10
+%.
+20%.
+30%.
+40%
+50%
+60
+%.
+70%.
+80%.
+90%.
+100%
+Welcome to Gradle 8.13!
+Here are the highlights of this release:
+- Daemon JVM auto-provisioning
+- Enhancements for Scala plugin and JUnit testing
+- Improvements for build authors and plugin developers
+For more details see https://docs.gradle.org/8.13/release-notes.html
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.13/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+[ARIA] autolinking.json generated (empty deps — packages registered manually in MainApplication.kt)
+> Configure project :expo-module-gradle-plugin
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/expo-modules-core/expo-module-gradle-plugin/build.gradle.kts:58:3: 'kotlinOptions(KotlinJvmOptionsDeprecated /* = KotlinJvmOptions */.() -> Unit): Unit' is deprecated. Please migrate to the compilerOptions DSL. More details are here: https://kotl.in/u1r8ln
+> Task :gradle-plugin:react-native-gradle-plugin:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :gradle-plugin:shared:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :expo-module-gradle-plugin:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :gradle-plugin:react-native-gradle-plugin:pluginDescriptors
+> Task :expo-module-gradle-plugin:pluginDescriptors
+> Task :expo-module-gradle-plugin:processResources
+> Task :gradle-plugin:react-native-gradle-plugin:processResources
+> Task :gradle-plugin:shared:processResources NO-SOURCE
+> Task :gradle-plugin:shared:compileKotlin
+> Task :gradle-plugin:shared:compileJava NO-SOURCE
+> Task :gradle-plugin:shared:classes UP-TO-DATE
+> Task :gradle-plugin:shared:jar
+> Task :gradle-plugin:react-native-gradle-plugin:compileKotlin
+> Task :gradle-plugin:react-native-gradle-plugin:compileJava NO-SOURCE
+> Task :gradle-plugin:react-native-gradle-plugin:classes
+> Task :gradle-plugin:react-native-gradle-plugin:jar
+> Task :expo-module-gradle-plugin:compileKotlin
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/expo-modules-core/expo-module-gradle-plugin/src/main/kotlin/expo/modules/plugin/android/AndroidLibraryExtension.kt:9:24 'var targetSdk: Int?' is deprecated. Will be removed from library DSL in v9.0. Use testOptions.targetSdk or/and lint.targetSdk instead.
+> Task :expo-module-gradle-plugin:compileJava NO-SOURCE
+> Task :expo-module-gradle-plugin:classes
+> Task :expo-module-gradle-plugin:jar
+> Configure project :expo-blur
+Property 'kspVersion' is not defined. Using default value: '2.0.21-1.0.28'. Please ensure the 'expo-root-project' plugin is applied to your root project.
+> Configure project :react-native-reanimated
+Android gradle plugin: 8.11.0
+Gradle: 8.13
+> Task :expo-blur:preBuild UP-TO-DATE
+> Task :expo-font:preBuild UP-TO-DATE
+> Task :expo-haptics:preBuild UP-TO-DATE
+> Task :expo-image:preBuild UP-TO-DATE
+> Task :expo-image-picker:preBuild UP-TO-DATE
+> Task :async-storage:preBuild UP-TO-DATE
+> Task :expo-linear-gradient:preBuild
+UP-TO-DATE
+> Task :expo-linking:preBuild UP-TO-DATE
+> Task :expo-location:preBuild UP-TO-DATE
+> Task :expo-splash-screen:preBuild UP-TO-DATE
+> Task :expo-system-ui:preBuild UP-TO-DATE
+> Task :expo-web-browser:preBuild UP-TO-DATE
+> Task :expo-modules-core:preBuild UP-TO-DATE
+> Task :react-native-keyboard-controller:preBuild UP-TO-DATE
+> Task :react-native-gesture-handler:preBuild UP-TO-DATE
+> Task :react-native-safe-area-context:preBuild UP-TO-DATE
+> Task :react-native-reanimated:assertMinimalReactNativeVersionTask SKIPPED
+> Task :react-native-screens:preBuild UP-TO-DATE
+> Task :react-native-svg:preBuild UP-TO-DATE
+> Task :async-storage:preReleaseBuild UP-TO-DATE
+> Task :react-native-reanimated:prepareReanimatedHeadersForPrefabs
+> Task :app:generateAutolinkingPackageList
+> Task :app:generateCodegenSchemaFromJavaScript SKIPPED
+> Task :app:generateCodegenArtifactsFromSchema SKIPPED
+> Task :app:generateReactNativeEntryPoint
+> Task :expo-blur:preReleaseBuild UP-TO-DATE
+> Task :react-native-reanimated:prepareWorkletsHeadersForPrefabs
+> Task :react-native-reanimated:preBuild
+> Task :react-native-reanimated:preReleaseBuild
+> Task :expo-constants:createExpoConfig
+> Task :expo-constants:preBuild
+> Task :app:preBuild
+> Task :app:preReleaseBuild
+> Task :expo-blur:mergeReleaseJniLibFolders
+> Task :async-storage:mergeReleaseJniLibFolders
+> Task :app:mergeReleaseJniLibFolders
+> Task :expo-constants:preReleaseBuild
+> Task :expo-blur:mergeReleaseNativeLibs NO-SOURCE
+> Task :async-storage:mergeReleaseNativeLibs NO-SOURCE
+> Task :expo-constants:mergeReleaseJniLibFolders
+> Task :expo-constants:mergeReleaseNativeLibs NO-SOURCE
+> Task :async-storage:copyReleaseJniLibsProjectOnly
+> Task :expo-blur:copyReleaseJniLibsProjectOnly
+> Task :expo-constants:copyReleaseJniLibsProjectOnly
+> Task :expo-font:preReleaseBuild UP-TO-DATE
+> Task :expo-haptics:preReleaseBuild UP-TO-DATE
+> Task :expo-image:preReleaseBuild UP-TO-DATE
+> Task :expo-image:mergeReleaseJniLibFolders
+> Task :expo-font:mergeReleaseJniLibFolders
+> Task :expo-haptics:mergeReleaseJniLibFolders
+> Task :expo-image:mergeReleaseNativeLibs NO-SOURCE
+> Task :expo-haptics:mergeReleaseNativeLibs NO-SOURCE
+> Task :expo-font:mergeReleaseNativeLibs NO-SOURCE
+> Task :expo-font:copyReleaseJniLibsProjectOnly
+> Task :expo-haptics:copyReleaseJniLibsProjectOnly
+> Task :expo-image-picker:preReleaseBuild UP-TO-DATE
+> Task :expo-image:copyReleaseJniLibsProjectOnly
+> Task :expo-linear-gradient:preReleaseBuild UP-TO-DATE
+> Task :expo-linking:preReleaseBuild UP-TO-DATE
+> Task :expo-image-picker:mergeReleaseJniLibFolders
+> Task :expo-linear-gradient:mergeReleaseJniLibFolders
+> Task :expo-linear-gradient:mergeReleaseNativeLibs NO-SOURCE
+> Task :expo-image-picker:mergeReleaseNativeLibs NO-SOURCE
+> Task :expo-linking:mergeReleaseJniLibFolders
+> Task :expo-image-picker:copyReleaseJniLibsProjectOnly
+The NODE_ENV environment variable is required but was not specified. Ensure the project is bundled with Expo CLI or NODE_ENV is set. Using only .env.local and .env
+> Task :expo-location:preReleaseBuild
+UP-TO-DATE
+> Task :expo-linear-gradient:copyReleaseJniLibsProjectOnly
+> Task :expo-modules-core:preReleaseBuild UP-TO-DATE
+> Task :expo-linking:mergeReleaseNativeLibs NO-SOURCE
+> Task :expo-location:mergeReleaseJniLibFolders
+> Task :expo-linking:copyReleaseJniLibsProjectOnly
+> Task :expo-splash-screen:preReleaseBuild UP-TO-DATE
+> Task :expo-location:mergeReleaseNativeLibs NO-SOURCE
+> Task :expo-location:copyReleaseJniLibsProjectOnly
+> Task :expo-splash-screen:mergeReleaseJniLibFolders
+> Task :expo-system-ui:preReleaseBuild UP-TO-DATE
+> Task :expo-splash-screen:mergeReleaseNativeLibs NO-SOURCE
+> Task :expo-system-ui:mergeReleaseJniLibFolders
+> Task :expo-system-ui:mergeReleaseNativeLibs NO-SOURCE
+> Task :expo-system-ui:copyReleaseJniLibsProjectOnly
+> Task :expo-splash-screen:copyReleaseJniLibsProjectOnly
+> Task :expo-web-browser:preReleaseBuild UP-TO-DATE
+> Task :react-native-gesture-handler:preReleaseBuild UP-TO-DATE
+> Task :expo-web-browser:mergeReleaseJniLibFolders
+> Task :react-native-gesture-handler:mergeReleaseJniLibFolders
+> Task :react-native-gesture-handler:mergeReleaseNativeLibs NO-SOURCE
+> Task :expo-web-browser:mergeReleaseNativeLibs NO-SOURCE
+> Task :expo-web-browser:copyReleaseJniLibsProjectOnly
+> Task :react-native-gesture-handler:copyReleaseJniLibsProjectOnly
+> Task :react-native-keyboard-controller:preReleaseBuild UP-TO-DATE
+> Task :react-native-safe-area-context:preReleaseBuild UP-TO-DATE
+> Task :react-native-keyboard-controller:mergeReleaseJniLibFolders
+> Task :react-native-safe-area-context:mergeReleaseJniLibFolders
+> Task :react-native-keyboard-controller:mergeReleaseNativeLibs NO-SOURCE
+> Task :react-native-safe-area-context:mergeReleaseNativeLibs NO-SOURCE
+> Task :react-native-keyboard-controller:copyReleaseJniLibsProjectOnly
+> Task :react-native-screens:preReleaseBuild UP-TO-DATE
+> Task :react-native-safe-area-context:copyReleaseJniLibsProjectOnly
+> Task :react-native-svg:preReleaseBuild UP-TO-DATE
+> Task :react-native-svg:mergeReleaseJniLibFolders
+> Task :react-native-svg:mergeReleaseNativeLibs NO-SOURCE
+> Task :react-native-svg:copyReleaseJniLibsProjectOnly
+> Task :async-storage:generateReleaseBuildConfig
+> Task :async-storage:generateReleaseResValues
+> Task :async-storage:generateReleaseResources
+> Task :async-storage:packageReleaseResources
+> Task :async-storage:parseReleaseLocalResources
+> Task :async-storage:generateReleaseRFile
+> Task :async-storage:javaPreCompileRelease
+> Task :react-native-reanimated:configureCMakeRelWithDebInfo[arm64-v8a]
+Checking the license for package CMake 3.22.1 in /home/expo/Android/Sdk/licenses
+License for package CMake 3.22.1 accepted.
+Preparing "Install CMake 3.22.1 v.3.22.1".
+"Install CMake 3.22.1 v.3.22.1" ready.
+Installing CMake 3.22.1 in /home/expo/Android/Sdk/cmake/3.22.1
+"Install CMake 3.22.1 v.3.22.1" complete.
+"Install CMake 3.22.1 v.3.22.1" finished.
+> Task :async-storage:compileReleaseJavaWithJavac
+> Task :async-storage:mergeReleaseGeneratedProguardFiles
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: /home/expo/workingdir/build/artifacts/mobile/node_modules/@react-native-async-storage/async-storage/android/src/javaPackage/java/com/reactnativecommunity/asyncstorage/AsyncStoragePackage.java uses unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+> Task :async-storage:exportReleaseConsumerProguardFiles
+> Task :react-native-gesture-handler:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :react-native-gesture-handler:generateReleaseBuildConfig
+> Task :react-native-gesture-handler:generateReleaseResValues
+> Task :react-native-gesture-handler:generateReleaseResources
+> Task :react-native-gesture-handler:packageReleaseResources
+> Task :react-native-gesture-handler:parseReleaseLocalResources
+> Task :react-native-gesture-handler:generateReleaseRFile
+> Task :react-native-svg:generateReleaseBuildConfig
+> Task :react-native-svg:generateReleaseResValues
+> Task :react-native-svg:generateReleaseResources
+> Task :react-native-svg:packageReleaseResources
+> Task :react-native-svg:parseReleaseLocalResources
+> Task :react-native-svg:generateReleaseRFile
+> Task :react-native-svg:javaPreCompileRelease
+> Task :react-native-screens:configureCMakeRelWithDebInfo[arm64-v8a]
+> Task :expo-modules-core:configureCMakeRelWithDebInfo[arm64-v8a]
+> Task :react-native-svg:compileReleaseJavaWithJavac
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: Some input files use unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+> Task :react-native-svg:bundleLibCompileToJarRelease
+> Task :react-native-gesture-handler:javaPreCompileRelease
+> Task :react-native-keyboard-controller:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :react-native-keyboard-controller:generateReleaseBuildConfig
+> Task :react-native-keyboard-controller:generateReleaseResValues
+> Task :react-native-keyboard-controller:generateReleaseResources
+> Task :react-native-keyboard-controller:packageReleaseResources
+> Task :react-native-keyboard-controller:parseReleaseLocalResources
+> Task :react-native-screens:buildCMakeRelWithDebInfo[arm64-v8a]
+> Task :react-native-screens:mergeReleaseJniLibFolders
+> Task :react-native-keyboard-controller:generateReleaseRFile
+> Task :react-native-screens:mergeReleaseNativeLibs
+> Task :react-native-screens:copyReleaseJniLibsProjectOnly
+> Task :react-native-safe-area-context:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :react-native-safe-area-context:generateReleaseBuildConfig
+> Task :react-native-safe-area-context:generateReleaseResValues
+> Task :react-native-safe-area-context:generateReleaseResources
+> Task :react-native-safe-area-context:packageReleaseResources
+> Task :react-native-safe-area-context:parseReleaseLocalResources
+> Task :react-native-reanimated:generateJsonModelRelease
+> Task :react-native-reanimated:prefabReleaseConfigurePackage
+> Task :react-native-safe-area-context:generateReleaseRFile
+> Task :app:configureCMakeRelWithDebInfo[arm64-v8a]
+C/C++: CMAKE_BUILD_TYPE=RelWithDebInfo
+C/C++: fatal: not a git repository (or any of the parent directories): .git
+C/C++: fatal: not a git repository (or any of the parent directories): .git
+C/C++: CMake Warning at llama.cpp/common/CMakeLists.txt:31 (message):
+C/C++:   Git repository not found; to enable automatic generation of build info,
+C/C++:   make sure Git is installed and the project is a Git repository.
+C/C++: CMake Warning at llama.cpp/vendor/cpp-httplib/CMakeLists.txt:150 (message):
+C/C++:   OpenSSL not found, HTTPS support disabled
+C/C++: CMake Error at llama.cpp/tools/mtmd/CMakeLists.txt:40 (set_target_properties):
+C/C++:   set_target_properties called with incorrect number of arguments.
+> Task :app:configureCMakeRelWithDebInfo[arm64-v8a] FAILED
+> Task :expo-modules-core:buildCMakeRelWithDebInfo[arm64-v8a]
+> Task :react-native-keyboard-controller:compileReleaseKotlin
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/extensions/EditText.kt:69:42 Unchecked cast of 'ArrayList<*>' to 'ArrayList<TextWatcher>'.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/interactive/KeyboardAnimationController.kt:89:16 'static fun getWindowInsetsController(p0: View): WindowInsetsControllerCompat?' is deprecated. Deprecated in Java.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/managers/KeyboardControllerViewManagerImpl.kt:3:8 'object MapBuilder : Any' is deprecated. Use Kotlin's built-in collections extensions.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/managers/KeyboardControllerViewManagerImpl.kt:62:7 'object MapBuilder : Any' is deprecated. Use Kotlin's built-in collections extensions.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/managers/KeyboardControllerViewManagerImpl.kt:64:9 'object MapBuilder : Any' is deprecated. Use Kotlin's built-in collections extensions.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/managers/KeyboardControllerViewManagerImpl.kt:66:9 'object MapBuilder : Any' is deprecated. Use Kotlin's built-in collections extensions.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/managers/KeyboardControllerViewManagerImpl.kt:68:9 'object MapBuilder : Any' is deprecated. Use Kotlin's built-in collections extensions.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/managers/KeyboardControllerViewManagerImpl.kt:70:9 'object MapBuilder : Any' is deprecated. Use Kotlin's built-in collections extensions.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/managers/KeyboardControllerViewManagerImpl.kt:72:9 'object MapBuilder : Any' is deprecated. Use Kotlin's built-in collections extensions.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/managers/KeyboardControllerViewManagerImpl.kt:74:9 'object MapBuilder : Any' is deprecated. Use Kotlin's built-in collections extensions.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/managers/KeyboardControllerViewManagerImpl.kt:76:9 'object MapBuilder : Any' is deprecated. Use Kotlin's built-in collections extensions.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/modal/ModalAttachedWatcher.kt:29:111 'val DEFAULT: Int' is deprecated. UIManagerType.DEFAULT will be deleted in the next release of React Native. Use [LEGACY] instead.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/modules/statusbar/StatusBarManagerCompatModuleImpl.kt:62:36 'var statusBarColor: Int' is deprecated. Deprecated in Java.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/modules/statusbar/StatusBarManagerCompatModuleImpl.kt:65:18 'var statusBarColor: Int' is deprecated. Deprecated in Java.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/modules/statusbar/StatusBarManagerCompatModuleImpl.kt:70:16 'var statusBarColor: Int' is deprecated. Deprecated in Java.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/views/EdgeToEdgeReactViewGroup.kt:134:23 'fun replaceSystemWindowInsets(p0: Int, p1: Int, p2: Int, p3: Int): WindowInsetsCompat' is deprecated. Deprecated in Java.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/views/EdgeToEdgeReactViewGroup.kt:135:25 'val systemWindowInsetLeft: Int' is deprecated. Deprecated in Java.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/views/EdgeToEdgeReactViewGroup.kt:136:65 'val systemWindowInsetTop: Int' is deprecated. Deprecated in Java.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/views/EdgeToEdgeReactViewGroup.kt:137:25 'val systemWindowInsetRight: Int' is deprecated. Deprecated in Java.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/views/EdgeToEdgeReactViewGroup.kt:138:25 'val systemWindowInsetBottom: Int' is deprecated. Deprecated in Java.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/views/overlay/OverKeyboardViewGroup.kt:13:8 'object ReactFeatureFlags : Any' is deprecated. Use com.facebook.react.internal.featureflags.ReactNativeFeatureFlags instead.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/views/overlay/OverKeyboardViewGroup.kt:79:5 The corresponding parameter in the supertype 'ReactViewGroup' is named 'left'. This may cause problems when calling this function with named arguments.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/views/overlay/OverKeyboardViewGroup.kt:80:5 The corresponding parameter in the supertype 'ReactViewGroup' is named 'top'. This may cause problems when calling this function with named arguments.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/views/overlay/OverKeyboardViewGroup.kt:81:5 The corresponding parameter in the supertype 'ReactViewGroup' is named 'right'. This may cause problems when calling this function with named arguments.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/views/overlay/OverKeyboardViewGroup.kt:82:5 The corresponding parameter in the supertype 'ReactViewGroup' is named 'bottom'. This may cause problems when calling this function with named arguments.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/views/overlay/OverKeyboardViewGroup.kt:132:9 'object ReactFeatureFlags : Any' is deprecated. Use com.facebook.react.internal.featureflags.ReactNativeFeatureFlags instead.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/views/overlay/OverKeyboardViewGroup.kt:152:5 The corresponding parameter in the supertype 'ReactViewGroup' is named 'w'. This may cause problems when calling this function with named arguments.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/views/overlay/OverKeyboardViewGroup.kt:153:5 The corresponding parameter in the supertype 'ReactViewGroup' is named 'h'. This may cause problems when calling this function with named arguments.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/views/overlay/OverKeyboardViewGroup.kt:154:5 The corresponding parameter in the supertype 'ReactViewGroup' is named 'oldw'. This may cause problems when calling this function with named arguments.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/main/java/com/reactnativekeyboardcontroller/views/overlay/OverKeyboardViewGroup.kt:155:5 The corresponding parameter in the supertype 'ReactViewGroup' is named 'oldh'. This may cause problems when calling this function with named arguments.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/paper/java/com/reactnativekeyboardcontroller/KeyboardBackgroundViewManager.kt:13:35 The corresponding parameter in the supertype 'ReactViewManager' is named 'context'. This may cause problems when calling this function with named arguments.
+w: file:///home/expo/workingdir/build/artifacts/mobile/node_modules/react-native-keyboard-controller/android/src/paper/java/com/reactnativekeyboardcontroller/KeyboardGestureAreaViewManager.kt:14:35 The corresponding parameter in the supertype 'ReactViewManager' is named 'context'. This may cause problems when calling this function with named arguments.
+> Task :react-native-reanimated:buildCMakeRelWithDebInfo[arm64-v8a][reanimated,worklets]
+[Incubating] Problems report is available at: file:///home/expo/workingdir/build/artifacts/mobile/android/build/reports/problems/problems-report.html
+FAILURE: Build failed with an exception.
+* What went wrong:
+Execution failed for task ':app:configureCMakeRelWithDebInfo[arm64-v8a]'.
+> [CXX1429] error when building with cmake using /home/expo/workingdir/build/artifacts/mobile/android/app/src/main/cpp/CMakeLists.txt: -- The C compiler identification is Clang 18.0.2
+  -- The CXX compiler identification is Clang 18.0.2
+  -- Detecting C compiler ABI info
+  -- Detecting C compiler ABI info - done
+  -- Check for working C compiler: /home/expo/Android/Sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/linux-x86_64/bin/clang - skipped
+  -- Detecting C compile features
+  -- Detecting C compile features - done
+  -- Detecting CXX compiler ABI info
+  -- Detecting CXX compiler ABI info - done
+  -- Check for working CXX compiler: /home/expo/Android/Sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ - skipped
+  -- Detecting CXX compile features
+  -- Detecting CXX compile features - done
+  -- Found Git: /usr/bin/git (found version "2.43.0") 
+  -- The ASM compiler identification is Clang with GNU-like command-line
+  -- Found assembler: /home/expo/Android/Sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/linux-x86_64/bin/clang
+  -- Setting GGML_NATIVE_DEFAULT to OFF
+  -- Looking for pthread.h
+  -- Looking for pthread.h - found
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+  -- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Failed
+  -- Check if compiler accepts -pthread
+  -- Check if compiler accepts -pthread - yes
+  -- Found Threads: TRUE  
+  -- ccache found, compilation results will be cached. Disable with GGML_CCACHE=OFF.
+  -- CMAKE_SYSTEM_PROCESSOR: aarch64
+  -- GGML_SYSTEM_ARCH: ARM
+  -- Including CPU backend
+  -- Found OpenMP_C: -fopenmp=libomp  
+  -- Found OpenMP_CXX: -fopenmp=libomp  
+  -- Found OpenMP: TRUE   
+  -- ARM detected
+  -- Performing Test GGML_COMPILER_SUPPORTS_FP16_FORMAT_I3E
+  -- Performing Test GGML_COMPILER_SUPPORTS_FP16_FORMAT_I3E - Failed
+  -- Checking for ARM features using flags:
+  -- Performing Test HAVE_DOTPROD
+  -- Performing Test HAVE_DOTPROD - Failed
+  -- Performing Test HAVE_SVE
+  -- Performing Test HAVE_SVE - Failed
+  -- Performing Test HAVE_MATMUL_INT8
+  -- Performing Test HAVE_MATMUL_INT8 - Failed
+  -- Performing Test HAVE_FMA
+  -- Performing Test HAVE_FMA - Success
+  -- Performing Test HAVE_FP16_VECTOR_ARITHMETIC
+  -- Performing Test HAVE_FP16_VECTOR_ARITHMETIC - Failed
+  -- Performing Test HAVE_SME
+  -- Performing Test HAVE_SME - Failed
+  -- Adding CPU backend variant ggml-cpu:  
+  -- ggml version: 0.9.11
+  -- ggml commit:  unknown
+  -- Could NOT find OpenSSL, try to set the path to OpenSSL root folder in the system variable OPENSSL_ROOT_DIR (missing: OPENSSL_CRYPTO_LIBRARY OPENSSL_INCLUDE_DIR) 
+  -- Generating embedded license file for target: common
+  -- Configuring incomplete, errors occurred!
+  See also "/home/expo/workingdir/build/artifacts/mobile/android/app/.cxx/RelWithDebInfo/2j3c5j43/arm64-v8a/CMakeFiles/CMakeOutput.log".
+  See also "/home/expo/workingdir/build/artifacts/mobile/android/app/.cxx/RelWithDebInfo/2j3c5j43/arm64-v8a/CMakeFiles/CMakeError.log".
+  
+  C++ build system [configure] failed while executing:
+      /home/expo/Android/Sdk/cmake/3.22.1/bin/cmake \
+        -H/home/expo/workingdir/build/artifacts/mobile/android/app/src/main/cpp \
+        -DCMAKE_SYSTEM_NAME=Android \
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+        -DCMAKE_SYSTEM_VERSION=24 \
+        -DCMAKE_ANDROID_ARCH_ABI=arm64-v8a \
+        -DANDROID_NDK=/home/expo/Android/Sdk/ndk/27.1.12297006 \
+        -DCMAKE_ANDROID_NDK=/home/expo/Android/Sdk/ndk/27.1.12297006 \
+        -DCMAKE_TOOLCHAIN_FILE=/home/expo/Android/Sdk/ndk/27.1.12297006/build/cmake/android.toolchain.cmake \
+        -DCMAKE_MAKE_PROGRAM=/home/expo/Android/Sdk/cmake/3.22.1/bin/ninja \
+        "-DCMAKE_CXX_FLAGS=-std=c++17 -O3 -march=armv8-a -ffast-math" \
+        -DCMAKE_LIBRARY_OUTPUT_DIRECTORY=/home/expo/workingdir/build/artifacts/mobile/android/app/build/intermediates/cxx/RelWithDebInfo/2j3c5j43/obj/arm64-v8a \
+        -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/home/expo/workingdir/build/artifacts/mobile/android/app/build/intermediates/cxx/RelWithDebInfo/2j3c5j43/obj/arm64-v8a \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -B/home/expo/workingdir/build/artifacts/mobile/android/app/.cxx/RelWithDebInfo/2j3c5j43/arm64-v8a \
+        -GNinja \
+        -DANDROID_PLATFORM=android-26 \
+        -DANDROID_ABI=arm64-v8a \
+        -DLLAMA_VULKAN=ON \
+        -DLLAMA_METAL=OFF \
+        -DLLAMA_CUBLAS=OFF \
+        -DLLAMA_BUILD_TESTS=OFF \
+        -DLLAMA_BUILD_EXAMPLES=OFF
+    from /home/expo/workingdir/build/artifacts/mobile/android/app
+  CMAKE_BUILD_TYPE=RelWithDebInfo
+  fatal: not a git repository (or any of the parent directories): .git
+  fatal: not a git repository (or any of the parent directories): .git
+  CMake Warning at llama.cpp/common/CMakeLists.txt:31 (message):
+    Git repository not found; to enable automatic generation of build info,
+    make sure Git is installed and the project is a Git repository.
+  
+  
+  CMake Warning at llama.cpp/vendor/cpp-httplib/CMakeLists.txt:150 (message):
+    OpenSSL not found, HTTPS support disabled
+  
+  
+  CMake Error at llama.cpp/tools/mtmd/CMakeLists.txt:40 (set_target_properties):
+    set_target_properties called with incorrect number of arguments. : com.android.ide.common.process.ProcessException: -- The C compiler identification is Clang 18.0.2
+  -- The CXX compiler identification is Clang 18.0.2
+  -- Detecting C compiler ABI info
+  -- Detecting C compiler ABI info - done
+  -- Check for working C compiler: /home/expo/Android/Sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/linux-x86_64/bin/clang - skipped
+  -- Detecting C compile features
+  -- Detecting C compile features - done
+  -- Detecting CXX compiler ABI info
+  -- Detecting CXX compiler ABI info - done
+  -- Check for working CXX compiler: /home/expo/Android/Sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ - skipped
+  -- Detecting CXX compile features
+  -- Detecting CXX compile features - done
+  -- Found Git: /usr/bin/git (found version "2.43.0") 
+  -- The ASM compiler identification is Clang with GNU-like command-line
+  -- Found assembler: /home/expo/Android/Sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/linux-x86_64/bin/clang
+  -- Setting GGML_NATIVE_DEFAULT to OFF
+  -- Looking for pthread.h
+  -- Looking for pthread.h - found
+  -- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+  -- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Failed
+  -- Check if compiler accepts -pthread
+  -- Check if compiler accepts -pthread - yes
+  -- Found Threads: TRUE  
+  -- ccache found, compilation results will be cached. Disable with GGML_CCACHE=OFF.
+  -- CMAKE_SYSTEM_PROCESSOR: aarch64
+  -- GGML_SYSTEM_ARCH: ARM
+  -- Including CPU backend
+  -- Found OpenMP_C: -fopenmp=libomp  
+  -- Found OpenMP_CXX: -fopenmp=libomp  
+  -- Found OpenMP: TRUE   
+  -- ARM detected
+  -- Performing Test GGML_COMPILER_SUPPORTS_FP16_FORMAT_I3E
+  -- Performing Test GGML_COMPILER_SUPPORTS_FP16_FORMAT_I3E - Failed
+  -- Checking for ARM features using flags:
+  -- Performing Test HAVE_DOTPROD
+  -- Performing Test HAVE_DOTPROD - Failed
+  -- Performing Test HAVE_SVE
+  -- Performing Test HAVE_SVE - Failed
+  -- Performing Test HAVE_MATMUL_INT8
+  -- Performing Test HAVE_MATMUL_INT8 - Failed
+  -- Performing Test HAVE_FMA
+  -- Performing Test HAVE_FMA - Success
+  -- Performing Test HAVE_FP16_VECTOR_ARITHMETIC
+  -- Performing Test HAVE_FP16_VECTOR_ARITHMETIC - Failed
+  -- Performing Test HAVE_SME
+  -- Performing Test HAVE_SME - Failed
+  -- Adding CPU backend variant ggml-cpu:  
+  -- ggml version: 0.9.11
+  -- ggml commit:  unknown
+  -- Could NOT find OpenSSL, try to set the path to OpenSSL root folder in the system variable OPENSSL_ROOT_DIR (missing: OPENSSL_CRYPTO_LIBRARY OPENSSL_INCLUDE_DIR) 
+  -- Generating embedded license file for target: common
+  -- Configuring incomplete, errors occurred!
+  See also "/home/expo/workingdir/build/artifacts/mobile/android/app/.cxx/RelWithDebInfo/2j3c5j43/arm64-v8a/CMakeFiles/CMakeOutput.log".
+  See also "/home/expo/workingdir/build/artifacts/mobile/android/app/.cxx/RelWithDebInfo/2j3c5j43/arm64-v8a/CMakeFiles/CMakeError.log".
+  
+  C++ build system [configure] failed while executing:
+      /home/expo/Android/Sdk/cmake/3.22.1/bin/cmake \
+        -H/home/expo/workingdir/build/artifacts/mobile/android/app/src/main/cpp \
+        -DCMAKE_SYSTEM_NAME=Android \
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+        -DCMAKE_SYSTEM_VERSION=24 \
+        -DCMAKE_ANDROID_ARCH_ABI=arm64-v8a \
+        -DANDROID_NDK=/home/expo/Android/Sdk/ndk/27.1.12297006 \
+        -DCMAKE_ANDROID_NDK=/home/expo/Android/Sdk/ndk/27.1.12297006 \
+        -DCMAKE_TOOLCHAIN_FILE=/home/expo/Android/Sdk/ndk/27.1.12297006/build/cmake/android.toolchain.cmake \
+        -DCMAKE_MAKE_PROGRAM=/home/expo/Android/Sdk/cmake/3.22.1/bin/ninja \
+        "-DCMAKE_CXX_FLAGS=-std=c++17 -O3 -march=armv8-a -ffast-math" \
+        -DCMAKE_LIBRARY_OUTPUT_DIRECTORY=/home/expo/workingdir/build/artifacts/mobile/android/app/build/intermediates/cxx/RelWithDebInfo/2j3c5j43/obj/arm64-v8a \
+        -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/home/expo/workingdir/build/artifacts/mobile/android/app/build/intermediates/cxx/RelWithDebInfo/2j3c5j43/obj/arm64-v8a \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -B/home/expo/workingdir/build/artifacts/mobile/android/app/.cxx/RelWithDebInfo/2j3c5j43/arm64-v8a \
+        -GNinja \
+        -DANDROID_PLATFORM=android-26 \
+        -DANDROID_ABI=arm64-v8a \
+        -DLLAMA_VULKAN=ON \
+        -DLLAMA_METAL=OFF \
+        -DLLAMA_CUBLAS=OFF \
+        -DLLAMA_BUILD_TESTS=OFF \
+-DLLAMA_BUILD_EXAMPLES=OFF
+    from /home/expo/workingdir/build/artifacts/mobile/android/app
+  CMAKE_BUILD_TYPE=RelWithDebInfo
+  fatal: not a git repository (or any of the parent directories): .git
+  fatal: not a git repository (or any of the parent directories): .git
+  CMake Warning at llama.cpp/common/CMakeLists.txt:31 (message):
+    Git repository not found; to enable automatic generation of build info,
+    make sure Git is installed and the project is a Git repository.
+  
+  
+  CMake Warning at llama.cpp/vendor/cpp-httplib/CMakeLists.txt:150 (message):
+    OpenSSL not found, HTTPS support disabled
+  
+  
+  CMake Error at llama.cpp/tools/mtmd/CMakeLists.txt:40 (set_target_properties):
+    set_target_properties called with incorrect number of arguments.
+  	at com.android.build.gradle.internal.cxx.process.ExecuteProcessKt.execute(ExecuteProcess.kt:288)
+  	at com.android.build.gradle.internal.cxx.process.ExecuteProcessKt$executeProcess$1.invoke(ExecuteProcess.kt:108)
+  	at com.android.build.gradle.internal.cxx.process.ExecuteProcessKt$executeProcess$1.invoke(ExecuteProcess.kt:106)
+  	at com.android.build.gradle.internal.cxx.timing.TimingEnvironmentKt.time(TimingEnvironment.kt:32)
+  	at com.android.build.gradle.internal.cxx.process.ExecuteProcessKt.executeProcess(ExecuteProcess.kt:106)
+  	at com.android.build.gradle.internal.cxx.process.ExecuteProcessKt.executeProcess$default(ExecuteProcess.kt:85)
+at com.android.build.gradle.tasks.CmakeQueryMetadataGenerator.executeProcess(CmakeFileApiMetadataGenerator.kt:59)
+at com.android.build.gradle.tasks.ExternalNativeJsonGenerator$configureOneAbi$1$1$3.invoke(ExternalNativeJsonGenerator.kt:247)
+  	at com.android.build.gradle.tasks.ExternalNativeJsonGenerator$configureOneAbi$1$1$3.invoke(ExternalNativeJsonGenerator.kt:247)
+  	at com.android.build.gradle.internal.cxx.timing.TimingEnvironmentKt.time(TimingEnvironment.kt:32)
+  	at com.android.build.gradle.tasks.ExternalNativeJsonGenerator.configureOneAbi(ExternalNativeJsonGenerator.kt:247)
+  	at com.android.build.gradle.tasks.ExternalNativeJsonGenerator.configure(ExternalNativeJsonGenerator.kt:113)
+  	at com.android.build.gradle.tasks.ExternalNativeBuildJsonTask.doTaskAction(ExternalNativeBuildJsonTask.kt:89)
+  	at com.android.build.gradle.internal.tasks.UnsafeOutputsTask$taskAction$$inlined$recordTaskAction$1.invoke(BaseTask.kt:59)
+  	at com.android.build.gradle.internal.tasks.Blocks.recordSpan(Blocks.java:51)
+  	at com.android.build.gradle.internal.tasks.UnsafeOutputsTask.taskAction(UnsafeOutputsTask.kt:81)
+  	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+  	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+  	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+  	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+  	at org.gradle.internal.reflect.JavaMethod.invoke(JavaMethod.java:125)
+  	at org.gradle.api.internal.project.taskfactory.StandardTaskAction.doExecute(StandardTaskAction.java:58)
+  	at org.gradle.api.internal.project.taskfactory.StandardTaskAction.execute(StandardTaskAction.java:51)
+  	at org.gradle.api.internal.project.taskfactory.StandardTaskAction.execute(StandardTaskAction.java:29)
+  	at org.gradle.api.internal.tasks.execution.TaskExecution$3.run(TaskExecution.java:244)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperationRunner.java:30)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperationRunner.java:27)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner.run(DefaultBuildOperationRunner.java:48)
+  	at org.gradle.api.internal.tasks.execution.TaskExecution.executeAction(TaskExecution.java:229)
+  	at org.gradle.api.internal.tasks.execution.TaskExecution.executeActions(TaskExecution.java:212)
+  	at org.gradle.api.internal.tasks.execution.TaskExecution.executeWithPreviousOutputFiles(TaskExecution.java:195)
+  	at org.gradle.api.internal.tasks.execution.TaskExecution.execute(TaskExecution.java:162)
+  	at org.gradle.internal.execution.steps.ExecuteStep.executeInternal(ExecuteStep.java:105)
+  	at org.gradle.internal.execution.steps.ExecuteStep.access$000(ExecuteStep.java:44)
+  	at org.gradle.internal.execution.steps.ExecuteStep$1.call(ExecuteStep.java:59)
+  	at org.gradle.internal.execution.steps.ExecuteStep$1.call(ExecuteStep.java:56)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+  	at org.gradle.internal.execution.steps.ExecuteStep.execute(ExecuteStep.java:56)
+  	at org.gradle.internal.execution.steps.ExecuteStep.execute(ExecuteStep.java:44)
+  	at org.gradle.internal.execution.steps.CancelExecutionStep.execute(CancelExecutionStep.java:42)
+  	at org.gradle.internal.execution.steps.TimeoutStep.executeWithoutTimeout(TimeoutStep.java:75)
+  	at org.gradle.internal.execution.steps.TimeoutStep.execute(TimeoutStep.java:55)
+  	at org.gradle.internal.execution.steps.PreCreateOutputParentsStep.execute(PreCreateOutputParentsStep.java:50)
+  	at org.gradle.internal.execution.steps.PreCreateOutputParentsStep.execute(PreCreateOutputParentsStep.java:28)
+  	at org.gradle.internal.execution.steps.RemovePreviousOutputsStep.execute(RemovePreviousOutputsStep.java:67)
+  	at org.gradle.internal.execution.steps.RemovePreviousOutputsStep.execute(RemovePreviousOutputsStep.java:37)
+  	at org.gradle.internal.execution.steps.BroadcastChangingOutputsStep.execute(BroadcastChangingOutputsStep.java:61)
+  	at org.gradle.internal.execution.steps.BroadcastChangingOutputsStep.execute(BroadcastChangingOutputsStep.java:26)
+  	at org.gradle.internal.execution.steps.CaptureOutputsAfterExecutionStep.execute(CaptureOutputsAfterExecutionStep.java:69)
+  	at org.gradle.internal.execution.steps.CaptureOutputsAfterExecutionStep.execute(CaptureOutputsAfterExecutionStep.java:46)
+  	at org.gradle.internal.execution.steps.ResolveInputChangesStep.execute(ResolveInputChangesStep.java:40)
+  	at org.gradle.internal.execution.steps.ResolveInputChangesStep.execute(ResolveInputChangesStep.java:29)
+  	at org.gradle.internal.execution.steps.BuildCacheStep.executeWithoutCache(BuildCacheStep.java:189)
+  	at org.gradle.internal.execution.steps.BuildCacheStep.lambda$execute$1(BuildCacheStep.java:75)
+  	at org.gradle.internal.Either$Right.fold(Either.java:175)
+  	at org.gradle.internal.execution.caching.CachingState.fold(CachingState.java:62)
+  	at org.gradle.internal.execution.steps.BuildCacheStep.execute(BuildCacheStep.java:73)
+  	at org.gradle.internal.execution.steps.BuildCacheStep.execute(BuildCacheStep.java:48)
+  	at org.gradle.internal.execution.steps.StoreExecutionStateStep.execute(StoreExecutionStateStep.java:46)
+  	at org.gradle.internal.execution.steps.StoreExecutionStateStep.execute(StoreExecutionStateStep.java:35)
+  	at org.gradle.internal.execution.steps.SkipUpToDateStep.executeBecause(SkipUpToDateStep.java:75)
+  	at org.gradle.internal.execution.steps.SkipUpToDateStep.lambda$execute$2(SkipUpToDateStep.java:53)
+  	at java.base/java.util.Optional.orElseGet(Optional.java:364)
+  	at org.gradle.internal.execution.steps.SkipUpToDateStep.execute(SkipUpToDateStep.java:53)
+  	at org.gradle.internal.execution.steps.SkipUpToDateStep.execute(SkipUpToDateStep.java:35)
+  	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsFinishedStep.execute(MarkSnapshottingInputsFinishedStep.java:37)
+  	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsFinishedStep.execute(MarkSnapshottingInputsFinishedStep.java:27)
+  	at org.gradle.internal.execution.steps.ResolveIncrementalCachingStateStep.executeDelegate(ResolveIncrementalCachingStateStep.java:49)
+  	at org.gradle.internal.execution.steps.ResolveIncrementalCachingStateStep.executeDelegate(ResolveIncrementalCachingStateStep.java:27)
+  	at org.gradle.internal.execution.steps.AbstractResolveCachingStateStep.execute(AbstractResolveCachingStateStep.java:71)
+  	at org.gradle.internal.execution.steps.AbstractResolveCachingStateStep.execute(AbstractResolveCachingStateStep.java:39)
+  	at org.gradle.internal.execution.steps.ResolveChangesStep.execute(ResolveChangesStep.java:65)
+  	at org.gradle.internal.execution.steps.ResolveChangesStep.execute(ResolveChangesStep.java:36)
+  	at org.gradle.internal.execution.steps.ValidateStep.execute(ValidateStep.java:107)
+  	at org.gradle.internal.execution.steps.ValidateStep.execute(ValidateStep.java:56)
+  	at org.gradle.internal.execution.steps.AbstractCaptureStateBeforeExecutionStep.execute(AbstractCaptureStateBeforeExecutionStep.java:64)
+  	at org.gradle.internal.execution.steps.AbstractCaptureStateBeforeExecutionStep.execute(AbstractCaptureStateBeforeExecutionStep.java:43)
+  	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.executeWithNonEmptySources(AbstractSkipEmptyWorkStep.java:125)
+  	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.execute(AbstractSkipEmptyWorkStep.java:56)
+  	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.execute(AbstractSkipEmptyWorkStep.java:36)
+  	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsStartedStep.execute(MarkSnapshottingInputsStartedStep.java:38)
+  	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.execute(LoadPreviousExecutionStateStep.java:36)
+  	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.execute(LoadPreviousExecutionStateStep.java:23)
+  	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.execute(HandleStaleOutputsStep.java:75)
+  	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.execute(HandleStaleOutputsStep.java:41)
+  	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.lambda$execute$0(AssignMutableWorkspaceStep.java:35)
+  	at org.gradle.api.internal.tasks.execution.TaskExecution$4.withWorkspace(TaskExecution.java:289)
+  	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.execute(AssignMutableWorkspaceStep.java:31)
+  	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.execute(AssignMutableWorkspaceStep.java:22)
+  	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:40)
+  	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:23)
+  	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.lambda$execute$2(ExecuteWorkBuildOperationFiringStep.java:67)
+  	at java.base/java.util.Optional.orElseGet(Optional.java:364)
+  	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:67)
+  	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:39)
+  	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:46)
+  	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:34)
+  	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:48)
+  	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:35)
+  	at org.gradle.internal.execution.impl.DefaultExecutionEngine$1.execute(DefaultExecutionEngine.java:61)
+  	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:127)
+  	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.execute(ExecuteActionsTaskExecuter.java:116)
+  	at org.gradle.api.internal.tasks.execution.ProblemsTaskPathTrackingTaskExecuter.execute(ProblemsTaskPathTrackingTaskExecuter.java:40)
+  	at org.gradle.api.internal.tasks.execution.FinalizePropertiesTaskExecuter.execute(FinalizePropertiesTaskExecuter.java:46)
+  	at org.gradle.api.internal.tasks.execution.ResolveTaskExecutionModeExecuter.execute(ResolveTaskExecutionModeExecuter.java:51)
+  	at org.gradle.api.internal.tasks.execution.SkipTaskWithNoActionsExecuter.execute(SkipTaskWithNoActionsExecuter.java:57)
+  	at org.gradle.api.internal.tasks.execution.SkipOnlyIfTaskExecuter.execute(SkipOnlyIfTaskExecuter.java:74)
+at org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter.execute(CatchExceptionTaskExecuter.java:36)
+  	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.executeTask(EventFiringTaskExecuter.java:77)
+  	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:55)
+  	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:52)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+  	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter.execute(EventFiringTaskExecuter.java:52)
+  	at org.gradle.execution.plan.LocalTaskNodeExecutor.execute(LocalTaskNodeExecutor.java:42)
+  	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:331)
+  	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:318)
+  	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.lambda$execute$0(DefaultTaskExecutionGraph.java:314)
+  	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:85)
+  	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:314)
+  	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:303)
+  	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.execute(DefaultPlanExecutor.java:459)
+  	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.run(DefaultPlanExecutor.java:376)
+  	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:64)
+  	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:48)
+  	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+  	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+  	at java.base/java.lang.Thread.run(Thread.java:840)
+  Caused by: com.android.ide.common.process.ProcessException: Error while executing process /home/expo/Android/Sdk/cmake/3.22.1/bin/cmake with arguments {-H/home/expo/workingdir/build/artifacts/mobile/android/app/src/main/cpp -DCMAKE_SYSTEM_NAME=Android -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_SYSTEM_VERSION=24 -DCMAKE_ANDROID_ARCH_ABI=arm64-v8a -DANDROID_NDK=/home/expo/Android/Sdk/ndk/27.1.12297006 -DCMAKE_ANDROID_NDK=/home/expo/Android/Sdk/ndk/27.1.12297006 -DCMAKE_TOOLCHAIN_FILE=/home/expo/Android/Sdk/ndk/27.1.12297006/build/cmake/android.toolchain.cmake -DCMAKE_MAKE_PROGRAM=/home/expo/Android/Sdk/cmake/3.22.1/bin/ninja -DCMAKE_CXX_FLAGS=-std=c++17 -O3 -march=armv8-a -ffast-math -DCMAKE_LIBRARY_OUTPUT_DIRECTORY=/home/expo/workingdir/build/artifacts/mobile/android/app/build/intermediates/cxx/RelWithDebInfo/2j3c5j43/obj/arm64-v8a -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/home/expo/workingdir/build/artifacts/mobile/android/app/build/intermediates/cxx/RelWithDebInfo/2j3c5j43/obj/arm64-v8a -DCMAKE_BUILD_TYPE=RelWithDebInfo -B/home/expo/workingdir/build/artifacts/mobile/android/app/.cxx/RelWithDebInfo/2j3c5j43/arm64-v8a -GNinja -DANDROID_PLATFORM=android-26 -DANDROID_ABI=arm64-v8a -DLLAMA_VULKAN=ON -DLLAMA_METAL=OFF -DLLAMA_CUBLAS=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF}
+  	at com.android.build.gradle.internal.process.GradleProcessResult.buildProcessException(GradleProcessResult.java:73)
+  	at com.android.build.gradle.internal.process.GradleProcessResult.assertNormalExitValue(GradleProcessResult.java:48)
+  	at com.android.build.gradle.internal.cxx.process.ExecuteProcessKt.execute(ExecuteProcess.kt:277)
+  	... 142 more
+  Caused by: org.gradle.process.internal.ExecException: Process 'command '/home/expo/Android/Sdk/cmake/3.22.1/bin/cmake'' finished with non-zero exit value 1
+  	at org.gradle.process.internal.DefaultExecHandle$ExecResultImpl.assertNormalExitValue(DefaultExecHandle.java:442)
+  	at com.android.build.gradle.internal.process.GradleProcessResult.assertNormalExitValue(GradleProcessResult.java:46)
+  	... 143 more
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+BUILD FAILED in 2m 49s
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+For more on this, please refer to https://docs.gradle.org/8.13/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+100 actionable tasks: 100 executed
+Error: Gradle build failed with unknown error. See logs for the "Run gradlew" phase for more information.

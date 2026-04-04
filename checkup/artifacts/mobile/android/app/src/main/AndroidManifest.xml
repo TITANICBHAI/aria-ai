@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Network: model download from HuggingFace (one-time, first launch) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Foreground services: model download + screen capture run as foreground -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+
+    <!-- Notifications: download progress, training status -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Screen capture: MediaProjection for visual perception -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- Keep CPU awake during model download and training -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <application
+        android:name=".MainApplication"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:allowBackup="false"
+        android:theme="@style/AppTheme"
+        android:largeHeap="true"
+        tools:targetApi="31">
+
+        <activity
+            android:name=".MainActivity"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.App.SplashScreen"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Model Download Service: foreground service, survives backgrounding -->
+        <service
+            android:name=".core.ai.ModelDownloadService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
+        <!-- Screen Capture Service: MediaProjection requires foreground service -->
+        <service
+            android:name=".system.screen.ScreenCaptureService"
+            android:foregroundServiceType="mediaProjection"
+            android:exported="false" />
+
+        <!-- Accessibility Service: reads UI tree, dispatches gestures -->
+        <service
+            android:name=".system.accessibility.AgentAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!--
+            Phase 11 — Jetpack Compose native UI.
+            NOT set as launcher yet; ReactActivity (Phase 1) remains the launcher
+            until the EAS build confirms stability on the target device.
+            To launch manually during development:
+              adb shell am start -n com.ariaagent.mobile/.ui.ComposeMainActivity
+        -->
+        <activity
+            android:name=".ui.ComposeMainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.ARIAAgent"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!--
+            Phase 14 — Agent Foreground Service.
+            Protects the LLM reasoning loop from Android LMK termination on 6GB RAM devices.
+            foregroundServiceType="specialUse" is required for services that don't fit a standard
+            category (dataSync/mediaProjection/location). The service manages AgentLoop lifecycle
+            and keeps a persistent "ARIA Agent — Running" notification so the OS treats the
+            process as user-aware.
+        -->
+        <service
+            android:name=".system.AgentForegroundService"
+            android:foregroundServiceType="specialUse"
+            android:exported="false" />
+
+    </application>
+</manifest>
