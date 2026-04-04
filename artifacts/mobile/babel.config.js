@@ -64,6 +64,27 @@ module.exports = function (api) {
   api.cache(true);
   return {
     presets: [["babel-preset-expo", { unstable_transformImportMeta: true }]],
-    plugins: [inlineExpoRouterEnvPlugin],
+    plugins: [
+      inlineExpoRouterEnvPlugin,
+      [
+        "module-resolver",
+        {
+          root: [PROJECT_ROOT],
+          alias: {
+            "@": PROJECT_ROOT,
+          },
+          extensions: [
+            ".ios.js",
+            ".android.js",
+            ".native.js",
+            ".js",
+            ".jsx",
+            ".ts",
+            ".tsx",
+            ".json",
+          ],
+        },
+      ],
+    ],
   };
 };
