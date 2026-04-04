@@ -57,9 +57,13 @@ export default function RootLayout() {
       setModelReady(true);
       return;
     }
-    AgentCoreBridge.checkModelReady().then((ready) => {
-      setModelReady(ready);
-    });
+    AgentCoreBridge.checkModelReady()
+      .then((ready) => {
+        setModelReady(ready);
+      })
+      .catch(() => {
+        setModelReady(false);
+      });
   }, [fontsLoaded, fontError]);
 
   if (!fontsLoaded && !fontError) return null;
