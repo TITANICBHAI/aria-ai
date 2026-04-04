@@ -86,9 +86,9 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeCreateContext(
     cparams.n_ctx       = 4096;  // M31 safe limit — 128K causes quadratic OOM
     cparams.n_threads   = 4;     // Cortex-A73 big cores (4 big + 4 little on 9611)
     cparams.n_threads_batch = 4;
-    cparams.flash_attn  = false; // not available on all Mali drivers
+    cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED; // not available on all Mali drivers
 
-    llama_context* ctx = llama_new_context_with_model(model, cparams);
+    llama_context* ctx = llama_init_from_model(model, cparams);
     if (!ctx) {
         LOGE("Failed to create context");
         return 0L;
@@ -649,7 +649,7 @@ Java_com_ariaagent_mobile_core_rl_LoraTrainer_nativeTrainLora(
     cparams.n_threads   = 4;            // Cortex-A73 big cores
     cparams.n_threads_batch = 4;
 
-    llama_context* train_ctx_ptr = llama_new_context_with_model(model, cparams);
+    llama_context* train_ctx_ptr = llama_init_from_model(model, cparams);
     if (!train_ctx_ptr) {
         LOGE("nativeTrainLora: failed to create training context (OOM?)");
         llama_model_free(model);
