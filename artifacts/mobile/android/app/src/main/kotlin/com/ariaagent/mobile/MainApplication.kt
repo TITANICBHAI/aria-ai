@@ -6,7 +6,6 @@ import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeHost
 import com.facebook.react.ReactPackage
-import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.facebook.react.defaults.DefaultReactNativeHost
 import com.facebook.react.soloader.OpenSourceMergedSoMapping
 import com.facebook.soloader.SoLoader
@@ -36,9 +35,6 @@ class MainApplication : Application(), ReactApplication {
                 // Pass ExpoModulesPackageList as the ModulesProvider so all Kotlin
                 // expo modules (expo-splash-screen, expo-font, expo-image, expo-haptics,
                 // expo-location, expo-linear-gradient, etc.) are registered.
-                // Previously ModuleRegistryAdapter(emptyList()) was used, which set
-                // ModulesProvider to null — causing all expo native module calls from JS
-                // to fail with "module not found", crashing the app on launch.
                 ModuleRegistryAdapter(
                     ReactModuleRegistryProvider(emptyList()),
                     ExpoModulesPackageList()
@@ -55,11 +51,15 @@ class MainApplication : Application(), ReactApplication {
             override val isHermesEnabled: Boolean = BuildConfig.IS_HERMES_ENABLED
         }
 
-    // React Native 0.76+ calls getReactHost() during Activity lifecycle even in
-    // Old Architecture mode. Providing a real ReactHost via getDefaultReactHost
-    // prevents the UnsupportedOperationException crash on app launch.
-    override val reactHost: ReactHost
-        get() = getDefaultReactHost(applicationContext, reactNativeHost)
+    // Old Architecture: return null so ReactActivityDelegate uses the bridge path
+    // (reactNativeHost) instead of the bridgeless New-Architecture path.
+    //
+    // IMPORTANT: Do NOT call getDefaultReactHost(applicationContext, reactNativeHost) here.
+    // That function calls reactNativeHost.toReactHost() which creates a ReactHostImpl
+    // (the New Architecture bridgeless engine). When ReactActivityDelegate sees a non-null
+    // reactHost it launches bridgeless startup, which conflicts with every Old-Architecture
+    // package registered in getPackages() above and causes an immediate "app has a bug" crash.
+    override val reactHost: ReactHost? = null
 
     override fun onCreate() {
         super.onCreate()
