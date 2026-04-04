@@ -128,6 +128,10 @@ Snapshot file also written to `{filesDir}/monitoring/snapshot.json` atomically f
 - CMakeLists.txt include paths: `${LLAMA_DIR}/include`, `${LLAMA_DIR}`, `${LLAMA_DIR}/common`, `${LLAMA_DIR}/ggml/include`
 - Build target: arm64-v8a only (Exynos 9611 / Galaxy M31)
 
+## Agent Preferences
+
+- **Auto-push to GitHub**: After correcting any error sent by the user, always push the fix to GitHub (`github` remote → `TITANICBHAI/aria-ai`).
+
 ## Key Files
 
 - `artifacts/mobile/native-bindings/AgentCoreBridge.ts` — TurboModule contract + Phase 1 stubs
