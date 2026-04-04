@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # checkup.sh
-# Indexes all code files in the project and copies them into the ./checkup folder,
-# preserving the original directory structure relative to the workspace root.
+# Indexes all code files in the project and copies them flat into the ./checkup folder
+# (no subdirectories). Files with colliding names get their path prepended, separated
+# by double-underscores, so every file lands at the top level of checkup/.
 
 set -euo pipefail
 
@@ -60,6 +61,9 @@ mkdir -p "$CHECKUP_DIR"
 COPIED=0
 FAILED=0
 
+# Track flat filenames already used (for collision detection)
+declare -A SEEN_NAMES
+
 for filepath in "${ALL_FILES[@]}"; do
   # Compute relative path from workspace root
   rel="${filepath#$WORKSPACE_ROOT/}"
@@ -67,12 +71,21 @@ for filepath in "${ALL_FILES[@]}"; do
   # Write to index
   echo "$rel" >> "$INDEX_FILE"
 
-  # Destination inside checkup/
-  dest="$CHECKUP_DIR/$rel"
-  dest_dir="$(dirname "$dest")"
+  # Flat filename = just the basename
+  base="$(basename "$filepath")"
 
-  # Create destination directory and copy file
-  if mkdir -p "$dest_dir" && cp "$filepath" "$dest"; then
+  # If this filename was already used by a different file, prefix it with
+  # the path (slashes replaced by double-underscores) to avoid overwriting
+  if [[ -n "${SEEN_NAMES[$base]+_}" ]]; then
+    flat_name="${rel//\//__}"
+  else
+    flat_name="$base"
+    SEEN_NAMES[$base]=1
+  fi
+
+  dest="$CHECKUP_DIR/$flat_name"
+
+  if cp "$filepath" "$dest"; then
     COPIED=$((COPIED + 1))
   else
     echo "  [WARN] Failed to copy: $rel" >&2
