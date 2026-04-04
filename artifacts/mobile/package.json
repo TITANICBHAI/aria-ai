@@ -11,6 +11,7 @@
   },
   "devDependencies": {
     "@react-native-community/cli": "latest",
+    "@react-native/metro-config": "^0.81.0",
     "@babel/core": "^7.25.2",
     "@expo-google-fonts/inter": "^0.4.0",
     "@expo/cli": "54.0.23",
