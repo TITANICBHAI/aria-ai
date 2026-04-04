@@ -45,6 +45,16 @@ add_subdirectory(${LLAMA_DIR} llama_build)
 # directly so the 'mtmd' CMake target is available for linking.
 # mtmd exposes its own PUBLIC include path (tools/mtmd/) so we do NOT need to
 # manually add it to target_include_directories below.
+#
+# LLAMA_INSTALL_VERSION is set inside llama.cpp's own root CMakeLists.txt scope
+# and does NOT propagate back to this parent scope (CMake subdirectory scoping).
+# tools/mtmd/CMakeLists.txt:40 calls set_target_properties(... VERSION
+# ${LLAMA_INSTALL_VERSION} ...) which silently expands to an empty string here,
+# causing CMake to see malformed arguments and abort with "incorrect number of
+# arguments". Define a fallback so the property call is always well-formed.
+if(NOT DEFINED LLAMA_INSTALL_VERSION)
+    set(LLAMA_INSTALL_VERSION "0.0.0")
+endif()
 add_subdirectory(${LLAMA_DIR}/tools/mtmd mtmd_build)
 
 # ─── Android log library ─────────────────────────────────────────────────────
