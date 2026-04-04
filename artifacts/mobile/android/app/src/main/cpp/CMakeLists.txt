@@ -39,6 +39,14 @@ set(LLAMA_BUILD_COMMON ON CACHE BOOL "Build llama.cpp common utilities" FORCE)
 # ─── Add llama.cpp as a static library ───────────────────────────────────────
 add_subdirectory(${LLAMA_DIR} llama_build)
 
+# ─── mtmd: multimodal (vision) library ───────────────────────────────────────
+# mtmd is under tools/mtmd/ and is NOT built by add_subdirectory(llama_dir)
+# unless LLAMA_BUILD_TOOLS=ON (which requires LLAMA_STANDALONE). We add it
+# directly so the 'mtmd' CMake target is available for linking.
+# mtmd exposes its own PUBLIC include path (tools/mtmd/) so we do NOT need to
+# manually add it to target_include_directories below.
+add_subdirectory(${LLAMA_DIR}/tools/mtmd mtmd_build)
+
 # ─── Android log library ─────────────────────────────────────────────────────
 find_library(LOG_LIB log)
 
@@ -67,6 +75,7 @@ target_include_directories(llama-jni PRIVATE
 target_link_libraries(llama-jni
     llama           # llama.cpp core
     common          # llama.cpp common utilities
+    mtmd            # multimodal: CLIP image encoder + projection layer
     ${LOG_LIB}      # __android_log_print
 )
 

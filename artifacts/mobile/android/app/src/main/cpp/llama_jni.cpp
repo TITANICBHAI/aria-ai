@@ -6,11 +6,15 @@
 #include <atomic>
 
 #include "llama.h"
-// In llama.cpp b4200, common.h is included directly (the common/ subdir is in
-// the include path via CMakeLists.txt target_include_directories).
+// common.h is in the include path via CMakeLists.txt target_include_directories.
 #include "common.h"
+// mtmd: multimodal library for vision (CLIP image encoder + projection layer).
+// mtmd.h is the public API; mtmd-helper.h provides mtmd_helper_eval_chunks and
+// mtmd_helper_bitmap_init_from_buf which handle the full encode-decode pipeline.
+#include "mtmd.h"
+#include "mtmd-helper.h"
 // NOTE: ggml-opt.h is only needed when LLAMA_HAS_TRAINING is defined.
-// That flag is currently disabled pending API verification against b4200.
+// That flag is currently disabled pending API verification.
 // #include "ggml-opt.h"          // llama_opt_init / llama_opt_epoch / ggml_opt_dataset_t
 
 #define TAG "LlamaJNI"
@@ -24,6 +28,7 @@
 static llama_model*        g_model        = nullptr;
 static llama_context*      g_ctx          = nullptr;
 static llama_adapter_lora* g_lora_adapter = nullptr;  // active LoRA adapter (or null)
+static mtmd_context*       g_vision_ctx   = nullptr;  // CLIP + projection layer (or null)
 
 // Token/second tracking — read by getLlmStatus() bridge call
 static std::atomic<double> g_toks_per_sec{0.0};
@@ -283,6 +288,218 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeFreeContext(
         if (g_ctx == ctx) g_ctx = nullptr;
         LOGI("Context freed");
     }
+}
+
+// ─── nativeInitVision ────────────────────────────────────────────────────────
+// Loads a multimodal projection (mmproj) GGUF and creates an mtmd_context.
+// The text model must already be loaded (model_handle from nativeLoadModel).
+// Returns a non-zero Long handle on success, 0 on failure.
+//
+// Required on-device files (both in GGUF format):
+//   • LLM base:  e.g. moondream2-Q4_K_M.gguf  (loaded via nativeLoadModel)
+//   • mmproj:    e.g. moondream2-mmproj.gguf   (loaded here)
+// Tested vision models on Cortex-A73 (≤ 2 GB total RSS):
+//   moondream2 (2B), SmolVLM-Instruct-500M/2B, MiniCPM-V-2.6-Q4_K_M
+JNIEXPORT jlong JNICALL
+Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeInitVision(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jstring mmproj_path_jstr,
+    jlong   model_handle
+) {
+    auto* model = reinterpret_cast<llama_model*>(model_handle);
+    if (!model) {
+        LOGE("nativeInitVision: model handle is null");
+        return 0L;
+    }
+
+    const char* path = env->GetStringUTFChars(mmproj_path_jstr, nullptr);
+
+    mtmd_context_params vparams  = mtmd_context_params_default();
+    vparams.use_gpu              = false;  // Vulkan disabled — CPU only
+    vparams.n_threads            = 4;      // Cortex-A73 big cores
+    vparams.print_timings        = false;
+    vparams.flash_attn_type      = LLAMA_FLASH_ATTN_TYPE_DISABLED;
+    vparams.warmup               = false;  // skip warmup pass to save cold-start time
+
+    mtmd_context* vctx = mtmd_init_from_file(path, model, vparams);
+    env->ReleaseStringUTFChars(mmproj_path_jstr, path);
+
+    if (!vctx) {
+        LOGE("nativeInitVision: mtmd_init_from_file failed");
+        return 0L;
+    }
+    if (!mtmd_support_vision(vctx)) {
+        LOGE("nativeInitVision: mmproj file does not support vision");
+        mtmd_free(vctx);
+        return 0L;
+    }
+
+    g_vision_ctx = vctx;
+    LOGI("Vision context initialized");
+    return reinterpret_cast<jlong>(vctx);
+}
+
+// ─── nativeFreeVision ────────────────────────────────────────────────────────
+JNIEXPORT void JNICALL
+Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeFreeVision(
+    JNIEnv* /* env */,
+    jobject /* thiz */,
+    jlong   vision_handle
+) {
+    auto* vctx = reinterpret_cast<mtmd_context*>(vision_handle);
+    if (vctx) {
+        mtmd_free(vctx);
+        if (g_vision_ctx == vctx) g_vision_ctx = nullptr;
+        LOGI("Vision context freed");
+    }
+}
+
+// ─── nativeRunVisionInference ─────────────────────────────────────────────────
+// Runs vision inference: encodes the image through CLIP, prepends the resulting
+// embeddings to the text prompt, then generates a response.
+//
+// image_bytes:  raw JPEG or PNG bytes (stb_image decodes them inside mtmd)
+// prompt_jstr:  the text question asked about the image, e.g. "What is in this image?"
+//               The image marker is prepended automatically.
+// max_tokens:   generation cap
+// token_callback: Java object implementing TokenCallback (onToken(String)) for streaming
+//
+// Returns the full generated response as a jstring, or a JSON error object on failure.
+JNIEXPORT jstring JNICALL
+Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeRunVisionInference(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong       ctx_handle,
+    jlong       vision_handle,
+    jbyteArray  image_bytes,
+    jstring     prompt_jstr,
+    jint        max_tokens,
+    jobject     token_callback
+) {
+    auto* ctx  = reinterpret_cast<llama_context*>(ctx_handle);
+    auto* vctx = reinterpret_cast<mtmd_context*>(vision_handle);
+    if (!ctx || !vctx) {
+        return env->NewStringUTF("{\"error\":\"context not initialized\"}");
+    }
+    const auto* model = llama_get_model(ctx);
+    const llama_vocab* vocab = llama_model_get_vocab(model);
+
+    // ── Decode image from raw JPEG/PNG bytes ──────────────────────────────────
+    jsize img_len  = env->GetArrayLength(image_bytes);
+    jbyte* img_buf = env->GetByteArrayElements(image_bytes, nullptr);
+    mtmd_bitmap* bitmap = mtmd_helper_bitmap_init_from_buf(
+        vctx, reinterpret_cast<const unsigned char*>(img_buf), (size_t)img_len);
+    env->ReleaseByteArrayElements(image_bytes, img_buf, JNI_ABORT);
+
+    if (!bitmap) {
+        LOGE("nativeRunVisionInference: failed to decode image bytes");
+        return env->NewStringUTF("{\"error\":\"image_decode_failed\"}");
+    }
+
+    // ── Build prompt: image marker first, then text question ──────────────────
+    // mtmd_tokenize replaces the marker with image token chunks.
+    const char* prompt_cstr = env->GetStringUTFChars(prompt_jstr, nullptr);
+    std::string full_prompt = std::string(mtmd_default_marker()) + "\n" + prompt_cstr;
+    env->ReleaseStringUTFChars(prompt_jstr, prompt_cstr);
+
+    mtmd_input_text input_text;
+    input_text.text          = full_prompt.c_str();
+    input_text.add_special   = true;
+    input_text.parse_special = true;
+
+    // ── Tokenize into text + image chunks ─────────────────────────────────────
+    mtmd_input_chunks* chunks       = mtmd_input_chunks_init();
+    const mtmd_bitmap* bitmaps_arr[1] = { bitmap };
+    int32_t tok_rc = mtmd_tokenize(vctx, chunks, &input_text, bitmaps_arr, 1);
+    mtmd_bitmap_free(bitmap);  // bitmap decoded into chunks — safe to free now
+
+    if (tok_rc != 0) {
+        LOGE("nativeRunVisionInference: mtmd_tokenize failed rc=%d", tok_rc);
+        mtmd_input_chunks_free(chunks);
+        return env->NewStringUTF("{\"error\":\"vision_tokenize_failed\"}");
+    }
+
+    // ── Eval all chunks: text via llama_decode, image via CLIP + llama_decode ─
+    llama_memory_clear(llama_get_memory(ctx), true);
+    llama_pos new_n_past = 0;
+    int32_t eval_rc = mtmd_helper_eval_chunks(
+        vctx, ctx, chunks,
+        /*n_past=*/0,
+        /*seq_id=*/0,
+        /*n_batch=*/(int32_t)llama_n_batch(ctx),
+        /*logits_last=*/true,
+        &new_n_past
+    );
+    mtmd_input_chunks_free(chunks);
+
+    if (eval_rc != 0) {
+        LOGE("nativeRunVisionInference: eval_chunks failed rc=%d", eval_rc);
+        return env->NewStringUTF("{\"error\":\"vision_eval_failed\"}");
+    }
+
+    LOGI("nativeRunVisionInference: prompt processed — n_past=%d", (int)new_n_past);
+
+    // ── Token callback setup ───────────────────────────────────────────────────
+    jclass    cb_class = nullptr;
+    jmethodID cb_mid   = nullptr;
+    if (token_callback) {
+        cb_class = env->GetObjectClass(token_callback);
+        cb_mid   = env->GetMethodID(cb_class, "onToken", "(Ljava/lang/String;)V");
+    }
+
+    // ── Sampling loop ─────────────────────────────────────────────────────────
+    // After mtmd_helper_eval_chunks the KV cache is filled to new_n_past.
+    // llama_batch_get_one uses pos=nullptr so llama.cpp assigns the next
+    // position automatically from the KV cache state — no manual tracking needed.
+    std::string output;
+    output.reserve(512);
+
+    llama_sampler_chain_params chain_params = llama_sampler_chain_default_params();
+    llama_sampler* sampler = llama_sampler_chain_init(chain_params);
+    llama_sampler_chain_add(sampler, llama_sampler_init_top_p(0.9f, 1));
+    // Lower temperature for vision — grounding the response in the image
+    llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.1f));
+    llama_sampler_chain_add(sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+    auto t_start = std::chrono::high_resolution_clock::now();
+    int n_gen = 0;
+
+    for (int i = 0; i < (int)max_tokens; i++) {
+        llama_token tok = llama_sampler_sample(sampler, ctx, -1);
+        if (llama_vocab_is_eog(vocab, tok)) break;
+
+        char buf[256];
+        int  piece_len = llama_token_to_piece(vocab, tok, buf, sizeof(buf), 0, true);
+        if (piece_len < 0) continue;  // special token with no string representation
+
+        std::string piece(buf, piece_len);
+        output += piece;
+        n_gen++;
+
+        if (token_callback && cb_class && cb_mid) {
+            jstring tok_jstr = env->NewStringUTF(piece.c_str());
+            env->CallVoidMethod(token_callback, cb_mid, tok_jstr);
+            env->DeleteLocalRef(tok_jstr);
+        }
+
+        llama_batch next_batch = llama_batch_get_one(&tok, 1);
+        if (llama_decode(ctx, next_batch) != 0) {
+            LOGE("nativeRunVisionInference: llama_decode failed at token %d", i);
+            break;
+        }
+    }
+
+    llama_sampler_free(sampler);
+
+    auto t_end    = std::chrono::high_resolution_clock::now();
+    double elapsed_s = std::chrono::duration<double>(t_end - t_start).count();
+    g_toks_per_sec.store(n_gen / (elapsed_s > 0.0 ? elapsed_s : 1.0));
+
+    LOGI("nativeRunVisionInference: %d tokens in %.2fs (%.1f tok/s)",
+         n_gen, elapsed_s, g_toks_per_sec.load());
+
+    return env->NewStringUTF(output.c_str());
 }
 
 // ─── nativeGetToksPerSec ─────────────────────────────────────────────────────
