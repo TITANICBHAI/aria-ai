@@ -51,7 +51,7 @@ Samsung Galaxy M31 — Exynos 9611 · Mali-G72 MP3 · 6GB LPDDR4X
 - **Node.js version**: 24
 - **Package manager**: pnpm
 - **TypeScript version**: 5.9
-- **Mobile**: Expo (React Native, New Architecture enabled)
+- **Mobile**: Expo (React Native, **Old Architecture** — `newArchEnabled=false`, Hermes, Bridge)
 - **LLM**: Llama 3.2-1B via llama.cpp + JNI
 - **OCR**: Google ML Kit
 - **Object detection**: MediaPipe EfficientDet-Lite0 INT8 (Phase 13)
@@ -127,6 +127,28 @@ Snapshot file also written to `{filesDir}/monitoring/snapshot.json` atomically f
 - `LLAMA_HAS_TRAINING` is NOT defined — `nativeTrainLora()` returns false → Kotlin falls to `stubTrainLora()`
 - CMakeLists.txt include paths: `${LLAMA_DIR}/include`, `${LLAMA_DIR}`, `${LLAMA_DIR}/common`, `${LLAMA_DIR}/ggml/include`
 - Build target: arm64-v8a only (Exynos 9611 / Galaxy M31)
+
+## Crash Fix History
+
+### Root Cause: `reactHost` returning New Architecture bridgeless engine (commit 0fd208f)
+
+`MainApplication.reactHost` was overridden to call `getDefaultReactHost(applicationContext, reactNativeHost)`.  
+That function calls `reactNativeHost.toReactHost()` which creates a `ReactHostImpl` — the New Architecture
+bridgeless engine — regardless of `isNewArchEnabled=false`.
+
+When `ReactActivityDelegate` sees a non-null `reactHost` it launches the bridgeless startup path
+(`ReactHostImpl.start()`), which conflicts with every Old Architecture package in `getPackages()` and
+causes an immediate "app has a bug" crash before JS loads.
+
+**Fix**: `override val reactHost: ReactHost? = null` — a null `reactHost` tells `ReactActivityDelegate`
+to use the bridge (Old Architecture) path via `reactNativeHost`.
+
+### Previous fixes applied before root cause was found
+
+1. Added `react-native-reanimated/plugin` to `babel.config.js`
+2. Replaced `return null` with `ActivityIndicator` in `_layout.tsx` loading state
+3. Added `expo-splash-screen` to `app.json` plugins
+4. Added `@DoNotStrip` + TurboModule ProGuard rules
 
 ## Agent Preferences
 
