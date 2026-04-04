@@ -124,16 +124,16 @@ class AgentForegroundService : Service() {
         // Subscribe to AgentEventBus to keep the notification current AND
         // to drive the auto-recovery watchdog on error status.
         serviceScope.launch {
-            AgentEventBus.events.collect { event ->
-                when (event.name) {
+            AgentEventBus.flow.collect { (name, data) ->
+                when (name) {
                     "action_performed" -> {
-                        currentStep = (event.data["stepCount"] as? Int) ?: currentStep
-                        val tool    = event.data["tool"]?.toString() ?: "…"
-                        val success = event.data["success"] as? Boolean ?: true
+                        currentStep = (data["stepCount"] as? Int) ?: currentStep
+                        val tool    = data["tool"]?.toString() ?: "…"
+                        val success = data["success"] as? Boolean ?: true
                         updateNotification("Step $currentStep · $tool · ${if (success) "✓" else "✗"}")
                     }
                     "agent_status_changed" -> {
-                        val status = event.data["status"]?.toString() ?: return@collect
+                        val status = data["status"]?.toString() ?: return@collect
                         when (status) {
                             "done" -> {
                                 autoRetryCount = 0
@@ -146,7 +146,7 @@ class AgentForegroundService : Service() {
                                 updateNotification("Paused")
                             }
                             "error" -> {
-                                val err = event.data["lastError"]?.toString() ?: "unknown"
+                                val err = data["lastError"]?.toString() ?: "unknown"
                                 Log.w(TAG, "Agent error: $err (retry $autoRetryCount/$MAX_AUTO_RETRIES)")
 
                                 if (autoRetryCount < MAX_AUTO_RETRIES && currentGoal.isNotBlank()) {

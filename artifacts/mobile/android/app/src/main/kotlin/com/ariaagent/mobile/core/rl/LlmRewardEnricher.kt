@@ -83,7 +83,7 @@ object LlmRewardEnricher {
 
     // ─── Private helpers ──────────────────────────────────────────────────────
 
-    private fun scoreOneTuple(tuple: ExperienceStore.ExperienceTuple): Double? {
+    private suspend fun scoreOneTuple(tuple: ExperienceStore.ExperienceTuple): Double? {
         val prompt = buildScoringPrompt(
             goal   = tuple.taskType.take(80),
             screen = tuple.screenSummary.take(SCREEN_CHARS),

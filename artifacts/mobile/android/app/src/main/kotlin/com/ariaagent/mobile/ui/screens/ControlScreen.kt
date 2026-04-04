@@ -49,6 +49,7 @@ private val PRESET_TASKS = listOf(
     "Check battery level in Settings",
 )
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ControlScreen(vm: AgentViewModel = viewModel()) {
     val agentState  by vm.agentState.collectAsStateWithLifecycle()
@@ -208,7 +209,7 @@ fun ControlScreen(vm: AgentViewModel = viewModel()) {
                 },
                 modifier = Modifier.weight(1f),
                 enabled = isRunning || isPaused,
-                colors = OutlinedButtonDefaults.outlinedButtonColors(contentColor = ARIAColors.Warning),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = ARIAColors.Warning),
                 shape = RoundedCornerShape(10.dp)
             ) {
                 Icon(
@@ -224,7 +225,7 @@ fun ControlScreen(vm: AgentViewModel = viewModel()) {
                 onClick = { vm.stopAgent() },
                 modifier = Modifier.weight(1f),
                 enabled = isRunning || isPaused,
-                colors = OutlinedButtonDefaults.outlinedButtonColors(contentColor = ARIAColors.Error),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = ARIAColors.Error),
                 shape = RoundedCornerShape(10.dp)
             ) {
                 Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -302,7 +303,7 @@ fun ControlScreen(vm: AgentViewModel = viewModel()) {
                         }
                     },
                     enabled = goalText.isNotBlank(),
-                    colors = OutlinedButtonDefaults.outlinedButtonColors(
+                    colors = ButtonDefaults.outlinedButtonColors(
                         contentColor = ARIAColors.Accent
                     ),
                     border = ButtonDefaults.outlinedButtonBorder,

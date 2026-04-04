@@ -47,12 +47,12 @@ object ThermalGuard {
     private var listener: ThermalListener? = null
 
     /**
-     * Stored reference to the Consumer<Int> passed to addThermalStatusListener.
+     * Stored reference to the OnThermalStatusChangedListener passed to addThermalStatusListener.
      * Must be kept so removeThermalStatusListener() can remove the exact same instance.
      * PowerManager.clearThermalStatusListeners() does NOT exist — removal is by reference only.
      */
     @Volatile
-    private var thermalConsumer: java.util.function.Consumer<Int>? = null
+    private var thermalConsumer: PowerManager.OnThermalStatusChangedListener? = null
 
     interface ThermalListener {
         fun onThermalLevelChanged(level: ThermalLevel)
@@ -82,12 +82,12 @@ object ThermalGuard {
     private fun registerThermalManager(context: Context, @Suppress("UNUSED_PARAMETER") listener: ThermalListener) {
         try {
             val thermalManager = context.getSystemService(PowerManager::class.java)
-            val consumer = java.util.function.Consumer<Int> { status ->
+            val thermalListener = PowerManager.OnThermalStatusChangedListener { status ->
                 val level = thermalStatusToLevel(status)
                 updateLevel(level)
             }
-            thermalConsumer = consumer
-            thermalManager?.addThermalStatusListener(context.mainExecutor, consumer)
+            thermalConsumer = thermalListener
+            thermalManager?.addThermalStatusListener(context.mainExecutor, thermalListener)
             Log.i(TAG, "ThermalManager listener registered (API 29+)")
         } catch (e: Exception) {
             Log.w(TAG, "ThermalManager not available: ${e.message}")

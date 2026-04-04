@@ -113,7 +113,7 @@ class AgentAccessibilityService : AccessibilityService() {
             val type = getNodeType(node)
             val text = node.text?.toString()?.trim()
                 ?: node.contentDescription?.toString()?.trim()
-                ?: node.hint?.toString()?.trim()
+                ?: node.hintText?.toString()?.trim()
                 ?: ""
             val rect = Rect()
             node.getBoundsInScreen(rect)

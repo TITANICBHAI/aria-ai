@@ -194,22 +194,21 @@ object LlamaEngine {
         } catch (e: Exception) { false }
     }
 
-    companion object {
-        init {
-            try {
-                System.loadLibrary("llama-jni")
-                // Library loaded successfully — activate real JNI inference path
-                LlamaEngine.markJniAvailable()
-                android.util.Log.i("LlamaEngine", "llama-jni loaded — real inference active")
-            } catch (e: UnsatisfiedLinkError) {
-                // llama.cpp not compiled yet (submodule missing) — stub mode active
-                android.util.Log.w("LlamaEngine", "llama-jni not found — running in stub mode")
-            }
+    // companion object is invalid inside an `object` — use a bare init block instead.
+    init {
+        try {
+            System.loadLibrary("llama-jni")
+            // Library loaded successfully — activate real JNI inference path
+            markJniAvailable()
+            android.util.Log.i("LlamaEngine", "llama-jni loaded — real inference active")
+        } catch (e: UnsatisfiedLinkError) {
+            // llama.cpp not compiled yet (submodule missing) — stub mode active
+            android.util.Log.w("LlamaEngine", "llama-jni not found — running in stub mode")
         }
     }
 
     /**
-     * Called by companion object init after System.loadLibrary succeeds.
+     * Called by init block after System.loadLibrary succeeds.
      * Switches from stub → real JNI inference.
      */
     internal fun markJniAvailable() {
