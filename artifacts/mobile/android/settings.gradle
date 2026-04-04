@@ -111,7 +111,49 @@ if (expoPluginDir == null) throw new GradleException(
 
 includeBuild(expoPluginDir)
 
-// ── 4. Helper: include a native module as a Gradle sub-project ───────────────
+// ── 4. Generate autolinking.json (satisfies GeneratePackageListTask) ──────────
+// The com.facebook.react Gradle plugin always runs GeneratePackageListTask and
+// will fail immediately if autolinking.json doesn't exist — even if nothing in
+// the project ever calls PackageList.
+//
+// Our MainApplication.kt registers every ReactPackage directly in getPackages()
+// and never calls PackageList(this).packages. The generated PackageList class
+// will be empty and unused, which is fine.
+//
+// We generate the minimal valid JSON ourselves rather than running
+// `react-native config` (which requires the CLI, adds latency, and can fail
+// in monorepo setups with non-standard pnpm layouts).
+def autolinkFile = new File(settingsDir, "build/generated/autolinking/autolinking.json")
+autolinkFile.parentFile.mkdirs()
+if (!autolinkFile.exists() || autolinkFile.length() < 10) {
+    def androidAbsPath = settingsDir.canonicalPath.replace('\\', '/')
+    autolinkFile.text = """\
+{
+  "reactNativeVersion": "0.81.5",
+  "dependencies": {},
+  "project": {
+    "android": {
+      "sourceDir": "${androidAbsPath}",
+      "appProjectDir": "${androidAbsPath}/app",
+      "packageName": "com.ariaagent.mobile",
+      "applicationId": "com.ariaagent.mobile",
+      "mainActivity": ".MainActivity",
+      "watchManagedDeps": true,
+      "buildGradlePath": "build.gradle",
+      "settingsGradlePath": "settings.gradle",
+      "assetsPath": "app/src/main/assets",
+      "stringsPath": "app/src/main/res/values/strings.xml",
+      "isHermes": true
+    }
+  }
+}
+"""
+    logger.lifecycle("[ARIA] autolinking.json generated (empty deps — packages registered manually in MainApplication.kt)")
+} else {
+    logger.info("[ARIA] autolinking.json already present — skipping generation")
+}
+
+// ── 5. Native module sub-projects ────────────────────────────────────────────
 def includeNativeModule = { String gradleProject, String npmPackage, String subdir = "android" ->
     def dir = new File(nmDir, "${npmPackage}/${subdir}")
     if (dir.exists()) {
@@ -123,9 +165,7 @@ def includeNativeModule = { String gradleProject, String npmPackage, String subd
     }
 }
 
-// ── 4. Native module sub-projects ────────────────────────────────────────────
-// All modules are manually linked (see app/build.gradle implementation project()
-// declarations). This replaces autolinkLibrariesFromCommand.
+// (modules listed below)
 includeNativeModule(":async-storage",                    "@react-native-async-storage/async-storage")
 includeNativeModule(":react-native-gesture-handler",     "react-native-gesture-handler")
 includeNativeModule(":react-native-keyboard-controller", "react-native-keyboard-controller")

@@ -12,9 +12,9 @@
 #
 #  2. Enforce Gradle wrapper at 8.13 (minimum required by AGP 8.8.0).
 #
-# NOTE: @react-native/gradle-plugin is now resolved from Maven Central
-# with an explicit version (see android/build.gradle). No local install
-# of the plugin into android/node_modules is needed.
+# NOTE: @react-native/gradle-plugin is resolved via root-level includeBuild()
+# in settings.gradle (not pluginManagement — avoids Gradle 8.13 bug).
+# autolinking.json is generated in settings.gradle at build time (no CLI call needed).
 # ─────────────────────────────────────────────────────────────────────────────
 set -eu
 
