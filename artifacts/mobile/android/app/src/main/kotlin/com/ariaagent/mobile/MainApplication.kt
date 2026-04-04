@@ -17,8 +17,7 @@ import com.swmansion.reanimated.ReanimatedPackage
 import com.th3rdwave.safeareacontext.SafeAreaContextPackage
 import com.swmansion.rnscreens.RNScreensPackage
 import com.horcrux.svg.SvgPackage
-import expo.modules.kotlin.ExpoModulesPackage
-import expo.modules.ExpoModulesPackageList
+import expo.modules.adapters.react.ModuleRegistryAdapter
 
 class MainApplication : Application(), ReactApplication {
 
@@ -32,7 +31,7 @@ class MainApplication : Application(), ReactApplication {
                 SafeAreaContextPackage(),
                 RNScreensPackage(),
                 SvgPackage(),
-                ExpoModulesPackage(ExpoModulesPackageList()),
+                ModuleRegistryAdapter(emptyList()),
                 AgentCorePackage(),
             )
 
@@ -45,6 +44,9 @@ class MainApplication : Application(), ReactApplication {
             override val isHermesEnabled: Boolean = BuildConfig.IS_HERMES_ENABLED
         }
 
+    // React Native 0.76+ calls getReactHost() during Activity lifecycle even in
+    // Old Architecture mode. Providing a real ReactHost via getDefaultReactHost
+    // prevents the UnsupportedOperationException crash on app launch.
     override val reactHost: ReactHost
         get() = getDefaultReactHost(applicationContext, reactNativeHost)
 
