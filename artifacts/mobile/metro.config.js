@@ -15,12 +15,16 @@ const config = getDefaultConfig(PROJECT_ROOT);
 config.watchFolders = [WORKSPACE_ROOT];
 
 // Ensure Metro can resolve workspace packages from the root node_modules
+// and handle the @/ path alias defined in tsconfig.json
 config.resolver = {
   ...config.resolver,
   nodeModulesPaths: [
     path.resolve(PROJECT_ROOT, "node_modules"),
     path.resolve(WORKSPACE_ROOT, "node_modules"),
   ],
+  alias: {
+    "@": PROJECT_ROOT,
+  },
 };
 
 module.exports = config;
