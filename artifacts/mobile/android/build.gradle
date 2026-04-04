@@ -13,7 +13,7 @@ buildscript {
     }
     dependencies {
         classpath("com.android.tools.build:gradle:8.8.0")
-        classpath("com.facebook.react:react-native-gradle-plugin")
+        classpath("com.facebook.react:react-native-gradle-plugin:0.81.5")
         classpath("expo.modules:expo-module-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:${kotlinVersion}")
         classpath("org.jetbrains.kotlin:compose-compiler-gradle-plugin:${kotlinVersion}")

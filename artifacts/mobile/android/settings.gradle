@@ -1,143 +1,61 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// android/settings.gradle — ARIA Mobile (pnpm monorepo, node-linker=hoisted)
+// android/settings.gradle — ARIA Mobile  (Old Architecture)
 //
-// Composite-build strategy:
+// Old Architecture removes the need for com.facebook.react.settings and
+// autolinkLibrariesFromCommand entirely.
 //
-//  [pluginManagement] @react-native/gradle-plugin
-//    → registers com.facebook.react.settings plugin ID for settings-phase
+// Strategy:
+//   1. Locate node_modules (monorepo-aware, works locally and on EAS)
+//   2. Include expo-module-gradle-plugin as a composite build so expo native
+//      module sub-projects can resolve it without a version number.
+//   3. Manually include every native module as a Gradle sub-project
+//      (replaces what autolinkLibrariesFromCommand used to do).
 //
-//  [plugins] com.facebook.react.settings
-//    → applies the ReactSettingsExtension so autolinkLibrariesFromCommand works
-//
-//  autolinkLibrariesFromCommand (Expo command)
-//    → runs expo-modules-autolinking which:
-//        a) generates android/build/generated/autolinking/autolinking.json
-//           (required by GenerateAutolinkingNewArchitecturesFileTask)
-//        b) registers all native modules as Gradle subprojects
-//
-//  [root] @react-native/gradle-plugin
-//    → artifact substitution for com.facebook.react:react-native-gradle-plugin
-//      (not on Maven Central; required by expo-module-gradle-plugin's compile deps)
-//
-//  [root] expo-module-gradle-plugin  (inside expo-modules-core)
-//    → provides expo-module-gradle-plugin plugin ID AND puts ExpoModuleExtension
-//      on the buildscript classpath (via classpath() in android/build.gradle)
-//
-// Gradle deduplicates includeBuild for the same canonical path, so listing
-// @react-native/gradle-plugin in both pluginManagement and root is safe.
-//
-// node-linker=hoisted + public-hoist-pattern in .npmrc ensures expo/* and
-// @react-native/* are hoisted to workspace root node_modules, making all
-// paths real directories (no symlinks) for Gradle 8 composite-build compat.
+// com.facebook.react:react-native-gradle-plugin is now resolved from
+// Maven Central using an explicit version in android/build.gradle, so no
+// includeBuild or pluginManagement is needed for it.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ── 1. pluginManagement: find and include @react-native/gradle-plugin ─────────
-pluginManagement {
-    def rnDir = null
+// ── 1. Locate node_modules ────────────────────────────────────────────────────
+def nmDir = null
 
-    def rn_p1 = new File(settingsDir, "node_modules/@react-native/gradle-plugin")
-    if (rn_p1.exists()) rnDir = rn_p1.canonicalFile
-
-    if (rnDir == null) {
-        def rn_p2 = new File(settingsDir, "../node_modules/@react-native/gradle-plugin").canonicalFile
-        if (rn_p2.exists()) rnDir = rn_p2
-    }
-
-    if (rnDir == null) {
-        def rn_p3 = new File(settingsDir, "../../../node_modules/@react-native/gradle-plugin").canonicalFile
-        if (rn_p3.exists()) rnDir = rn_p3
-    }
-
-    if (rnDir == null) {
-        try {
-            def proc = ["node", "--print",
-                "require.resolve('@react-native/gradle-plugin/package.json')"
-            ].execute(null, settingsDir.parentFile)
-            proc.waitFor()
-            if (proc.exitValue() == 0) {
-                def res = proc.text.trim()
-                if (res) {
-                    def c = new File(res).parentFile
-                    if (c.exists()) rnDir = c.canonicalFile
-                }
-            }
-        } catch (Exception ignored) {}
-    }
-
-    if (rnDir == null) throw new GradleException(
-        "[ARIA] Cannot locate @react-native/gradle-plugin. " +
-        "Ensure pnpm install has run."
-    )
-
-    includeBuild(rnDir)
-
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
+[
+    new File(settingsDir, "node_modules"),
+    new File(settingsDir, "../node_modules"),
+    new File(settingsDir, "../../node_modules"),
+    new File(settingsDir, "../../../node_modules"),
+].each { def c ->
+    if (nmDir == null && new File(c, "react-native/package.json").exists()) {
+        nmDir = c.canonicalFile
     }
 }
 
-// ── 2. Apply React Native settings plugin ────────────────────────────────────
-plugins {
-    id("com.facebook.react.settings")
+if (nmDir == null) {
+    try {
+        def proc = ["node", "--print",
+            "require.resolve('react-native/package.json')"
+        ].execute(null, settingsDir.parentFile)
+        proc.waitFor()
+        if (proc.exitValue() == 0) {
+            def res = proc.text.trim()
+            if (res) nmDir = new File(res).parentFile.parentFile.canonicalFile
+        }
+    } catch (Exception ignored) {}
 }
 
-// ── 3. Expo autolinking ───────────────────────────────────────────────────────
-// Runs expo-modules-autolinking which:
-//   a) generates autolinking.json (required by RN codegen tasks)
-//   b) registers all native Expo/RN modules as Gradle subprojects
-extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
-    def command = [
-        "node",
-        "--no-warnings",
-        "--eval",
-        "require(require.resolve('expo-modules-autolinking', { paths: [require.resolve('expo/package.json')] }))(process.argv.slice(1))",
-        "react-native-config",
-        "--json",
-        "--platform",
-        "android"
-    ].toList()
-    ex.autolinkLibrariesFromCommand(command)
-}
+if (nmDir == null) throw new GradleException(
+    "[ARIA] Cannot locate node_modules. Ensure pnpm install has run.")
 
-// ── 4. Root-level: @react-native/gradle-plugin ───────────────────────────────
-// Artifact substitution for com.facebook.react:react-native-gradle-plugin.
-// Gradle deduplicates if same canonical dir was already added in pluginManagement.
-def rnRootDir = null
+logger.info("[ARIA] node_modules: ${nmDir}")
 
-def rnRoot_p1 = new File(settingsDir, "node_modules/@react-native/gradle-plugin")
-if (rnRoot_p1.exists()) rnRootDir = rnRoot_p1.canonicalFile
-
-if (rnRootDir == null) {
-    def rnRoot_p2 = new File(settingsDir, "../node_modules/@react-native/gradle-plugin").canonicalFile
-    if (rnRoot_p2.exists()) rnRootDir = rnRoot_p2
-}
-
-if (rnRootDir == null) {
-    def rnRoot_p3 = new File(settingsDir, "../../../node_modules/@react-native/gradle-plugin").canonicalFile
-    if (rnRoot_p3.exists()) rnRootDir = rnRoot_p3
-}
-
-if (rnRootDir != null) {
-    includeBuild(rnRootDir)
-} else {
-    logger.warn("[ARIA] Root-level @react-native/gradle-plugin not found — artifact substitution may fail")
-}
-
-// ── 5. Root-level: expo-module-gradle-plugin ─────────────────────────────────
-// Provides ExpoModuleExtension on the buildscript classpath (via the
-// classpath("expo.modules:expo-module-gradle-plugin") entry in build.gradle).
-// Gradle deduplicates if autolinking already registered this same directory.
+// ── 2. Include expo-module-gradle-plugin (composite build) ───────────────────
+// Provides the expo-module-gradle-plugin plugin to every expo native module
+// sub-project via classpath substitution. Root-level includeBuild, not
+// pluginManagement, so no settings-phase plugin resolution issues.
 def expoPluginDir = null
 
-def expo_p1 = new File(settingsDir, "../node_modules/expo-modules-core/expo-module-gradle-plugin")
+def expo_p1 = new File(nmDir, "expo-modules-core/expo-module-gradle-plugin")
 if (expo_p1.exists()) expoPluginDir = expo_p1.canonicalFile
-
-if (expoPluginDir == null) {
-    def expo_p2 = new File(settingsDir, "../../../node_modules/expo-modules-core/expo-module-gradle-plugin").canonicalFile
-    if (expo_p2.exists()) expoPluginDir = expo_p2
-}
 
 if (expoPluginDir == null) {
     try {
@@ -157,10 +75,46 @@ if (expoPluginDir == null) {
 
 if (expoPluginDir == null) throw new GradleException(
     "[ARIA] Cannot locate expo-module-gradle-plugin inside expo-modules-core. " +
-    "Ensure pnpm install has run successfully."
-)
+    "Ensure pnpm install has run.")
 
 includeBuild(expoPluginDir)
+
+// ── 3. Helper: include a native module as a Gradle sub-project ───────────────
+def includeNativeModule = { String gradleProject, String npmPackage, String subdir = "android" ->
+    def dir = new File(nmDir, "${npmPackage}/${subdir}")
+    if (dir.exists()) {
+        include(gradleProject)
+        project(gradleProject).projectDir = dir
+        logger.info("[ARIA] ${gradleProject} → ${dir}")
+    } else {
+        logger.warn("[ARIA] ${npmPackage}/${subdir} not found — ${gradleProject} skipped")
+    }
+}
+
+// ── 4. Native module sub-projects ────────────────────────────────────────────
+// All modules are manually linked (see app/build.gradle implementation project()
+// declarations). This replaces autolinkLibrariesFromCommand.
+includeNativeModule(":async-storage",                    "@react-native-async-storage/async-storage")
+includeNativeModule(":react-native-gesture-handler",     "react-native-gesture-handler")
+includeNativeModule(":react-native-keyboard-controller", "react-native-keyboard-controller")
+includeNativeModule(":react-native-reanimated",          "react-native-reanimated")
+includeNativeModule(":react-native-safe-area-context",   "react-native-safe-area-context")
+includeNativeModule(":react-native-screens",             "react-native-screens")
+includeNativeModule(":react-native-svg",                 "react-native-svg")
+includeNativeModule(":react-native-worklets",            "react-native-worklets")
+includeNativeModule(":expo-modules-core",                "expo-modules-core")
+includeNativeModule(":expo-blur",                        "expo-blur")
+includeNativeModule(":expo-constants",                   "expo-constants")
+includeNativeModule(":expo-font",                        "expo-font")
+includeNativeModule(":expo-haptics",                     "expo-haptics")
+includeNativeModule(":expo-image",                       "expo-image")
+includeNativeModule(":expo-image-picker",                "expo-image-picker")
+includeNativeModule(":expo-linear-gradient",             "expo-linear-gradient")
+includeNativeModule(":expo-linking",                     "expo-linking")
+includeNativeModule(":expo-location",                    "expo-location")
+includeNativeModule(":expo-splash-screen",               "expo-splash-screen")
+includeNativeModule(":expo-system-ui",                   "expo-system-ui")
+includeNativeModule(":expo-web-browser",                 "expo-web-browser")
 
 rootProject.name = "mobile"
 include(":app")

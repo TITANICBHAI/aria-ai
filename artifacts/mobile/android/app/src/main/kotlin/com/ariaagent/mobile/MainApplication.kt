@@ -6,7 +6,6 @@ import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeHost
 import com.facebook.react.ReactPackage
-import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.load
 import com.facebook.react.defaults.DefaultReactNativeHost
 import com.facebook.react.soloader.OpenSourceMergedSoMapping
 import com.facebook.soloader.SoLoader
@@ -25,7 +24,6 @@ class MainApplication : Application(), ReactApplication {
     override val reactNativeHost: ReactNativeHost =
         object : DefaultReactNativeHost(this) {
             override fun getPackages(): List<ReactPackage> = listOf(
-                // React Native community native modules (manually linked)
                 AsyncStoragePackage(),
                 RNGestureHandlerPackage(),
                 KeyboardControllerPackage(),
@@ -34,10 +32,7 @@ class MainApplication : Application(), ReactApplication {
                 RNScreensPackage(),
                 SvgPackage(),
                 WorkletsPackage(),
-                // Expo modules — ExpoModulesHelper discovers expo.modules.ExpoModulesPackageList
-                // via reflection; ExpoModulesPackageList is defined in this module's source.
                 ModuleRegistryAdapter(emptyList()),
-                // Custom native bridge
                 AgentCorePackage(),
             )
 
@@ -45,20 +40,18 @@ class MainApplication : Application(), ReactApplication {
 
             override fun getUseDeveloperSupport(): Boolean = BuildConfig.DEBUG
 
-            override val isNewArchEnabled: Boolean = BuildConfig.IS_NEW_ARCHITECTURE_ENABLED
+            override val isNewArchEnabled: Boolean = false
 
             override val isHermesEnabled: Boolean = BuildConfig.IS_HERMES_ENABLED
         }
 
+    // Required by ReactApplication interface; not invoked in Old Architecture.
     override val reactHost: ReactHost
-        get() = com.facebook.react.defaults.DefaultNewArchitectureEntryPoint
-            .reactHost(this, reactNativeHost)
+        get() = throw UnsupportedOperationException(
+            "ReactHost is not used in Old Architecture mode")
 
     override fun onCreate() {
         super.onCreate()
         SoLoader.init(this, OpenSourceMergedSoMapping)
-        if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) {
-            load()
-        }
     }
 }
