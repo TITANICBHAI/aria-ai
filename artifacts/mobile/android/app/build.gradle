@@ -1,5 +1,6 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
+apply plugin: "org.jetbrains.kotlin.plugin.compose"
 apply plugin: "com.facebook.react"
 
 react {
@@ -99,15 +100,6 @@ android {
 
     buildFeatures {
         compose true
-    }
-
-    composeOptions {
-        // TODO(kotlin2.0): In Kotlin 2.0+, the Compose compiler is a first-party
-        // Kotlin plugin and kotlinCompilerExtensionVersion is no longer used.
-        // Migration: remove composeOptions block and apply the Compose compiler
-        // Kotlin plugin via 'org.jetbrains.kotlin.plugin.compose' in build.gradle.
-        // See: https://developer.android.com/develop/ui/compose/compiler
-        kotlinCompilerExtensionVersion = "1.5.15"
     }
 
     buildTypes {
