@@ -82,7 +82,7 @@ class AgentCoreModule(private val ctx: ReactApplicationContext) :
     private val activityEventListener: ActivityEventListener =
         object : BaseActivityEventListener() {
             override fun onActivityResult(
-                activity: Activity?,
+                activity: Activity,
                 requestCode: Int,
                 resultCode: Int,
                 data: Intent?
@@ -920,7 +920,7 @@ class AgentCoreModule(private val ctx: ReactApplicationContext) :
             promise.resolve(Arguments.createMap().apply { putBoolean("granted", true) })
             return
         }
-        val activity = currentActivity
+        val activity = ctx.currentActivity
         if (activity == null) {
             promise.reject("NO_ACTIVITY", "No foreground activity to launch MediaProjection dialog")
             return
