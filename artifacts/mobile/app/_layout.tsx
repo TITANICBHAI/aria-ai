@@ -9,7 +9,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useState } from "react";
-import { Platform, View } from "react-native";
+import { ActivityIndicator, Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -20,7 +20,7 @@ import { ModelDownloadScreen } from "@/components/ModelDownloadScreen";
 import { AgentProvider } from "@/context/AgentContext";
 import { AgentCoreBridge } from "@/native-bindings/AgentCoreBridge";
 
-SplashScreen.preventAutoHideAsync();
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const queryClient = new QueryClient();
 
@@ -47,7 +47,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
+      SplashScreen.hideAsync().catch(() => {});
     }
   }, [fontsLoaded, fontError]);
 
@@ -66,8 +66,13 @@ export default function RootLayout() {
       });
   }, [fontsLoaded, fontError]);
 
-  if (!fontsLoaded && !fontError) return null;
-  if (modelReady === null) return null;
+  if ((!fontsLoaded && !fontError) || modelReady === null) {
+    return (
+      <View style={{ flex: 1, backgroundColor: "#0a0f1e", justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator size="large" color="#6366f1" />
+      </View>
+    );
+  }
 
   return (
     <SafeAreaProvider>

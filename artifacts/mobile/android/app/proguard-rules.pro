@@ -18,6 +18,29 @@
 -keep class com.facebook.jni.** { *; }
 -keep class com.facebook.soloader.** { *; }
 
+# ─── @DoNotStrip / @DoNotOptimize annotation preservation (RN 0.76+) ──────────
+# React Native and its native modules use @DoNotStrip on JNI-called methods.
+# Without this, R8 strips them and the bridge crashes at runtime.
+-keep @com.facebook.proguard.annotations.DoNotStrip class *
+-keepclassmembers class * {
+    @com.facebook.proguard.annotations.DoNotStrip *;
+}
+-keep @com.facebook.jni.annotations.DoNotStrip class *
+-keepclassmembers class * {
+    @com.facebook.jni.annotations.DoNotStrip *;
+}
+
+# ─── TurboModules (RN 0.76+ uses these even in Old Architecture mode) ─────────
+-keep class * extends com.facebook.react.turbomodule.core.interfaces.TurboModule { *; }
+-keep class * extends com.facebook.react.bridge.NativeModule { *; }
+-keep class com.facebook.react.turbomodule.** { *; }
+
+# ─── Reanimated v3 worklet runtime (JSI-based, NOT bridge) ────────────────────
+-keep class com.swmansion.reanimated.ReanimatedJSIModulePackage { *; }
+-keep class com.swmansion.reanimated.NativeProxy { *; }
+-keep class com.swmansion.reanimated.NativeProxy$* { *; }
+-dontwarn com.swmansion.reanimated.**
+
 # ─── ARIA Agent native modules ────────────────────────────────────────────────
 -keep class com.ariaagent.mobile.** { *; }
 
