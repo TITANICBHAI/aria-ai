@@ -7,15 +7,23 @@ const WORKSPACE_ROOT = path.resolve(PROJECT_ROOT, "../..");
 const config = getDefaultConfig(PROJECT_ROOT);
 
 // ─── Monorepo watchFolders ────────────────────────────────────────────────────
-// In a pnpm hoisted workspace, Metro must watch the workspace root node_modules
-// and all workspace packages so it can resolve transitive dependencies correctly.
-// Without this, Metro only watches the artifact's local node_modules and misses
-// packages hoisted to the workspace root.
-// Reference: https://docs.expo.dev/guides/monorepos/#update-the-metro-config
+// Metro must watch the workspace root so it can resolve hoisted dependencies.
 config.watchFolders = [WORKSPACE_ROOT];
 
-// Ensure Metro can resolve workspace packages from the root node_modules
-// and handle the @/ path alias defined in tsconfig.json
+// ─── Block volatile/temp directories from resolution and watching ─────────────
+// expo-router creates short-lived `expo-router_tmp_N` directories inside
+// node_modules during bundling. The FallbackWatcher (used on Linux without
+// watchman) walks directories synchronously and crashes with ENOENT when these
+// temp dirs are deleted between the walk and the fs.watch() call.
+// Blocking them from resolution also prevents Metro from attempting to watch them.
+const blockList = [
+  // expo-router temp bundling directories
+  /node_modules[/\\]expo-router_tmp_[^/\\]+[/\\].*/,
+  // General pattern for any other volatile pnpm temp dirs
+  /node_modules[/\\]\.pnpm[/\\].*_tmp_[^/\\]+[/\\].*/,
+];
+
+// ─── Resolver ─────────────────────────────────────────────────────────────────
 config.resolver = {
   ...config.resolver,
   nodeModulesPaths: [
@@ -24,6 +32,21 @@ config.resolver = {
   ],
   alias: {
     "@": PROJECT_ROOT,
+  },
+  blockList,
+};
+
+// ─── Watcher ──────────────────────────────────────────────────────────────────
+// On Linux/Replit, Metro falls back to FallbackWatcher when inotify limits are
+// hit or watchman is unavailable. Configure it to be resilient to missing paths.
+config.watcher = {
+  ...config.watcher,
+  // Increase the health-check interval — avoids spurious restarts on slow VMs.
+  healthCheck: {
+    enabled: true,
+    interval: 30000,
+    timeout: 10000,
+    filePrefix: ".metro-health-check",
   },
 };
 
