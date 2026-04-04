@@ -12,11 +12,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(LLAMA_DIR ${CMAKE_SOURCE_DIR}/llama.cpp)
 
 # ─── Hardware flags for Exynos 9611 (Samsung Galaxy M31) ─────────────────────
-# Mali-G72 MP3 → Vulkan 1.1 supported → offload all 22 Llama 1B layers
 # ARM Cortex-A73 big cores → use 4 threads (arm64-v8a, neon enabled by default)
-# No dedicated NPU → CPU + Vulkan only
+# No dedicated NPU → CPU only (see Vulkan note below)
+#
+# NOTE: Vulkan (Mali-G72 MP3) is intentionally DISABLED.
+# ggml-vulkan requires glslc (Vulkan SDK shader compiler) present on the build
+# machine at CMake configuration time — it calls find_package(Vulkan COMPONENTS
+# glslc REQUIRED) which is a hard failure. EAS cloud build servers do not have
+# glslc installed, so enabling GGML_VULKAN aborts the build before any C++ is
+# compiled. CPU-only inference with Q4_K_M on a 1B model is fast enough for
+# on-device ARIA use. Re-enable once EAS custom build images supply glslc.
 
-set(GGML_VULKAN ON CACHE BOOL "Enable Vulkan backend for Mali-G72" FORCE)
+set(GGML_VULKAN OFF CACHE BOOL "Vulkan disabled — glslc not available on EAS servers" FORCE)
 set(GGML_METAL OFF CACHE BOOL "Metal is iOS only" FORCE)
 set(GGML_CUDA OFF CACHE BOOL "No CUDA on Android" FORCE)
 set(GGML_BLAS OFF CACHE BOOL "No external BLAS needed for Q4_K_M" FORCE)
@@ -31,9 +38,6 @@ set(LLAMA_BUILD_COMMON ON CACHE BOOL "Build llama.cpp common utilities" FORCE)
 
 # ─── Add llama.cpp as a static library ───────────────────────────────────────
 add_subdirectory(${LLAMA_DIR} llama_build)
-
-# ─── Vulkan SDK (Android NDK bundles headers, but we link against the device lib)
-find_library(VULKAN_LIB vulkan)
 
 # ─── Android log library ─────────────────────────────────────────────────────
 find_library(LOG_LIB log)
@@ -57,17 +61,13 @@ target_include_directories(llama-jni PRIVATE
     ${LLAMA_DIR}/ggml/src
 )
 
-# NOTE: In llama.cpp post-b3800 the 'common' library was split into multiple
-# targets. For the pinned b4200 tag the target is still 'common' but the
-# include path is now directly ${LLAMA_DIR}/common (already listed above).
-# If the build fails with 'common not found', check the tag's CMakeLists.txt
-# and update the target name here accordingly.
+# NOTE: 'common' target is produced by llama.cpp's own CMake when
+# LLAMA_BUILD_COMMON=ON (set above). The include path for common/ headers is
+# already listed in target_include_directories above.
 target_link_libraries(llama-jni
     llama           # llama.cpp core
-    common          # llama.cpp common utilities (b4200 layout)
-    ${VULKAN_LIB}   # Mali-G72 GPU offload
+    common          # llama.cpp common utilities
     ${LOG_LIB}      # __android_log_print
-    android         # ANativeWindow (Vulkan surface)
 )
 
 # ─── Compiler flags ──────────────────────────────────────────────────────────
@@ -83,9 +83,9 @@ target_compile_options(llama-jni PRIVATE
 
 # ─── On-device LoRA training via llama_opt_* API ─────────────────────────────
 # DISABLED: The ggml_opt_* / llama_opt_* training API (llama_opt_init,
-# llama_opt_epoch, ggml_opt_dataset_t, etc.) is not stable in llama.cpp b4200.
-# The API surface changed significantly between b3800 and b4200; enabling this
-# without verification causes compile errors.
+# llama_opt_epoch, ggml_opt_dataset_t, etc.) has not been verified against the
+# vendored llama.cpp version. Enabling without verification may cause compile
+# errors if the API surface has changed.
 #
 # To re-enable: verify that the pinned llama.cpp tag exports:
 #   llama_opt_init, llama_opt_epoch, ggml_opt_dataset_t, ggml_opt_dataset_init,
