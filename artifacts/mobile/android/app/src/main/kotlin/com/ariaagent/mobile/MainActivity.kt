@@ -1,36 +1,21 @@
 package com.ariaagent.mobile
 
-import com.ariaagent.mobile.core.system.SustainedPerformanceManager
-import com.facebook.react.ReactActivity
-import com.facebook.react.ReactActivityDelegate
-import com.facebook.react.defaults.DefaultReactActivityDelegate
-import expo.modules.splashscreen.SplashScreenManager
+import android.os.Bundle
+import androidx.appcompat.app.AppCompatActivity
 
 /**
- * MainActivity — React Native entry point.
+ * MainActivity — stub kept alive for Phase 1 of the native migration.
  *
- * Hosts the React Native JS shell (Dashboard, Control, Activity, Modules, Settings tabs).
- * Uses Old Architecture (bridge-based, Fabric disabled).
+ * The launcher has been transferred to ComposeMainActivity. This class
+ * remains in the manifest as a non-launcher entry so it can be removed
+ * cleanly in Phase 8 (mass deletion) without requiring a separate
+ * manifest edit at that time.
+ *
+ * DO NOT add logic here. DO NOT set it as the launcher.
+ * It will be DELETED in Phase 8 of migration.md.
  */
-class MainActivity : ReactActivity() {
-
-    override fun getMainComponentName(): String = "main"
-
-    override fun createReactActivityDelegate(): ReactActivityDelegate =
-        DefaultReactActivityDelegate(this, mainComponentName, false)
-
-    override fun onCreate(savedInstanceState: android.os.Bundle?) {
-        // expo-splash-screen v31 requires installSplashScreen() to be called BEFORE
-        // super.onCreate() so it hooks into the window before setContentView() runs.
-        // Without this call the splash screen doesn't show and SplashScreenModule
-        // can't control the hide timing (the screen flickers white on cold start).
-        SplashScreenManager.registerOnActivity(this)
+class MainActivity : AppCompatActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        SustainedPerformanceManager.register(this)
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        SustainedPerformanceManager.unregister()
     }
 }
