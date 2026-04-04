@@ -6,14 +6,13 @@
 //
 // Strategy:
 //   1. Locate node_modules (monorepo-aware, works locally and on EAS)
-//   2. Include expo-module-gradle-plugin as a composite build so expo native
-//      module sub-projects can resolve it without a version number.
-//   3. Manually include every native module as a Gradle sub-project
+//   2. Include @react-native/gradle-plugin as a ROOT-LEVEL composite build
+//      (NOT in pluginManagement — avoids the Gradle 8.13 settings-phase bug).
+//      This provides artifact substitution for the unversioned
+//      classpath("com.facebook.react:react-native-gradle-plugin") in build.gradle.
+//   3. Include expo-module-gradle-plugin as a root-level composite build.
+//   4. Manually include every native module as a Gradle sub-project
 //      (replaces what autolinkLibrariesFromCommand used to do).
-//
-// com.facebook.react:react-native-gradle-plugin is now resolved from
-// Maven Central using an explicit version in android/build.gradle, so no
-// includeBuild or pluginManagement is needed for it.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── 1. Locate node_modules ────────────────────────────────────────────────────
@@ -48,7 +47,40 @@ if (nmDir == null) throw new GradleException(
 
 logger.info("[ARIA] node_modules: ${nmDir}")
 
-// ── 2. Include expo-module-gradle-plugin (composite build) ───────────────────
+// ── 2. Include @react-native/gradle-plugin (root-level composite build) ───────
+// Provides artifact substitution for classpath("com.facebook.react:react-native-gradle-plugin")
+// in build.gradle WITHOUT a version number. Root-level includeBuild is evaluated
+// during the configuration phase (not the settings phase), so it does not trigger
+// the Gradle 8.13 pluginManagement composite-build resolution bug.
+def rnPluginDir = null
+
+[
+    new File(settingsDir, "node_modules/@react-native/gradle-plugin"),
+    new File(nmDir, "@react-native/gradle-plugin"),
+].each { def c ->
+    if (rnPluginDir == null && c.exists()) rnPluginDir = c.canonicalFile
+}
+
+if (rnPluginDir == null) {
+    try {
+        def proc = ["node", "--print",
+            "require.resolve('@react-native/gradle-plugin/package.json')"
+        ].execute(null, settingsDir.parentFile)
+        proc.waitFor()
+        if (proc.exitValue() == 0) {
+            def res = proc.text.trim()
+            if (res) rnPluginDir = new File(res).parentFile.canonicalFile
+        }
+    } catch (Exception ignored) {}
+}
+
+if (rnPluginDir != null) {
+    includeBuild(rnPluginDir)
+} else {
+    logger.warn("[ARIA] @react-native/gradle-plugin not found — build.gradle classpath will fail")
+}
+
+// ── 3. Include expo-module-gradle-plugin (composite build) ───────────────────
 // Provides the expo-module-gradle-plugin plugin to every expo native module
 // sub-project via classpath substitution. Root-level includeBuild, not
 // pluginManagement, so no settings-phase plugin resolution issues.
@@ -79,7 +111,7 @@ if (expoPluginDir == null) throw new GradleException(
 
 includeBuild(expoPluginDir)
 
-// ── 3. Helper: include a native module as a Gradle sub-project ───────────────
+// ── 4. Helper: include a native module as a Gradle sub-project ───────────────
 def includeNativeModule = { String gradleProject, String npmPackage, String subdir = "android" ->
     def dir = new File(nmDir, "${npmPackage}/${subdir}")
     if (dir.exists()) {
