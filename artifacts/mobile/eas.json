@@ -15,7 +15,8 @@
       },
       "env": {
         "ARIA_BUILD_PROFILE": "development",
-        "EXPO_ROUTER_APP_ROOT": "app"
+        "EXPO_ROUTER_APP_ROOT": "app",
+        "NPM_CONFIG_NODE_LINKER": "hoisted"
       }
     },
     "preview": {
@@ -26,7 +27,8 @@
       },
       "env": {
         "ARIA_BUILD_PROFILE": "preview",
-        "EXPO_ROUTER_APP_ROOT": "app"
+        "EXPO_ROUTER_APP_ROOT": "app",
+        "NPM_CONFIG_NODE_LINKER": "hoisted"
       }
     },
     "production": {
@@ -37,7 +39,8 @@
       },
       "env": {
         "ARIA_BUILD_PROFILE": "production",
-        "EXPO_ROUTER_APP_ROOT": "app"
+        "EXPO_ROUTER_APP_ROOT": "app",
+        "NPM_CONFIG_NODE_LINKER": "hoisted"
       }
     }
   }
