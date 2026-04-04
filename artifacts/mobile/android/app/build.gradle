@@ -72,7 +72,7 @@ android {
                           "-DLLAMA_CUBLAS=OFF",
                           "-DLLAMA_BUILD_TESTS=OFF",
                           "-DLLAMA_BUILD_EXAMPLES=OFF"
-                cppFlags "-std=c++17 -O3 -march=armv8-a -ffast-math"
+                cppFlags "-std=c++17 -O3 -march=armv8-a -ffast-math -fno-finite-math-only"
             }
         }
 

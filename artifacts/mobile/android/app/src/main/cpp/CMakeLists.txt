@@ -97,6 +97,7 @@ target_compile_options(llama-jni PRIVATE
     # On arm64-v8a (AArch64), NEON is always available and requires no flag.
     # NDK r23+ rejects -mfpu=neon on AArch64 with a compiler error.
     -ffast-math          # Aggressive float optimization for inference
+    -fno-finite-math-only # ggml/vec.h rejects __FINITE_MATH_ONLY__ (set by -ffast-math); override it
     -funroll-loops
 )
 
