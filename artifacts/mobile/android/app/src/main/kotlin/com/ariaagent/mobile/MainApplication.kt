@@ -11,7 +11,6 @@ import com.facebook.react.soloader.OpenSourceMergedSoMapping
 import com.facebook.soloader.SoLoader
 import com.reactnativecommunity.asyncstorage.AsyncStoragePackage
 import com.swmansion.gesturehandler.RNGestureHandlerPackage
-import com.reactnativekeyboardcontroller.KeyboardControllerPackage
 import com.th3rdwave.safeareacontext.SafeAreaContextPackage
 import com.swmansion.rnscreens.RNScreensPackage
 import com.horcrux.svg.SvgPackage
@@ -26,7 +25,6 @@ class MainApplication : Application(), ReactApplication {
             override fun getPackages(): List<ReactPackage> = listOf(
                 AsyncStoragePackage(),
                 RNGestureHandlerPackage(),
-                KeyboardControllerPackage(),
                 SafeAreaContextPackage(),
                 RNScreensPackage(),
                 SvgPackage(),

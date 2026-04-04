@@ -35,12 +35,6 @@
 -keep class * extends com.facebook.react.bridge.NativeModule { *; }
 -keep class com.facebook.react.turbomodule.** { *; }
 
-# ─── Reanimated v3 worklet runtime (JSI-based, NOT bridge) ────────────────────
--keep class com.swmansion.reanimated.ReanimatedJSIModulePackage { *; }
--keep class com.swmansion.reanimated.NativeProxy { *; }
--keep class com.swmansion.reanimated.NativeProxy$* { *; }
--dontwarn com.swmansion.reanimated.**
-
 # ─── ARIA Agent native modules ────────────────────────────────────────────────
 -keep class com.ariaagent.mobile.** { *; }
 
@@ -51,10 +45,6 @@
 
 # ─── Third-party React Native packages (manually linked — NOT auto-linked) ────
 # These MUST be kept: R8 cannot see they are used via React Native's reflection.
-
-# react-native-reanimated
--keep class com.swmansion.reanimated.** { *; }
--keep class com.swmansion.reanimated.ReanimatedPackage { *; }
 
 # react-native-gesture-handler
 -keep class com.swmansion.gesturehandler.** { *; }
@@ -75,10 +65,6 @@
 # @react-native-async-storage/async-storage
 -keep class com.reactnativecommunity.asyncstorage.** { *; }
 -keep class com.reactnativecommunity.asyncstorage.AsyncStoragePackage { *; }
-
-# react-native-keyboard-controller
--keep class com.reactnativekeyboardcontroller.** { *; }
--keep class com.reactnativekeyboardcontroller.KeyboardControllerPackage { *; }
 
 # ─── Expo modules ─────────────────────────────────────────────────────────────
 -keep class expo.modules.** { *; }
