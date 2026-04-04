@@ -192,6 +192,22 @@ already-recycled bitmap. Fixed: recycle `cropped` first, then `bitmap` only if t
 `AgentContext.requestPermissions` used `Promise.all([accessibility, screenCapture])` which fires
 both system UIs simultaneously. Android drops the second intent. Changed to sequential `await`.
 
+### Lazy permission gating
+Replaced upfront `requestPermissions()` blast with just-in-time checks inside `startAgent()` and
+`startLearnOnly()`: accessibility → if missing, open Settings and return early; screen capture →
+if missing, show MediaProjection dialog and wait. Only proceeds to start the agent when both are
+confirmed active. `requestPermissions()` also updated to only prompt what is actually missing.
+
+### expo-splash-screen v31 — missing registerOnActivity + wrong theme
+`expo-splash-screen` v31 requires two things that were missing:
+1. `SplashScreenManager.registerOnActivity(this)` called BEFORE `super.onCreate()` in
+   `MainActivity.kt` so `installSplashScreen()` hooks into the window before `setContentView()`.
+2. `MainActivity`'s theme must extend `Theme.SplashScreen` (from AndroidX splash screen lib),
+   with a `postSplashScreenTheme` pointing back to `AppTheme`. Added `Theme.App.SplashScreen` to
+   `styles.xml` and set it on `<activity android:name=".MainActivity">` in `AndroidManifest.xml`.
+   Without this setup the ActivityManager can throw a theme resource lookup exception on some OEM
+   firmwares (observed on Samsung/Exynos) when `installSplashScreen()` tries to read splash attrs.
+
 ## Agent Preferences
 
 - **Auto-push to GitHub**: Desired, but not possible — GitHub OAuth integration was dismissed and the platform blocks direct git push from the agent. After each fix, inform the user to run `git push github HEAD:main` manually in the Shell. The `github` remote already has credentials embedded.

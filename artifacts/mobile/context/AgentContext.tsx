@@ -376,25 +376,70 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     };
   }, [fetchAll, refreshTaskQueue, refreshAppSkills]);
 
+  // ── Permission gating ─────────────────────────────────────────────────────
+  // Each permission is only requested when the feature that needs it is used,
+  // not upfront in bulk. Returns true if all required permissions are satisfied.
+
+  const ensurePermissions = useCallback(async (): Promise<boolean> => {
+    // Always re-fetch live status so we don't work from stale cached values.
+    let status = moduleStatus;
+    if (!status) {
+      try { status = await AgentCoreBridge.getModuleStatus(); } catch { /* bridge down */ }
+    }
+
+    // ── Step 1: Accessibility (required to read the screen and inject gestures)
+    const a11yActive = status?.accessibility?.active ?? false;
+    if (!a11yActive) {
+      setError(
+        "Accessibility permission is required. " +
+        "Opening Settings — enable ARIA, then press Start again."
+      );
+      await AgentCoreBridge.openAccessibilitySettings();
+      return false;
+    }
+
+    // ── Step 2: Screen capture (required to take screenshots)
+    const captureActive = status?.screenCapture?.active ?? false;
+    if (!captureActive) {
+      const result = await AgentCoreBridge.requestScreenCapturePermission();
+      if (!result.granted) {
+        setError("Screen capture permission is required to observe the screen.");
+        return false;
+      }
+      // Re-hydrate so moduleStatus reflects the newly-active capture service.
+      await fetchAll();
+    }
+
+    return true;
+  }, [moduleStatus, fetchAll]);
+
   // ── Agent control ─────────────────────────────────────────────────────────
 
   const startAgent = useCallback(async (goal: string) => {
+    const ready = await ensurePermissions();
+    if (!ready) return;
+
     const res = await AgentCoreBridge.startAgent(goal);
     if (res.success) {
+      setError(null);
       await fetchAll();
     } else {
       setError(res.error ?? "Failed to start agent");
     }
-  }, [fetchAll]);
+  }, [ensurePermissions, fetchAll]);
 
   const startLearnOnly = useCallback(async (goal: string) => {
+    const ready = await ensurePermissions();
+    if (!ready) return;
+
     const res = await AgentCoreBridge.startLearnOnly(goal);
     if (res.success) {
+      setError(null);
       await fetchAll();
     } else {
       setError(res.error ?? "Failed to start learn-only mode");
     }
-  }, [fetchAll]);
+  }, [ensurePermissions, fetchAll]);
 
   const stopAgent = useCallback(async () => {
     await AgentCoreBridge.stopAgent();
@@ -427,12 +472,29 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   }, [fetchAll]);
 
   const requestPermissions = useCallback(async () => {
-    // Fire sequentially — Android can only surface one system UI at a time.
-    // Opening both simultaneously causes the second intent to be silently dropped.
-    await AgentCoreBridge.requestAccessibilityPermission();
-    await AgentCoreBridge.requestScreenCapturePermission();
+    // Re-fetch live status first so we only prompt for what's actually missing.
+    let status = moduleStatus;
+    if (!status) {
+      try { status = await AgentCoreBridge.getModuleStatus(); } catch { /* bridge down */ }
+    }
+
+    const a11yActive = status?.accessibility?.active ?? false;
+    const captureActive = status?.screenCapture?.active ?? false;
+
+    if (!a11yActive) {
+      // Accessibility can only be granted via Settings — open it and stop here.
+      // The user must come back and tap this again once enabled.
+      await AgentCoreBridge.openAccessibilitySettings();
+      await fetchAll();
+      return;
+    }
+
+    if (!captureActive) {
+      await AgentCoreBridge.requestScreenCapturePermission();
+    }
+
     await fetchAll();
-  }, [fetchAll]);
+  }, [moduleStatus, fetchAll]);
 
   // ── Phase 16: task queue methods ──────────────────────────────────────────
 

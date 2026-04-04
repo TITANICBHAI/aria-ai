@@ -1,14 +1,25 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- AppTheme: used by Application tag + MainActivity (React Native host).
-         Inherits from Theme.AppCompat.Light.NoActionBar — the standard base for
-         React Native apps. windowSoftInputMode="adjustResize" is set in the
-         manifest; this theme omits conflicting window flags. -->
+    <!-- AppTheme: post-splash runtime theme.
+         Applied AFTER the splash screen exits. Inherits from
+         Theme.AppCompat.Light.NoActionBar — the standard base for React Native. -->
     <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:statusBarColor">@android:color/black</item>
         <item name="android:navigationBarColor">@android:color/black</item>
         <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <!-- Theme.App.SplashScreen: applied to MainActivity at launch.
+         expo-splash-screen v31 requires MainActivity's theme to extend
+         Theme.SplashScreen so that SplashScreenManager.registerOnActivity()
+         can call installSplashScreen() and hook into the window lifecycle.
+         postSplashScreenTheme transitions back to AppTheme once the splash exits. -->
+    <style name="Theme.App.SplashScreen" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@android:color/black</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="windowSplashScreenAnimationDuration">300</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
     </style>
 
     <!-- Theme.ARIAAgent: used by ComposeMainActivity (Jetpack Compose UI).
