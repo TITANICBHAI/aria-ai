@@ -23,19 +23,20 @@ LLAMA_DIR="android/app/src/main/cpp/llama.cpp"
 
 echo "=== [ARIA] Task 1: llama.cpp ==="
 
-if [ -d "$LLAMA_DIR/.git" ]; then
-    COMMIT=$(git -C "$LLAMA_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
-    echo "llama.cpp already present at commit ${COMMIT} — skipping clone"
-else
-    if [ -d "$LLAMA_DIR" ] && [ "$(ls -A "$LLAMA_DIR" 2>/dev/null)" ]; then
-        echo "Stale llama.cpp directory found — removing before fresh clone"
-        rm -rf "$LLAMA_DIR"
+if [ -d "$LLAMA_DIR" ] && [ "$(ls -A "$LLAMA_DIR" 2>/dev/null)" ]; then
+    # Directory is non-empty — could be a git clone (has .git) or vendored files (no .git).
+    # Either way, the source is already present; do not overwrite it.
+    if [ -d "$LLAMA_DIR/.git" ]; then
+        COMMIT=$(git -C "$LLAMA_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        echo "llama.cpp already present as git clone at commit ${COMMIT} — skipping clone"
+    else
+        echo "llama.cpp already present as vendored source — skipping clone"
     fi
-
-    echo "Cloning llama.cpp @ b4200 (pinned for reproducible NDK builds)…"
+else
+    echo "Cloning llama.cpp @ b4870 (pinned for reproducible NDK builds)…"
     git clone \
         --depth=1 \
-        --branch b4200 \
+        --branch b4870 \
         --single-branch \
         https://github.com/ggerganov/llama.cpp.git \
         "$LLAMA_DIR"
