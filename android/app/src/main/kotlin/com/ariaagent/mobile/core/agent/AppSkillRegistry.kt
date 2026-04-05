@@ -120,7 +120,9 @@ class AppSkillRegistry private constructor(context: Context) {
     )
 
     private fun preSeedIfEmpty() {
-        if (count() > 0) return   // already has data — skip entirely
+        // Use INSERT OR IGNORE for all seeds so this runs on every init safely.
+        // Existing rows (real learned data) are never overwritten.
+        // The old count() guard is removed so newly added seeds reach existing installs.
 
         val seeds = listOf(
             AppSeed(
@@ -192,6 +194,80 @@ class AppSkillRegistry private constructor(context: Context) {
                 templates = listOf("Share a photo", "Find photos from"),
                 hint = "App: Photos | Elements: Search(magnifier), Library(grid icon), Share, Edit, Delete | " +
                        "Tips: tap photo to open; Share icon (arrow) at top; swipe to browse"
+            ),
+
+            // ── Expanded seeds (Phase 19) ──────────────────────────────────────
+
+            AppSeed(
+                pkg = "com.instagram.android", name = "Instagram",
+                elements = listOf("Search", "Home", "Reels", "New Post", "Profile", "Like", "Comment",
+                                  "Share", "Story", "Direct message", "Follow"),
+                templates = listOf("Post a photo on Instagram", "Search for a user on Instagram",
+                                   "Like a post on Instagram", "Open Instagram DMs"),
+                hint = "App: Instagram | Elements: Home(house), Search(magnifier), Reels(play icon), " +
+                       "New Post(+ center bottom), Profile(avatar bottom-right) | " +
+                       "Tips: tap + for new post; tap story ring at top to view; heart to like"
+            ),
+            AppSeed(
+                pkg = "com.amazon.mShop.android.shopping", name = "Amazon",
+                elements = listOf("Search Amazon", "Cart", "Account", "Orders", "Add to Cart",
+                                  "Buy Now", "Delivery", "Home", "Categories"),
+                templates = listOf("Search for a product on Amazon", "Add item to cart on Amazon",
+                                   "Check Amazon orders"),
+                hint = "App: Amazon | Elements: Search Amazon(top bar), Cart(trolley top-right), " +
+                       "Account(person icon) | Tips: tap search bar and type product; " +
+                       "Add to Cart button appears below price on product page"
+            ),
+            AppSeed(
+                pkg = "com.samsung.android.app.sbrowser", name = "Samsung Internet",
+                elements = listOf("Address bar", "Tabs", "Bookmarks", "Menu", "Back", "Reload",
+                                  "New tab", "Incognito"),
+                templates = listOf("Open a website in Samsung Browser", "Search the web",
+                                   "Open a new incognito tab"),
+                hint = "App: Samsung Internet | Elements: Address bar(top), Tabs(square+number), " +
+                       "Menu(three lines bottom-right) | Tips: tap address bar to type URL or search; " +
+                       "tap Menu → New secret tab for incognito"
+            ),
+            AppSeed(
+                pkg = "com.spotify.music", name = "Spotify",
+                elements = listOf("Search", "Home", "Your Library", "Play", "Pause", "Skip",
+                                  "Shuffle", "Like", "Playlist", "Album", "Artist", "Podcast"),
+                templates = listOf("Play a song on Spotify", "Search for an artist on Spotify",
+                                   "Add song to liked songs", "Create a Spotify playlist"),
+                hint = "App: Spotify | Elements: Search(magnifier bottom-center), Home(house), " +
+                       "Your Library(stack icon), Play/Pause(large center), Skip(forward arrow) | " +
+                       "Tips: tap Search to find music; heart icon to like; shuffle at left of controls"
+            ),
+            AppSeed(
+                pkg = "com.netflix.mediaclient", name = "Netflix",
+                elements = listOf("Search", "Home", "New & Hot", "My Netflix", "Play", "Download",
+                                  "Continue Watching", "Episodes", "Audio & Subtitles"),
+                templates = listOf("Play a show on Netflix", "Search for a movie on Netflix",
+                                   "Download an episode on Netflix"),
+                hint = "App: Netflix | Elements: Search(magnifier top-right), Home, New & Hot, " +
+                       "My Netflix(person icon) | Tips: tap show thumbnail then Play; " +
+                       "Episodes tab appears below video for series navigation"
+            ),
+            AppSeed(
+                pkg = "com.samsung.android.messaging", name = "Samsung Messages",
+                elements = listOf("New conversation", "Search", "Message input", "Send", "Contacts",
+                                  "Attach", "Emoji", "Back"),
+                templates = listOf("Send a text message to", "Open a conversation in Messages",
+                                   "Search for a message"),
+                hint = "App: Samsung Messages | Elements: New conversation(pencil fab bottom-right), " +
+                       "Search(magnifier top), Message input(bottom text field), Send(arrow) | " +
+                       "Tips: tap pencil to start new message; type contact name or number"
+            ),
+            AppSeed(
+                pkg = "com.sec.android.gallery3d", name = "Samsung Gallery",
+                elements = listOf("Albums", "Pictures", "Stories", "Share", "Delete", "Edit",
+                                  "Slideshow", "Set as wallpaper", "Details"),
+                templates = listOf("Share a photo from Gallery", "Delete a photo",
+                                   "Set a photo as wallpaper", "Open a Gallery album"),
+                hint = "App: Samsung Gallery | Elements: Albums(grid icon bottom), Pictures(photos tab), " +
+                       "Share(arrow icon), Edit(pencil), Delete(trash) | " +
+                       "Tips: tap photo to open fullscreen; swipe between photos; " +
+                       "three-dot menu at top-right for Set as wallpaper"
             ),
         )
 

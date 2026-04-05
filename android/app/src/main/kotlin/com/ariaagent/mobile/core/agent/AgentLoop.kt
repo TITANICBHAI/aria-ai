@@ -144,12 +144,40 @@ object AgentLoop {
                 )
             }
 
-            // Check goals.json for a partially-completed task and log the resume point
-            val resumeSubTask = ProgressPersistence.nextPendingSubTask(context)
-            if (resumeSubTask != null) {
-                Log.i("AgentLoop", "Resuming from sub-task ${resumeSubTask.id}: ${resumeSubTask.label}")
-                ProgressPersistence.logNote(context, "Resuming from sub-task ${resumeSubTask.id}: ${resumeSubTask.label}")
+            // ── Phase 19: Task plan decomposition ─────────────────────────────
+            // LLM pre-pass breaks the goal into 2-7 ordered sub-tasks before the
+            // main loop starts. This gives the agent a structured plan to follow
+            // rather than discovering steps through pure trial-and-error.
+            //
+            // Resume logic: if goals.json already holds THIS goal with some steps
+            // still pending, we resume from the first unchecked step (crash-safe).
+            // If the goal changed or all steps are done, we decompose fresh.
+            val existingGoalState = ProgressPersistence.readGoalState(context)
+            val subTasksRaw: List<String>
+            var subTaskIdx: Int
+            if (
+                existingGoalState != null &&
+                existingGoalState.goal == goal &&
+                existingGoalState.subTasks.any { !it.passed }
+            ) {
+                // Resume a partially-completed run for this same goal
+                subTasksRaw = existingGoalState.subTasks.map { it.label }
+                subTaskIdx  = existingGoalState.subTasks.indexOfFirst { !it.passed }.coerceAtLeast(0)
+                Log.i("AgentLoop", "Resuming plan at step ${subTaskIdx + 1}/${subTasksRaw.size}: \"${subTasksRaw[subTaskIdx]}\"")
+                ProgressPersistence.logNote(context, "Resuming at step ${subTaskIdx + 1}: ${subTasksRaw[subTaskIdx]}")
+            } else {
+                // Fresh task — decompose via LLM and persist plan to goals.json
+                subTasksRaw = TaskDecomposer.decompose(goal)
+                ProgressPersistence.initGoals(context, goal, subTasksRaw)
+                subTaskIdx  = 0
+                if (subTasksRaw.size > 1) {
+                    Log.i("AgentLoop", "Task plan (${subTasksRaw.size} steps): " +
+                          subTasksRaw.joinToString(" → ") { "\"$it\"" })
+                    ProgressPersistence.logNote(context,
+                        "Plan: " + subTasksRaw.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString(" | "))
+                }
             }
+            var currentSubGoal = subTasksRaw.getOrElse(subTaskIdx) { goal }
 
             try {
                 while (isActive && state.stepCount < MAX_STEPS) {
@@ -334,9 +362,14 @@ object AgentLoop {
                     }
 
                     // ── 3. REASON — call LLM ──────────────────────────────────
+                    // Phase 19: goal = currentSubGoal so the LLM focuses on ONE step;
+                    // goalPlan shows the full checklist so it keeps global context.
+                    val goalPlan = if (subTasksRaw.size > 1)
+                        ProgressPersistence.goalSummary(context)
+                    else ""
                     val prompt = PromptBuilder.build(
                         snapshot          = snapshot,
-                        goal              = goal,
+                        goal              = currentSubGoal,
                         history           = actionHistory,
                         memory            = memory,
                         objectLabels      = screenLabels,
@@ -344,7 +377,8 @@ object AgentLoop {
                         appKnowledge      = appKnowledge,
                         visionDescription = visionDescription,
                         samRegions        = samRegions,
-                        stuckHint         = stuckHint
+                        stuckHint         = stuckHint,
+                        goalPlan          = goalPlan
                     )
 
                     val rawOutput = LlamaEngine.infer(prompt, maxTokens = 200) { token ->
@@ -408,6 +442,26 @@ object AgentLoop {
 
                     var actionSuccess = false
                     if (isDone) {
+                        // ── Phase 19: Sub-task advancement ──────────────────────
+                        // Mark the current sub-task as done in goals.json. If more
+                        // sub-tasks remain, advance to the next one and CONTINUE the
+                        // loop (rather than ending the task). Only when the last
+                        // sub-task is marked done do we break and end the session.
+                        ProgressPersistence.markSubTaskPassed(context, (subTaskIdx + 1).toString())
+                        subTaskIdx++
+                        val nextSubGoal = subTasksRaw.getOrNull(subTaskIdx)
+                        if (nextSubGoal != null) {
+                            currentSubGoal = nextSubGoal
+                            stuckCount     = 0
+                            stuckHint      = ""
+                            lastScreenHash = ""
+                            Log.i("AgentLoop", "Sub-task done → step ${subTaskIdx + 1}/${subTasksRaw.size}: \"$currentSubGoal\"")
+                            ProgressPersistence.logNote(context,
+                                "Step ${subTaskIdx + 1}/${subTasksRaw.size}: $currentSubGoal")
+                            delay(STEP_DELAY_MS)
+                            continue   // restart while loop with next sub-goal
+                        }
+                        // All sub-tasks complete — end the full task
                         state = state.copy(status = Status.DONE, lastAction = actionJson)
                         ProgressPersistence.logTaskEnd(context, goal, succeeded = true)
                         SustainedPerformanceManager.disable()

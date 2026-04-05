@@ -113,7 +113,7 @@ target_compile_options(llama-jni PRIVATE
 #   ggml_opt_get_constant_optimizer_params
 # Then uncomment the line below.
 #
-# add_compile_definitions(LLAMA_HAS_TRAINING)
+add_compile_definitions(LLAMA_HAS_TRAINING)
 #
 # Without LLAMA_HAS_TRAINING, nativeTrainLora() returns JNI_FALSE and Kotlin
 # falls back to stubTrainLora() — safe, no inference regression.

@@ -107,6 +107,9 @@ RULES:
      * @param visionDescription  SmolVLM-256M pixel-level description of the current frame (Phase 17)
      * @param samRegions         MobileSAM tap candidates as formatted strings (Phase 18)
      * @param stuckHint          Injected when stuck detector fires — prompts model to try different approach
+     * @param goalPlan           Full task plan with checkmarks from TaskDecomposer (Phase 19).
+     *                           Shows the agent the full multi-step plan and which step is current.
+     *                           Empty string when goal has only one step (no overhead).
      */
     fun build(
         snapshot: ScreenObserver.ScreenSnapshot,
@@ -119,6 +122,7 @@ RULES:
         visionDescription: String = "",
         samRegions: List<String> = emptyList(),
         stuckHint: String = "",
+        goalPlan: String = "",
     ): String {
         val sb = StringBuilder()
 
@@ -146,6 +150,15 @@ RULES:
 
         sb.append("<|start_header_id|>user<|end_header_id|>\n")
         sb.append("GOAL: $goal\n\n")
+
+        // ── Phase 19: Task plan — shows full multi-step plan with [x]/[ ] checkmarks ──
+        // Only present when the goal was decomposed into ≥ 2 steps. Single-step goals
+        // have an empty goalPlan so there is zero overhead for simple tasks.
+        if (goalPlan.isNotEmpty()) {
+            sb.appendLine("[TASK PLAN]")
+            sb.appendLine(goalPlan)
+            sb.appendLine()
+        }
 
         // ── Object labels injected BEFORE the raw node tree ───────────────────
         if (objectLabels.isNotEmpty()) {
