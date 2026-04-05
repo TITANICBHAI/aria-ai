@@ -21,7 +21,12 @@
     native <methods>;
 }
 
-# ─── ONNX Runtime (MiniLM sentence embeddings) ────────────────────────────────
+# ─── ONNX Runtime (MiniLM sentence embeddings + MobileSAM encoder) ───────────
+# The artifact is com.microsoft.onnxruntime:onnxruntime-android but the Java
+# package inside is ai.onnxruntime — both must be kept so R8 does not strip
+# classes that EmbeddingEngine and Sam2Engine reference by name.
+-keep class ai.onnxruntime.** { *; }
+-dontwarn ai.onnxruntime.**
 -keep class com.microsoft.onnxruntime.** { *; }
 -dontwarn com.microsoft.onnxruntime.**
 

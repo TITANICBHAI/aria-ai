@@ -71,9 +71,13 @@ object GestureEngine {
                     swipeXY(x1, y1, x2, y2)
                 }
 
-                else -> false
+                else -> {
+                    Log.w("GestureEngine", "executeFromJson: unrecognised tool='$tool' — LLM output may be malformed | json=$actionJson")
+                    false
+                }
             }
         } catch (e: Exception) {
+            Log.w("GestureEngine", "executeFromJson: JSON parse/dispatch failed — ${e.message} | json=$actionJson")
             false
         }
     }

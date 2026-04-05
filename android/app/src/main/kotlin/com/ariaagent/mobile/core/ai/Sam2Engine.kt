@@ -1,5 +1,8 @@
 package com.ariaagent.mobile.core.ai
 
+import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -67,10 +70,10 @@ object Sam2Engine {
     private val MEAN = floatArrayOf(0.485f, 0.456f, 0.406f)
     private val STD  = floatArrayOf(0.229f, 0.224f, 0.225f)
 
-    // ── ONNX Runtime session (loaded via reflection) ──────────────────────────
+    // ── ONNX Runtime session ──────────────────────────────────────────────────
 
-    @Volatile private var ortSession: Any?     = null
-    @Volatile private var ortEnvironment: Any? = null
+    @Volatile private var ortSession: OrtSession? = null
+    @Volatile private var ortEnvironment: OrtEnvironment? = null
 
     // ── Data classes ──────────────────────────────────────────────────────────
 
@@ -129,14 +132,9 @@ object Sam2Engine {
             return false
         }
         return try {
-            val envClass  = Class.forName("ai.onnxruntime.OrtEnvironment")
-            val envGet    = envClass.getMethod("getEnvironment")
-            val env       = envGet.invoke(null)
+            val env = OrtEnvironment.getEnvironment()
             ortEnvironment = env
-
-            val createSession = envClass.getMethod("createSession", String::class.java)
-            ortSession = createSession.invoke(env, encoderPath(context).absolutePath)
-
+            ortSession = env.createSession(encoderPath(context).absolutePath)
             Log.i(TAG, "MobileSAM encoder loaded (${encoderPath(context).length() / 1_048_576} MB)")
             true
         } catch (e: Exception) {
@@ -236,57 +234,43 @@ object Sam2Engine {
      * Run the encoder ONNX model.
      * @return Flat FloatArray of shape [1 * 256 * FEAT_SIZE * FEAT_SIZE], or null on error.
      *
-     * Uses the same reflection pattern as EmbeddingEngine — proven with ORT 1.19.2.
-     * Output is accessed by index (0) and getValue() returns a nested float[][][][].
+     * Uses the direct ORT 1.19.2 Java API (OnnxTensor.createTensor + session.run).
+     * Output is extracted by name via session.outputNames and getValue() as float[][][][].
      */
     private fun runEncoder(tensor: FloatArray): FloatArray? {
         val session = ortSession ?: return null
         val env     = ortEnvironment ?: return null
         return try {
             // Build input tensor: float32 [1, 3, SAM_RES, SAM_RES]
-            val ortTensorClass = Class.forName("ai.onnxruntime.OnnxTensor")
-            val createFloat    = ortTensorClass.getMethod(
-                "createTensor",
-                Class.forName("ai.onnxruntime.OrtEnvironment"),
-                FloatBuffer::class.java,
-                LongArray::class.java,
-            )
-            val shape     = longArrayOf(1L, 3L, SAM_RES.toLong(), SAM_RES.toLong())
-            val inputTensor = createFloat.invoke(null, env, FloatBuffer.wrap(tensor), shape)
+            val shape       = longArrayOf(1L, 3L, SAM_RES.toLong(), SAM_RES.toLong())
+            val inputTensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(tensor), shape)
 
-            // Build input map
-            val inputs = java.util.LinkedHashMap<String, Any>()
-            inputs["input_image"] = inputTensor!!
+            val inputs = LinkedHashMap<String, OnnxTensor>()
+            inputs["input_image"] = inputTensor
 
-            // Run inference
-            val runMethod = session.javaClass.getMethod("run", Map::class.java)
-            val result    = runMethod.invoke(session, inputs)
+            session.run(inputs).use { result ->
+                val outputName = session.outputNames.first()
+                val rawValue   = result.get(outputName).get().getValue()
 
-            // Extract first output tensor by index (robust across model output name variations)
-            val getByIdx = result!!.javaClass.getMethod("get", Int::class.java)
-            val output   = getByIdx.invoke(result, 0)
-            val getValue = output!!.javaClass.getMethod("getValue")
-            val rawValue = getValue.invoke(output)
-
-            // rawValue is float[][][][]: [batch=1][channels=256][H=64][W=64]
-            // Flatten into a single FloatArray for collapseChannels()
-            @Suppress("UNCHECKED_CAST")
-            val emb4d = rawValue as? Array<Array<Array<FloatArray>>>
-                ?: return null
-            val batch    = emb4d[0]              // [256][64][64]
-            val channels = batch.size            // 256
-            val hSize    = batch[0].size         // 64
-            val wSize    = batch[0][0].size      // 64
-            val flat     = FloatArray(channels * hSize * wSize)
-            var idx = 0
-            for (c in 0 until channels) {
-                for (h in 0 until hSize) {
-                    for (w in 0 until wSize) {
-                        flat[idx++] = batch[c][h][w]
+                // rawValue is float[][][][]: [batch=1][channels=256][H=64][W=64]
+                // Flatten into a single FloatArray for collapseChannels()
+                @Suppress("UNCHECKED_CAST")
+                val emb4d = rawValue as? Array<Array<Array<FloatArray>>> ?: return null
+                val batch    = emb4d[0]              // [256][64][64]
+                val channels = batch.size            // 256
+                val hSize    = batch[0].size         // 64
+                val wSize    = batch[0][0].size      // 64
+                val flat     = FloatArray(channels * hSize * wSize)
+                var idx = 0
+                for (c in 0 until channels) {
+                    for (h in 0 until hSize) {
+                        for (w in 0 until wSize) {
+                            flat[idx++] = batch[c][h][w]
+                        }
                     }
                 }
+                flat
             }
-            flat
         } catch (e: Exception) {
             Log.w(TAG, "Encoder inference error: ${e.message}")
             null

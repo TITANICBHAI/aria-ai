@@ -1,5 +1,8 @@
 package com.ariaagent.mobile.core.memory
 
+import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.util.Log
 import java.io.File
@@ -44,8 +47,8 @@ object EmbeddingEngine {
 
     // ONNX Runtime session — loaded lazily on first embed() call when model file is present.
     // Null while model not yet downloaded or if ORT is unavailable.
-    private var ortSession: Any? = null        // OrtSession (reflection-accessed)
-    private var ortEnvironment: Any? = null    // OrtEnvironment (reflection-accessed)
+    private var ortSession: OrtSession? = null
+    private var ortEnvironment: OrtEnvironment? = null
     private var neonAvailable = false
 
     fun isModelAvailable(context: Context): Boolean =
@@ -160,15 +163,9 @@ object EmbeddingEngine {
 
     private fun initOrtSession(modelFile: File) {
         try {
-            val envClass  = Class.forName("ai.onnxruntime.OrtEnvironment")
-            val envGet    = envClass.getMethod("getEnvironment")
-            val env       = envGet.invoke(null)
+            val env = OrtEnvironment.getEnvironment()
             ortEnvironment = env
-
-            val sessionClass = Class.forName("ai.onnxruntime.OrtSession")
-            val createSession = envClass.getMethod("createSession", String::class.java)
-            ortSession = createSession.invoke(env, modelFile.absolutePath)
-
+            ortSession = env.createSession(modelFile.absolutePath)
             Log.i(TAG, "ONNX Runtime session created for ${modelFile.name}")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create ORT session: ${e.message}")
@@ -186,57 +183,41 @@ object EmbeddingEngine {
         val env     = ortEnvironment ?: return hashEmbedFallback(text)
 
         try {
-            val tokens   = tokenize(text)
+            val tokens        = tokenize(text)
             val inputIds      = LongArray(SEQ_LEN) { if (it < tokens.size) tokens[it] else 0L }
             val attentionMask = LongArray(SEQ_LEN) { if (it < tokens.size) 1L else 0L }
             val tokenTypeIds  = LongArray(SEQ_LEN) { 0L }
+            val shape         = longArrayOf(1L, SEQ_LEN.toLong())
 
-            val shape = longArrayOf(1L, SEQ_LEN.toLong())
+            val inputIdsTensor = OnnxTensor.createTensor(env, LongBuffer.wrap(inputIds),      shape)
+            val attMaskTensor  = OnnxTensor.createTensor(env, LongBuffer.wrap(attentionMask), shape)
+            val tokTypeTensor  = OnnxTensor.createTensor(env, LongBuffer.wrap(tokenTypeIds),  shape)
 
-            val ortTensorClass    = Class.forName("ai.onnxruntime.OnnxTensor")
-            val createTensorLong  = ortTensorClass.getMethod(
-                "createTensor",
-                Class.forName("ai.onnxruntime.OrtEnvironment"),
-                LongBuffer::class.java,
-                LongArray::class.java
-            )
+            val inputs = LinkedHashMap<String, OnnxTensor>()
+            inputs["input_ids"]      = inputIdsTensor
+            inputs["attention_mask"] = attMaskTensor
+            inputs["token_type_ids"] = tokTypeTensor
 
-            val inputIdsTensor   = createTensorLong.invoke(null, env, LongBuffer.wrap(inputIds),   shape)
-            val attMaskTensor    = createTensorLong.invoke(null, env, LongBuffer.wrap(attentionMask), shape)
-            val tokTypeTensor    = createTensorLong.invoke(null, env, LongBuffer.wrap(tokenTypeIds),  shape)
+            session.run(inputs).use { result ->
+                val outputName = session.outputNames.first()
+                val rawValue   = result.get(outputName).get().getValue()
 
-            val mapClass = java.util.LinkedHashMap::class.java
-            val inputs = java.util.LinkedHashMap<String, Any>()
-            inputs["input_ids"]      = inputIdsTensor!!
-            inputs["attention_mask"] = attMaskTensor!!
-            inputs["token_type_ids"] = tokTypeTensor!!
+                // rawValue is float[][][]: [batch=1][seq_len=128][hidden=384]
+                @Suppress("UNCHECKED_CAST")
+                val hiddenStates = rawValue as Array<Array<FloatArray>>
 
-            val runMethod = session.javaClass.getMethod("run", Map::class.java)
-            val result    = runMethod.invoke(session, inputs)
-
-            // result is OrtSession.Result — get first output
-            val getMethod = result!!.javaClass.getMethod("get", Int::class.java)
-            val output    = getMethod.invoke(result, 0)
-            val getValue  = output!!.javaClass.getMethod("getValue")
-            val rawValue  = getValue.invoke(output)
-
-            // rawValue is float[][][]: [batch=1][seq_len=128][hidden=384]
-            @Suppress("UNCHECKED_CAST")
-            val hiddenStates = rawValue as Array<Array<FloatArray>>
-
-            // Mean-pool over non-padding positions
-            val seqEmb = hiddenStates[0]  // shape [128][384]
-            val seqLength = attentionMask.count { it == 1L }.coerceAtLeast(1)
-            val pooled = FloatArray(EMBEDDING_DIM)
-            for (t in 0 until seqLength) {
-                for (d in 0 until EMBEDDING_DIM) {
-                    pooled[d] += seqEmb[t][d]
+                // Mean-pool over non-padding positions
+                val seqEmb    = hiddenStates[0]  // shape [128][384]
+                val seqLength = attentionMask.count { it == 1L }.coerceAtLeast(1)
+                val pooled    = FloatArray(EMBEDDING_DIM)
+                for (t in 0 until seqLength) {
+                    for (d in 0 until EMBEDDING_DIM) {
+                        pooled[d] += seqEmb[t][d]
+                    }
                 }
+                for (d in 0 until EMBEDDING_DIM) pooled[d] /= seqLength.toFloat()
+                return pooled
             }
-            for (d in 0 until EMBEDDING_DIM) pooled[d] /= seqLength.toFloat()
-
-            return pooled
-
         } catch (e: Exception) {
             Log.w(TAG, "ORT inference failed — using hash fallback: ${e.message}")
             return hashEmbedFallback(text)
