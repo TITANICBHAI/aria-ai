@@ -11,3 +11,9 @@ id = "GTov11y9B8xinj-VI7pxu"
 uri = "file://stubs.md"
 type = "text"
 title = "ARIA Stub Registry (updated)"
+
+[[outputs]]
+id = "Gsy7B5xNj06YqqyVMD3BQ"
+uri = "file://android/docs/ARIA_REALITY_CHECK.md"
+type = "text"
+title = "ARIA Agent — Reality Check"
