@@ -1782,7 +1782,7 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshLoraHistory() {
         viewModelScope.launch(Dispatchers.IO) {
-            val loraDir = java.io.File(context.filesDir, "lora")
+            val loraDir = context.getExternalFilesDir("lora") ?: java.io.File(context.filesDir, "lora")
             if (!loraDir.exists()) { _loraHistory.value = emptyList(); return@launch }
             val currentVer = LoraTrainer.currentVersion(context)
             val checkpoints = loraDir.listFiles()

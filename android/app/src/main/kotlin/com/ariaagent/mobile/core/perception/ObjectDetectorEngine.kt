@@ -62,7 +62,7 @@ object ObjectDetectorEngine {
     // ─── Model management ────────────────────────────────────────────────────
 
     fun modelFile(context: Context): File =
-        File(context.filesDir, "models/$MODEL_FILENAME")
+        File(context.getExternalFilesDir("models") ?: File(context.filesDir, "models"), MODEL_FILENAME)
 
     fun isModelReady(context: Context): Boolean {
         val f = modelFile(context)

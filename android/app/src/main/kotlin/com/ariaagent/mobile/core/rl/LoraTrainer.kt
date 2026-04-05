@@ -104,7 +104,7 @@ object LoraTrainer {
             )
         }
 
-        val loraDir = File(context.filesDir, "lora").also { it.mkdirs() }
+        val loraDir = (context.getExternalFilesDir("lora") ?: File(context.filesDir, "lora")).also { it.mkdirs() }
         val nextVersion = currentVersion(context) + 1
         // .gguf extension: nativeTrainLora() writes a full GGUF checkpoint via
         // llama_model_save_to_file(). LlamaEngine.loadLora() detects GGUF magic
@@ -270,19 +270,22 @@ object LoraTrainer {
         )
     }
 
+    private fun loraDir(context: Context): File =
+        (context.getExternalFilesDir("lora") ?: File(context.filesDir, "lora")).also { it.mkdirs() }
+
     fun currentVersion(context: Context): Int {
-        val versionFile = File(context.filesDir, "lora/version.txt")
+        val versionFile = File(loraDir(context), "version.txt")
         return if (versionFile.exists()) versionFile.readText().trim().toIntOrNull() ?: 0 else 0
     }
 
     private fun writeVersionFile(context: Context, version: Int) {
-        File(context.filesDir, "lora/version.txt").writeText(version.toString())
+        File(loraDir(context), "version.txt").writeText(version.toString())
     }
 
     fun latestAdapterPath(context: Context): String? {
         val version = currentVersion(context)
         if (version == 0) return null
-        val loraDir = File(context.filesDir, "lora")
+        val loraDir = loraDir(context)
         // Prefer .gguf (produced by real nativeTrainLora via llama_model_save_to_file)
         val gguf = File(loraDir, "adapter_v$version.gguf")
         if (gguf.exists()) return gguf.absolutePath

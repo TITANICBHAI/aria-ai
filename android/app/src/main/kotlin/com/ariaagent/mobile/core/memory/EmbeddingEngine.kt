@@ -51,8 +51,11 @@ object EmbeddingEngine {
     private var ortEnvironment: OrtEnvironment? = null
     private var neonAvailable = false
 
+    private fun modelsDir(context: Context): File =
+        context.getExternalFilesDir("models") ?: File(context.filesDir, "models")
+
     fun isModelAvailable(context: Context): Boolean =
-        File(context.filesDir, "models/$MODEL_FILENAME").exists()
+        File(modelsDir(context), MODEL_FILENAME).exists()
 
     // ─── JNI (aria_math.cpp) ─────────────────────────────────────────────────
 
@@ -76,7 +79,7 @@ object EmbeddingEngine {
      * Uses MiniLM ONNX (via ONNX Runtime Android) if available, falls back to hash embedding.
      */
     fun embed(context: Context, text: String): FloatArray {
-        val modelFile = File(context.filesDir, "models/$MODEL_FILENAME")
+        val modelFile = File(modelsDir(context), MODEL_FILENAME)
         if (modelFile.exists() && ortSession == null) initOrtSession(modelFile)
         // Load WordPiece vocab whenever it is present — independent of the ONNX model
         // so the tokenizer quality improves as soon as vocab.txt is downloaded.
@@ -238,7 +241,7 @@ object EmbeddingEngine {
      */
     fun loadVocab(context: Context) {
         if (wordPieceVocab != null) return
-        val vocabFile = File(context.filesDir, "models/bert-vocab.txt")
+        val vocabFile = File(modelsDir(context), "bert-vocab.txt")
         if (!vocabFile.exists()) return
         val vocab = HashMap<String, Int>(32_000)
         vocabFile.bufferedReader().useLines { lines ->

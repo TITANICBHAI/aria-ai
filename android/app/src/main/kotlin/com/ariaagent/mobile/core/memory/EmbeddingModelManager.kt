@@ -93,7 +93,7 @@ object EmbeddingModelManager {
         context: Context,
         onProgress: ((downloaded: Long, total: Long) -> Unit)? = null
     ): Boolean = withContext(Dispatchers.IO) {
-        File(context.filesDir, "models").mkdirs()
+        modelsDir(context).mkdirs()
 
         // ── 1. Download ONNX model (resumable) ───────────────────────────────
         val onnxOk = downloadFile(

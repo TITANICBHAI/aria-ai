@@ -100,13 +100,14 @@ object PolicyNetwork {
     // ─── Load / init ─────────────────────────────────────────────────────────
 
     fun load(context: Context) {
-        val weightsFile = File(context.filesDir, "rl/policy_latest.bin")
+        val rlDir = context.getExternalFilesDir("rl") ?: File(context.filesDir, "rl")
+        val weightsFile = File(rlDir, "policy_latest.bin")
         if (weightsFile.exists() && weightsFile.length() > 100L) {
             loadFromBinary(weightsFile)
         } else {
             initRandom()
         }
-        val adamFile = File(context.filesDir, "rl/policy_adam.bin")
+        val adamFile = File(rlDir, "policy_adam.bin")
         if (adamFile.exists() && adamFile.length() > 100L) {
             loadAdamState(adamFile)
         } else {
@@ -316,7 +317,7 @@ object PolicyNetwork {
     fun saveToFile(context: Context) {
         if (!isInitialized) return
         try {
-            val dir = File(context.filesDir, "rl").also { it.mkdirs() }
+            val dir = (context.getExternalFilesDir("rl") ?: File(context.filesDir, "rl")).also { it.mkdirs() }
 
             // Save weights as little-endian float32 binary
             DataOutputStream(FileOutputStream(File(dir, "policy_latest.bin"))).use { out ->
