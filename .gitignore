@@ -47,3 +47,12 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Android-only GitHub repo — exclude JS monorepo, planning docs, web dashboard
+migration.md
+replit.md
+artifacts/
+packages/
+shared/
+pnpm-workspace.yaml
+package.json
