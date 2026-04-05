@@ -57,6 +57,18 @@ class AgentAccessibilityService : AccessibilityService() {
         private val nodeRegistry = mutableMapOf<String, AccessibilityNodeInfo>()
 
         fun getNodeById(id: String): AccessibilityNodeInfo? = nodeRegistry[id]
+
+        /**
+         * Return the physical screen dimensions in pixels.
+         * Used by GestureEngine.tapXY() to convert normalised (0–1) coordinates
+         * to actual pixel positions for TapXY / SwipeXY gesture dispatch.
+         * Falls back to Samsung Galaxy M31 native resolution if service is inactive.
+         */
+        fun getScreenSize(): Pair<Int, Int> {
+            val inst = instance ?: return Pair(1080, 2400)
+            val dm = inst.resources.displayMetrics
+            return Pair(dm.widthPixels, dm.heightPixels)
+        }
     }
 
     override fun onServiceConnected() {

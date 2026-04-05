@@ -98,6 +98,119 @@ class AppSkillRegistry private constructor(context: Context) {
         override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) = Unit
     }.writableDatabase
 
+    init {
+        preSeedIfEmpty()
+    }
+
+    // ─── Pre-seeded knowledge for top 10 common apps ─────────────────────────
+    //
+    // New users start with zero ARIA experience. These seeds give the LLM
+    // a helpful head-start for the most common Android apps so first attempts
+    // on complex apps (Gmail, WhatsApp) are guided rather than purely exploratory.
+    //
+    // Each seed uses INSERT OR IGNORE so real learned data is never overwritten.
+    // last_seen = 0 so user-generated rows always sort above seeds in the UI.
+
+    private data class AppSeed(
+        val pkg: String,
+        val name: String,
+        val elements: List<String>,
+        val templates: List<String>,
+        val hint: String,
+    )
+
+    private fun preSeedIfEmpty() {
+        if (count() > 0) return   // already has data — skip entirely
+
+        val seeds = listOf(
+            AppSeed(
+                pkg = "com.google.android.gm", name = "Gmail",
+                elements = listOf("Compose", "Search mail", "Inbox", "Sent", "Archive", "Reply"),
+                templates = listOf("Open Gmail and compose an email", "Find an email from"),
+                hint = "App: Gmail | Elements: Compose(fab), Search mail(top-bar), Inbox, Reply | " +
+                       "Tips: tap Compose FAB (bottom-right) to write new email; swipe email left to archive"
+            ),
+            AppSeed(
+                pkg = "com.whatsapp", name = "WhatsApp",
+                elements = listOf("New chat", "Search", "Chats", "Camera", "Calls", "Status", "Message"),
+                templates = listOf("Send a WhatsApp message to", "Open WhatsApp and call"),
+                hint = "App: WhatsApp | Elements: New chat(pencil fab), Search(magnifier top-right), " +
+                       "Chats tab | Tips: tap contact name to open chat; Message field at bottom"
+            ),
+            AppSeed(
+                pkg = "com.android.settings", name = "Settings",
+                elements = listOf("Wi-Fi", "Bluetooth", "Display", "Battery", "Sound", "Apps", "Search settings"),
+                templates = listOf("Turn on Wi-Fi", "Open Bluetooth settings", "Change display brightness"),
+                hint = "App: Settings | Elements: Search settings(top), Wi-Fi, Bluetooth, Display, Battery | " +
+                       "Tips: use Search settings to find obscure options quickly"
+            ),
+            AppSeed(
+                pkg = "com.google.android.youtube", name = "YouTube",
+                elements = listOf("Search", "Home", "Shorts", "Subscriptions", "Library", "Play", "Pause"),
+                templates = listOf("Search for a video on YouTube", "Play a YouTube video"),
+                hint = "App: YouTube | Elements: Search(magnifier top-right), Home, Shorts, Play/Pause overlay | " +
+                       "Tips: tap video thumbnail to play; swipe right on video for fullscreen"
+            ),
+            AppSeed(
+                pkg = "com.android.chrome", name = "Chrome",
+                elements = listOf("Address bar", "New tab", "Reload", "Back", "Tabs", "More options"),
+                templates = listOf("Open a website in Chrome", "Search the web for"),
+                hint = "App: Chrome | Elements: Address bar(top), New tab(+ bottom-right), Tabs(square icon) | " +
+                       "Tips: tap address bar to type URL or search; long-press tab to close all"
+            ),
+            AppSeed(
+                pkg = "com.google.android.apps.maps", name = "Google Maps",
+                elements = listOf("Search here", "Directions", "Start", "Navigate", "Your location"),
+                templates = listOf("Get directions to", "Search for a place on Maps"),
+                hint = "App: Maps | Elements: Search here(top), Directions(arrow fab), Start(green bar) | " +
+                       "Tips: type destination in search bar; tap Directions then Start to navigate"
+            ),
+            AppSeed(
+                pkg = "com.android.camera2", name = "Camera",
+                elements = listOf("Shutter", "Switch camera", "Gallery", "Photo", "Video", "Flash"),
+                templates = listOf("Take a photo", "Switch to front camera"),
+                hint = "App: Camera | Elements: Shutter(large circle bottom-center), Switch camera(rotate icon), " +
+                       "Photo/Video tabs | Tips: tap Shutter to capture; swipe to switch modes"
+            ),
+            AppSeed(
+                pkg = "com.android.contacts", name = "Contacts",
+                elements = listOf("Add contact", "Search contacts", "Favorites", "Call", "Message"),
+                templates = listOf("Find a contact", "Add a new contact"),
+                hint = "App: Contacts | Elements: Add contact(+ fab), Search contacts(magnifier) | " +
+                       "Tips: tap + to create contact; search by name at top"
+            ),
+            AppSeed(
+                pkg = "com.google.android.calendar", name = "Calendar",
+                elements = listOf("Add event", "Today", "Month view", "Week view", "Search"),
+                templates = listOf("Create a calendar event", "Check today's schedule"),
+                hint = "App: Calendar | Elements: Add event(+ fab, bottom-right), Today(circle top), " +
+                       "Month/Week/Day view selector | Tips: tap + to add event; tap day to see agenda"
+            ),
+            AppSeed(
+                pkg = "com.google.android.apps.photos", name = "Photos",
+                elements = listOf("Search", "Library", "Albums", "Share", "Delete", "Edit"),
+                templates = listOf("Share a photo", "Find photos from"),
+                hint = "App: Photos | Elements: Search(magnifier), Library(grid icon), Share, Edit, Delete | " +
+                       "Tips: tap photo to open; Share icon (arrow) at top; swipe to browse"
+            ),
+        )
+
+        seeds.forEach { seed ->
+            val elemJson = JSONArray(seed.elements).toString()
+            val tmplJson = JSONArray(seed.templates).toString()
+            db.execSQL(
+                """
+                INSERT OR IGNORE INTO $TABLE
+                  (app_package, app_name, task_success, task_failure, total_steps,
+                   learned_elements, task_templates, prompt_hint, last_seen)
+                VALUES (?, ?, 0, 0, 0, ?, ?, ?, 0)
+                """.trimIndent(),
+                arrayOf(seed.pkg, seed.name, elemJson, tmplJson, seed.hint)
+            )
+        }
+        Log.i(TAG, "Pre-seeded ${seeds.size} apps into AppSkillRegistry")
+    }
+
     // ─── Read ─────────────────────────────────────────────────────────────────
 
     fun get(appPackage: String): AppSkill? {

@@ -5,6 +5,7 @@ import android.graphics.Rect
 import android.util.Log
 import com.ariaagent.mobile.core.ai.LlamaEngine
 import com.ariaagent.mobile.core.ai.PromptBuilder
+import com.ariaagent.mobile.core.ai.Sam2Engine
 import com.ariaagent.mobile.core.ai.VisionEngine
 import com.ariaagent.mobile.core.events.AgentEventBus
 import com.ariaagent.mobile.core.memory.EmbeddingEngine
@@ -122,6 +123,14 @@ object AgentLoop {
             // Phase 15: track element names acted on for AppSkillRegistry frequency counting
             val elementsTouched = mutableListOf<String>()
             var lastAppPackage = appPackage
+
+            // ── Phase 18: Stuck detection ──────────────────────────────────────
+            // Count consecutive steps where the screen hash did not change AND the
+            // action was neither Wait nor Back (the agent is spinning wheels).
+            // Thresholds: 3 → inject hint | 5 → force Back | 8 → abort task.
+            var stuckCount      = 0
+            var lastScreenHash  = ""
+            var stuckHint       = ""
 
             // ── Phase 14.4: Log task start + inject previous progress into context ─
             ProgressPersistence.logTaskStart(context, goal)
@@ -278,26 +287,15 @@ object AgentLoop {
                         AppSkillRegistry.getInstance(context).getPromptHint(snapshot.appPackage)
                     }.getOrDefault("")
 
-                    // ── 2e. VISION DESCRIPTION — SmolVLM-256M (Phase 17) ──────────
-                    // Run multimodal inference on the current frame when the vision
-                    // model is loaded. Runs only on even steps to halve the vision
-                    // budget (~400 ms on Exynos 9611 CPU).
-                    //
-                    // Frame caching: pass screenHash so VisionEngine can return the
-                    // cached description instantly when the screen hasn't changed
-                    // (no inference cost on cache-hit steps).
-                    //
-                    // Goal-aware: the agent goal is forwarded so SmolVLM answers a
-                    // targeted question rather than a generic screen description.
-                    //
-                    // Vision-only fallback: if a11y+OCR were empty but vision is
-                    // available (game/Flutter screen), vision is the only signal —
-                    // always run it regardless of step parity in that case.
-                    val forceVision = snapshot.isEmpty() && visionAvailableForEmptyScreen
+                    // ── 2e. VISION DESCRIPTION — SmolVLM-256M (Phase 17, always-on) ──
+                    // Vision runs on EVERY step now that VisionEngine caches by screenHash.
+                    // A cache-hit (screen unchanged) costs <1 ms and returns the same
+                    // description instantly — zero extra inference overhead on steady frames.
+                    // This ensures the LLM always has pixel-level context, including on
+                    // game / Flutter / Unity screens where the a11y tree is empty.
                     val visionDescription: String = if (
                         snapshot.bitmap != null &&
-                        VisionEngine.isVisionModelReady(context) &&
-                        (forceVision || state.stepCount % 2 == 0)
+                        VisionEngine.isVisionModelReady(context)
                     ) {
                         runCatching {
                             VisionEngine.describe(
@@ -307,20 +305,46 @@ object AgentLoop {
                                 screenHash  = snapshot.screenHash()
                             )
                         }.getOrDefault("").also { desc ->
-                            if (desc.isNotBlank()) Log.d("AgentLoop", "Vision[${ snapshot.screenHash()}]: $desc")
+                            if (desc.isNotBlank()) Log.d("AgentLoop", "Vision[${snapshot.screenHash()}]: $desc")
                         }
                     } else ""
 
+                    // ── 2f. SAM2 TAP CANDIDATES — MobileSAM (Phase 18) ─────────────
+                    // Run MobileSAM on the current frame when:
+                    //   a) The a11y tree is empty (game / Flutter / Unity screen), OR
+                    //   b) Vision returned something useful but no nodes exist.
+                    // SAM regions are formatted as normalised (x, y) strings and injected
+                    // into the prompt as [SAM REGIONS] — LLM then uses TapXY to act.
+                    val samRegions: List<String> = if (
+                        snapshot.bitmap != null &&
+                        Sam2Engine.isLoaded() &&
+                        snapshot.a11yTree.isBlank()       // only needed when a11y tree is absent
+                    ) {
+                        runCatching {
+                            Sam2Engine.segment(context, snapshot.bitmap!!)
+                                .take(8)
+                                .mapIndexed { i, r ->
+                                    "[sam-${i + 1}] x=%.2f y=%.2f saliency=%.2f".format(r.normX, r.normY, r.saliency)
+                                }
+                        }.getOrDefault(emptyList())
+                    } else emptyList()
+
+                    if (samRegions.isNotEmpty()) {
+                        Log.d("AgentLoop", "SAM2 found ${samRegions.size} tap candidates (no a11y nodes)")
+                    }
+
                     // ── 3. REASON — call LLM ──────────────────────────────────
                     val prompt = PromptBuilder.build(
-                        snapshot = snapshot,
-                        goal = goal,
-                        history = actionHistory,
-                        memory = memory,
-                        objectLabels = screenLabels,
-                        detectedObjects = detectedObjects,
-                        appKnowledge = appKnowledge,
-                        visionDescription = visionDescription
+                        snapshot          = snapshot,
+                        goal              = goal,
+                        history           = actionHistory,
+                        memory            = memory,
+                        objectLabels      = screenLabels,
+                        detectedObjects   = detectedObjects,
+                        appKnowledge      = appKnowledge,
+                        visionDescription = visionDescription,
+                        samRegions        = samRegions,
+                        stuckHint         = stuckHint
                     )
 
                     val rawOutput = LlamaEngine.infer(prompt, maxTokens = 200) { token ->
@@ -333,6 +357,50 @@ object AgentLoop {
                     val actionJson = PromptBuilder.parseAction(rawOutput)
                     actionHistory.add(actionJson)
                     if (actionHistory.size > 10) actionHistory.removeAt(0)
+
+                    // ── 4b. STUCK DETECTION (Phase 18) ────────────────────────
+                    // Track whether the screen changed AND the agent isn't spinning.
+                    // Definition of "stuck": same screen hash AND action is NOT Wait/Back/Done.
+                    val currentHash = snapshot.screenHash()
+                    val isWaiting   = actionJson.contains("\"tool\":\"Wait\"", ignoreCase = true)
+                    val isBacking   = actionJson.contains("\"tool\":\"Back\"", ignoreCase = true)
+                    val isDoneNow   = actionJson.contains("\"tool\":\"Done\"", ignoreCase = true)
+                    if (!isDoneNow && !isWaiting && !isBacking && currentHash == lastScreenHash) {
+                        stuckCount++
+                        Log.w("AgentLoop", "Stuck count = $stuckCount (hash=$currentHash)")
+                        stuckHint = when {
+                            stuckCount >= 8 -> {
+                                // Abort — nothing we can do
+                                Log.e("AgentLoop", "Stuck limit reached — aborting task")
+                                state = state.copy(status = Status.DONE, lastError = "stuck_abort")
+                                ProgressPersistence.logTaskEnd(context, goal, succeeded = false)
+                                SustainedPerformanceManager.disable()
+                                emitStatus()
+                                recordAndChain(context, goal, lastAppPackage, succeeded = false,
+                                    stepsTaken = state.stepCount, elementsTouched = elementsTouched)
+                                break
+                            }
+                            stuckCount >= 5 -> {
+                                // Force Back to break out of dead-end screen
+                                Log.w("AgentLoop", "Stuck $stuckCount — forcing Back")
+                                AgentAccessibilityService.performBack()
+                                "You have been stuck on the same screen for $stuckCount steps. " +
+                                "A Back action was forced. Try a completely different approach."
+                            }
+                            stuckCount >= 3 -> {
+                                "You seem stuck. Try a different action — scroll, Back, or look " +
+                                "for a different element. Avoid repeating the last action."
+                            }
+                            else -> stuckHint  // keep previous hint if any
+                        }
+                    } else {
+                        // Screen changed or agent waited/backed — reset stuck counter
+                        if (currentHash != lastScreenHash) {
+                            stuckCount = 0
+                            stuckHint  = ""
+                        }
+                    }
+                    lastScreenHash = currentHash
 
                     // ── 5. ACT ────────────────────────────────────────────────
                     val isDone = actionJson.contains("\"tool\":\"Done\"")

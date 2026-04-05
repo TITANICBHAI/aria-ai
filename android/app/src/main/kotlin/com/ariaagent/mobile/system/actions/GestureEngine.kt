@@ -12,10 +12,20 @@ import org.json.JSONObject
  * The LLM outputs JSON: {"tool":"Click","node_id":"#3","reason":"..."}
  * GestureEngine resolves the node_id → screen coordinates → gesture dispatch.
  *
- * Why coordinates from node IDs?
- *   The LLM doesn't know exact pixels. It knows semantic IDs assigned to
- *   accessibility nodes. GestureEngine looks up the node's bounding box
- *   and computes the center for tap, or edge-to-edge path for swipe.
+ * Two coordinate modes:
+ *
+ *   1. Node-ID mode (accessibility tree available):
+ *        {"tool":"Click","node_id":"#3"}
+ *        {"tool":"Swipe","node_id":"#7","direction":"up"}
+ *      GestureEngine looks up the node's bounding box → computes center → dispatches.
+ *
+ *   2. XY mode (game / Flutter / Unity — no accessibility tree):
+ *        {"tool":"TapXY","x":0.45,"y":0.60,"reason":"..."}
+ *        {"tool":"SwipeXY","x1":0.5,"y1":0.8,"x2":0.5,"y2":0.2,"reason":"..."}
+ *      Coordinates are normalised [0.0–1.0] relative to screen width/height.
+ *      AgentAccessibilityService.getScreenSize() converts to real pixels.
+ *      These are produced by the LLM when [SAM REGIONS] or [VISION DESCRIPTION]
+ *      is the only signal (no node IDs available).
  *
  * After each action: wait for AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
  * to confirm the screen updated (action was received by the OS).
@@ -26,29 +36,48 @@ object GestureEngine {
 
     /**
      * Parse and execute an action from the LLM's JSON output.
+     * Handles both node-ID actions and normalised XY coordinate actions.
      * @return true if action was dispatched successfully
      */
     suspend fun executeFromJson(actionJson: String): Boolean {
         return try {
-            val json = JSONObject(actionJson)
-            val tool = json.optString("tool", "")
-            val nodeId = json.optString("node_id", "")
+            val json      = JSONObject(actionJson)
+            val tool      = json.optString("tool", "")
+            val nodeId    = json.optString("node_id", "")
             val direction = json.optString("direction", "")
-            val text = json.optString("text", "")
+            val text      = json.optString("text", "")
 
             when (tool.lowercase()) {
-                "click", "tap" -> tap(nodeId)
-                "swipe" -> swipe(nodeId, direction)
-                "type", "typetext" -> type(nodeId, text)
-                "scroll" -> scroll(nodeId, direction)
-                "longpress" -> longPress(nodeId)
-                "back" -> { AgentAccessibilityService.performBack(); true }
+                // ── Node-ID actions ─────────────────────────────────────────
+                "click", "tap"        -> tap(nodeId)
+                "swipe"               -> swipe(nodeId, direction)
+                "type", "typetext"    -> type(nodeId, text)
+                "scroll"              -> scroll(nodeId, direction)
+                "longpress"           -> longPress(nodeId)
+                "back"                -> { AgentAccessibilityService.performBack(); true }
+
+                // ── XY coordinate actions (vision / SAM fallback) ────────────
+                "tapxy" -> {
+                    val normX = json.optDouble("x", 0.5).toFloat().coerceIn(0f, 1f)
+                    val normY = json.optDouble("y", 0.5).toFloat().coerceIn(0f, 1f)
+                    tapXY(normX, normY)
+                }
+                "swipexy" -> {
+                    val x1 = json.optDouble("x1", 0.3).toFloat().coerceIn(0f, 1f)
+                    val y1 = json.optDouble("y1", 0.8).toFloat().coerceIn(0f, 1f)
+                    val x2 = json.optDouble("x2", 0.3).toFloat().coerceIn(0f, 1f)
+                    val y2 = json.optDouble("y2", 0.2).toFloat().coerceIn(0f, 1f)
+                    swipeXY(x1, y1, x2, y2)
+                }
+
                 else -> false
             }
         } catch (e: Exception) {
             false
         }
     }
+
+    // ── Node-ID based actions ─────────────────────────────────────────────────
 
     /**
      * Tap the center of the element with the given semantic ID.
@@ -79,14 +108,14 @@ object GestureEngine {
         node.getBoundsInScreen(rect)
 
         val (x1, y1, x2, y2) = when (direction.lowercase()) {
-            "up" -> floatArrayOf(rect.centerX().toFloat(), rect.bottom.toFloat() * 0.8f,
-                rect.centerX().toFloat(), rect.top.toFloat() * 1.2f)
-            "down" -> floatArrayOf(rect.centerX().toFloat(), rect.top.toFloat() * 1.2f,
-                rect.centerX().toFloat(), rect.bottom.toFloat() * 0.8f)
-            "left" -> floatArrayOf(rect.right.toFloat() * 0.8f, rect.centerY().toFloat(),
-                rect.left.toFloat() * 1.2f, rect.centerY().toFloat())
-            "right" -> floatArrayOf(rect.left.toFloat() * 1.2f, rect.centerY().toFloat(),
-                rect.right.toFloat() * 0.8f, rect.centerY().toFloat())
+            "up"    -> floatArrayOf(rect.centerX().toFloat(), rect.bottom.toFloat() * 0.8f,
+                                    rect.centerX().toFloat(), rect.top.toFloat()    * 1.2f)
+            "down"  -> floatArrayOf(rect.centerX().toFloat(), rect.top.toFloat()    * 1.2f,
+                                    rect.centerX().toFloat(), rect.bottom.toFloat() * 0.8f)
+            "left"  -> floatArrayOf(rect.right.toFloat()  * 0.8f, rect.centerY().toFloat(),
+                                    rect.left.toFloat()   * 1.2f, rect.centerY().toFloat())
+            "right" -> floatArrayOf(rect.left.toFloat()   * 1.2f, rect.centerY().toFloat(),
+                                    rect.right.toFloat()  * 0.8f, rect.centerY().toFloat())
             else -> return false
         }
 
@@ -118,9 +147,9 @@ object GestureEngine {
     fun scroll(nodeId: String, direction: String): Boolean {
         val node = AgentAccessibilityService.getNodeById(nodeId) ?: return false
         return when (direction.lowercase()) {
-            "up" -> node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+            "up"   -> node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
             "down" -> node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
-            else -> false
+            else   -> false
         }
     }
 
@@ -140,6 +169,49 @@ object GestureEngine {
                 override fun onCancelled(g: android.accessibilityservice.GestureDescription) {}
             }
         )
+        return dispatched
+    }
+
+    // ── XY coordinate actions (vision-only / SAM fallback) ────────────────────
+
+    /**
+     * Tap at normalised screen coordinates [0.0–1.0].
+     *
+     * Used when the LLM produces TapXY from [SAM REGIONS] or [VISION DESCRIPTION]
+     * because no accessibility node IDs are available (game / Flutter / Unity screens).
+     *
+     * @param normX  Normalised X [0.0–1.0] (0 = left edge, 1 = right edge)
+     * @param normY  Normalised Y [0.0–1.0] (0 = top edge, 1 = bottom edge)
+     */
+    fun tapXY(normX: Float, normY: Float): Boolean {
+        val (w, h) = AgentAccessibilityService.getScreenSize()
+        val px = normX * w
+        val py = normY * h
+        var dispatched = false
+        AgentAccessibilityService.dispatchTap(px, py, object : GestureResultCallback() {
+            override fun onCompleted(g: android.accessibilityservice.GestureDescription) { dispatched = true }
+            override fun onCancelled(g: android.accessibilityservice.GestureDescription) {}
+        })
+        return dispatched
+    }
+
+    /**
+     * Swipe between two normalised screen coordinates [0.0–1.0].
+     *
+     * Used for drag-scroll or swipe-to-dismiss in game/Flutter screens
+     * where no accessibility node IDs are available.
+     */
+    fun swipeXY(normX1: Float, normY1: Float, normX2: Float, normY2: Float): Boolean {
+        val (w, h) = AgentAccessibilityService.getScreenSize()
+        val x1 = normX1 * w
+        val y1 = normY1 * h
+        val x2 = normX2 * w
+        val y2 = normY2 * h
+        var dispatched = false
+        AgentAccessibilityService.dispatchSwipe(x1, y1, x2, y2, object : GestureResultCallback() {
+            override fun onCompleted(g: android.accessibilityservice.GestureDescription) { dispatched = true }
+            override fun onCancelled(g: android.accessibilityservice.GestureDescription) {}
+        })
         return dispatched
     }
 

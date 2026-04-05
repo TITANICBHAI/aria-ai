@@ -17,61 +17,78 @@ import com.ariaagent.mobile.core.perception.ScreenObserver
  *   <|eot_id|>
  *   <|start_header_id|>assistant<|end_header_id|>
  *
- * The model is expected to reply with a single JSON action:
- *   {"tool":"Click","node_id":"#3","reason":"..."}
- *   {"tool":"Type","node_id":"#2","text":"hello","reason":"..."}
- *   {"tool":"Swipe","direction":"up","reason":"..."}
- *   {"tool":"Back","reason":"..."}
- *   {"tool":"Wait","duration_ms":1000,"reason":"..."}
- *   {"tool":"Done","reason":"..."}
+ * AVAILABLE ACTIONS (full set):
+ *   Node-ID actions (accessibility tree present):
+ *     {"tool":"Click","node_id":"#N","reason":"..."}
+ *     {"tool":"Type","node_id":"#N","text":"...","reason":"..."}
+ *     {"tool":"Swipe","direction":"up|down|left|right","reason":"..."}
+ *     {"tool":"Scroll","node_id":"#N","direction":"up|down","reason":"..."}
+ *     {"tool":"LongPress","node_id":"#N","reason":"..."}
  *
- * Object Label injection:
- *   When the user has annotated elements on this screen via the Object Labeler,
- *   those annotations are injected as a [KNOWN ELEMENTS] section.
- *   This is the highest-quality context available — human-verified, LLM-enriched.
- *   Format:
- *     ★ "Checkout Button" (button, importance 9/10): Tap to begin payment flow | Agent note: Use when goal involves purchasing
- *     ★ "Email Field" (input, importance 8/10): Type user's email address here
+ *   XY coordinate actions (game / Flutter / Unity — no a11y tree):
+ *     {"tool":"TapXY","x":0.45,"y":0.60,"reason":"..."}    ← normalised 0.0–1.0
+ *     {"tool":"SwipeXY","x1":0.5,"y1":0.8,"x2":0.5,"y2":0.2,"reason":"..."}
  *
- * Visual Detection injection (Phase 13):
- *   When ObjectDetectorEngine has detected elements (icons, game sprites, custom views
- *   not present in the accessibility tree), they appear as a [VISUAL DETECTIONS] block.
- *   These cover elements that ML Kit OCR cannot read and the a11y tree does not expose.
- *   Format:
- *     det-1: person (87%, center 45%×60%)
- *     det-2: cell phone (72%, center 20%×15%)
+ *   Control actions:
+ *     {"tool":"Back","reason":"..."}
+ *     {"tool":"Wait","duration_ms":500,"reason":"..."}
+ *     {"tool":"Done","reason":"Goal achieved"}
  *
- * Vision Description injection (Phase 17):
- *   When VisionEngine has produced a multimodal description of the current frame,
- *   it is injected as a [VISION DESCRIPTION] block between [KNOWN ELEMENTS] and
- *   [VISUAL DETECTIONS]. This gives the LLM pixel-level context that neither the
- *   accessibility tree nor OCR can provide (e.g. image content, icons, color cues).
- *   Format:
- *     [VISION DESCRIPTION] (SmolVLM-256M — pixel-level screen analysis)
- *     Settings screen showing Wi-Fi toggle (on) and Bluetooth toggle (off). …
+ * Context sections injected (in priority order):
+ *   [KNOWN ELEMENTS]      — human-annotated labels (highest quality)
+ *   [VISION DESCRIPTION]  — SmolVLM-256M pixel-level analysis (Phase 17)
+ *   [SAM REGIONS]         — MobileSAM salient tap targets (Phase 18) — game / Flutter fallback
+ *   [VISUAL DETECTIONS]   — MediaPipe EfficientDet-Lite0 detections
+ *   [NODES]               — raw accessibility tree
+ *   [APP KNOWLEDGE]       — per-app accumulated skill hint
+ *   RELEVANT MEMORY       — past experience snippets (EmbeddingEngine)
+ *
+ * Token budget:
+ *   Llama 3.2-1B context = 4096 tokens ≈ 16 384 chars at ~4 chars/token.
+ *   System prompt + template overhead ≈ 2000 chars.
+ *   Safety headroom (response = 200 tokens ≈ 800 chars) leaves ~13 584 chars for user content.
+ *   [NODES] section is the largest; it is trimmed first if the prompt exceeds budget.
  *
  * Phase: 1 (LLM) — used by AgentLoop from Phase 3 onward.
  */
 object PromptBuilder {
+
+    /**
+     * Approximate char budget for the user section of the prompt.
+     * 4096 tokens − 500 system tokens − 200 response tokens = 3396 user tokens ≈ 13 584 chars.
+     * We cap at 12 000 to leave headroom for template markers.
+     */
+    private const val USER_CHAR_BUDGET = 12_000
 
     private const val SYSTEM_PROMPT = """You are ARIA — an autonomous Android UI agent running on-device.
 
 Your job: given a screen description and a goal, output exactly ONE JSON action.
 
 AVAILABLE ACTIONS:
-  {"tool":"Click","node_id":"#N","reason":"..."}
-  {"tool":"Type","node_id":"#N","text":"...","reason":"..."}
-  {"tool":"Swipe","direction":"up|down|left|right","reason":"..."}
-  {"tool":"Back","reason":"..."}
-  {"tool":"Wait","duration_ms":500,"reason":"..."}
-  {"tool":"Done","reason":"Goal achieved"}
+
+  Node-ID actions (when [NODES] section is present):
+    {"tool":"Click","node_id":"#N","reason":"..."}
+    {"tool":"Type","node_id":"#N","text":"...","reason":"..."}
+    {"tool":"Swipe","direction":"up|down|left|right","reason":"..."}
+    {"tool":"Scroll","node_id":"#N","direction":"up|down","reason":"..."}
+    {"tool":"LongPress","node_id":"#N","reason":"..."}
+
+  XY coordinate actions (when [SAM REGIONS] or [VISION DESCRIPTION] is the only signal):
+    {"tool":"TapXY","x":0.45,"y":0.60,"reason":"..."}
+    {"tool":"SwipeXY","x1":0.5,"y1":0.8,"x2":0.5,"y2":0.2,"reason":"..."}
+    (x, y, x1, y1, x2, y2 are normalised 0.0–1.0; 0,0 = top-left; 1,1 = bottom-right)
+
+  Control actions:
+    {"tool":"Back","reason":"..."}
+    {"tool":"Wait","duration_ms":500,"reason":"..."}
+    {"tool":"Done","reason":"Goal achieved"}
 
 RULES:
 - Output ONLY valid JSON. No explanation outside the JSON object.
-- Use node_id from [NODES] section. Never guess coordinates.
+- Prefer node_id from [NODES] when available. Use TapXY/SwipeXY when only [SAM REGIONS] or [VISION DESCRIPTION] is present and no [NODES] exist.
 - If [KNOWN ELEMENTS] section exists, prefer those elements — they are human-verified.
 - If [VISION DESCRIPTION] section exists, use it for pixel-level context not visible in the node tree.
-- If [VISUAL DETECTIONS] section exists, use det-N labels to reference detected visual elements that have no accessibility node (icons, sprites, custom views).
+- If [SAM REGIONS] section exists and [NODES] is absent, use TapXY targeting the region that best matches the goal.
 - If the screen is loading, use Wait.
 - If the goal is complete, use Done.
 - Think step by step inside the "reason" field (max 30 words).
@@ -88,6 +105,8 @@ RULES:
      * @param detectedObjects    MediaPipe detections for visual elements not in the a11y tree (Phase 13)
      * @param appKnowledge       Compact one-liner from AppSkillRegistry for the current app (Phase 15)
      * @param visionDescription  SmolVLM-256M pixel-level description of the current frame (Phase 17)
+     * @param samRegions         MobileSAM tap candidates as formatted strings (Phase 18)
+     * @param stuckHint          Injected when stuck detector fires — prompts model to try different approach
      */
     fun build(
         snapshot: ScreenObserver.ScreenSnapshot,
@@ -97,7 +116,9 @@ RULES:
         objectLabels: List<ObjectLabelStore.ObjectLabel> = emptyList(),
         detectedObjects: List<ObjectDetectorEngine.DetectedObject> = emptyList(),
         appKnowledge: String = "",
-        visionDescription: String = ""
+        visionDescription: String = "",
+        samRegions: List<String> = emptyList(),
+        stuckHint: String = "",
     ): String {
         val sb = StringBuilder()
 
@@ -111,11 +132,14 @@ RULES:
         }
 
         // ── App Skill Registry hint (Phase 15) ────────────────────────────────
-        // Injected after memory so the LLM has app-specific context when reasoning.
-        // Only shown when ARIA has prior experience with this app.
         if (appKnowledge.isNotEmpty()) {
             sb.append("\n\n[APP KNOWLEDGE] (ARIA's prior experience with this app)\n")
             sb.appendLine(appKnowledge)
+        }
+
+        // ── Stuck hint (injected by AgentLoop stuck detector) ─────────────────
+        if (stuckHint.isNotEmpty()) {
+            sb.append("\n\n⚠ STUCK ALERT: $stuckHint\n")
         }
 
         sb.append("\n<|eot_id|>\n")
@@ -124,8 +148,6 @@ RULES:
         sb.append("GOAL: $goal\n\n")
 
         // ── Object labels injected BEFORE the raw node tree ───────────────────
-        // These are the highest-quality signals: human-verified, LLM-enriched.
-        // The model should prefer these over the raw accessibility nodes.
         if (objectLabels.isNotEmpty()) {
             sb.appendLine("[KNOWN ELEMENTS] (human-annotated — use these when relevant to goal)")
             objectLabels
@@ -135,19 +157,23 @@ RULES:
             sb.appendLine()
         }
 
-        // ── Vision description injected after KNOWN ELEMENTS (Phase 17) ─────────
-        // SmolVLM-256M pixel-level analysis — fills gaps that OCR and a11y miss
-        // (image content, icon semantics, colour state of custom views).
-        // Only present when VisionEngine has successfully described the frame.
+        // ── Vision description (Phase 17) ─────────────────────────────────────
         if (visionDescription.isNotBlank()) {
             sb.appendLine("[VISION DESCRIPTION] (SmolVLM-256M — pixel-level screen analysis)")
             sb.appendLine(visionDescription.trim())
             sb.appendLine()
         }
 
-        // ── Visual detections injected after KNOWN ELEMENTS, before raw nodes ──
-        // Covers icons, game sprites, Flutter/Unity widgets not in the a11y tree.
-        // Limited to top-8 by confidence to avoid bloating the 4096-token context.
+        // ── SAM regions (Phase 18) — game / Flutter / Unity fallback ──────────
+        // Injected when MobileSAM has identified salient tap candidates and no
+        // accessibility nodes are available. The LLM must use TapXY to act on these.
+        if (samRegions.isNotEmpty()) {
+            sb.appendLine("[SAM REGIONS] (MobileSAM — tap targets on game/custom screen; use TapXY)")
+            samRegions.forEach { sb.appendLine(it) }
+            sb.appendLine()
+        }
+
+        // ── Visual detections (Phase 13) ──────────────────────────────────────
         if (detectedObjects.isNotEmpty()) {
             sb.appendLine("[VISUAL DETECTIONS] (MediaPipe — elements not in accessibility tree)")
             detectedObjects
@@ -157,8 +183,21 @@ RULES:
             sb.appendLine()
         }
 
-        sb.append(snapshot.toLlmString())
+        // ── Accessibility node tree — trimmed to token budget ─────────────────
+        // The node tree is by far the largest section. If we are already near the
+        // character budget, trim it so we don't silently overflow the 4096-token context.
+        val usedSoFar = sb.length
+        val remaining = USER_CHAR_BUDGET - usedSoFar
+        val nodeTree  = snapshot.toLlmString()
+        sb.append(
+            if (nodeTree.length > remaining && remaining > 200) {
+                nodeTree.take(remaining) + "\n…[node tree trimmed — token budget]"
+            } else {
+                nodeTree
+            }
+        )
 
+        // ── Recent action history ──────────────────────────────────────────────
         if (history.isNotEmpty()) {
             sb.append("\n\nRECENT ACTIONS (avoid repeating these):\n")
             history.takeLast(5).forEachIndexed { i, action ->
