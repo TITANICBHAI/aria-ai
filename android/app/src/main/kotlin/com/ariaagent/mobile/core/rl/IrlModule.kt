@@ -11,7 +11,10 @@ import com.ariaagent.mobile.core.memory.ExperienceStore
 import com.ariaagent.mobile.core.memory.ObjectLabelStore
 import com.ariaagent.mobile.core.ocr.OcrEngine
 import java.io.File
+import java.io.FileOutputStream
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * IrlModule — Inverse Reinforcement Learning from recorded screen videos.
@@ -81,6 +84,47 @@ object IrlModule {
         val errorMessage: String = ""
     )
 
+    /**
+     * Extract key frames from a video and save them as JPEG files in cacheDir.
+     * Used by the annotation UI to show each frame before full IRL processing.
+     *
+     * @param context   Android context
+     * @param videoPath Absolute path to the .mp4 file
+     * @return Ordered list of absolute JPEG file paths (indices match frameAnnotations keys).
+     *         Returns empty list on failure.
+     */
+    suspend fun extractKeyFramePaths(context: Context, videoPath: String): List<String> =
+        withContext(Dispatchers.IO) {
+            val videoFile = File(videoPath)
+            if (!videoFile.exists()) return@withContext emptyList()
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(videoPath)
+                val durationMs = retriever
+                    .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    ?.toLongOrNull() ?: return@withContext emptyList()
+
+                val frames = extractFrames(retriever, durationMs)
+                val paths  = mutableListOf<String>()
+                frames.forEachIndexed { idx, bitmap ->
+                    val file = File(context.cacheDir, "irl_frame_$idx.jpg")
+                    runCatching {
+                        FileOutputStream(file).use { out ->
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
+                        }
+                        paths.add(file.absolutePath)
+                    }
+                    bitmap.recycle()
+                }
+                paths
+            } catch (e: Exception) {
+                Log.e(TAG, "extractKeyFramePaths failed: ${e.message}")
+                emptyList()
+            } finally {
+                retriever.release()
+            }
+        }
+
     private data class FrameData(
         val ocrText: String,
         val visionDesc: String,
@@ -101,7 +145,8 @@ object IrlModule {
         videoPath: String,
         taskGoal: String,
         appPackage: String,
-        store: ExperienceStore
+        store: ExperienceStore,
+        frameAnnotations: Map<Int, String> = emptyMap()
     ): IrlResult {
         val videoFile = File(videoPath)
         if (!videoFile.exists()) {
@@ -165,12 +210,13 @@ object IrlModule {
 
             // Stage 3: Build experience tuples from consecutive frame pairs
             val tuples = buildExperienceTuples(
-                context       = context,
-                frameDataList = frameDataList,
-                labelStore    = labelStore,
-                allAppLabels  = allAppLabels,
-                taskGoal      = taskGoal,
-                appPackage    = appPackage
+                context          = context,
+                frameDataList    = frameDataList,
+                labelStore       = labelStore,
+                allAppLabels     = allAppLabels,
+                taskGoal         = taskGoal,
+                appPackage       = appPackage,
+                frameAnnotations = frameAnnotations
             )
 
             tuples.forEach { store.save(it.first) }
@@ -376,7 +422,8 @@ object IrlModule {
         labelStore: ObjectLabelStore,
         allAppLabels: List<ObjectLabelStore.ObjectLabel>,
         taskGoal: String,
-        appPackage: String
+        appPackage: String,
+        frameAnnotations: Map<Int, String> = emptyMap()
     ): List<Pair<ExperienceStore.ExperienceTuple, Boolean>> {
 
         val tuples = mutableListOf<Pair<ExperienceStore.ExperienceTuple, Boolean>>()
@@ -397,6 +444,9 @@ object IrlModule {
             val prevLabelBlock = buildLabelBlock(prevLabels)
             val nextLabelBlock = buildLabelBlock(nextLabels)
 
+            // User annotation for this frame (empty string if none provided)
+            val annotation = frameAnnotations[i]?.trim() ?: ""
+
             val (actionJson, usedLlm) = if (llmAvailable) {
                 inferActionWithLlm(
                     prevOcr      = prev.ocrText,
@@ -407,15 +457,17 @@ object IrlModule {
                     prevSam      = prev.samRegions,
                     taskGoal     = taskGoal,
                     appPackage   = appPackage,
-                    frameIdx     = i
+                    frameIdx     = i,
+                    annotation   = annotation
                 )
             } else {
                 Pair(inferActionHeuristic(prev.ocrText, next.ocrText, i), false)
             }
 
-            // screenSummary includes labels, vision, and SAM regions for full traceability
+            // screenSummary includes labels, vision, SAM regions and user annotation for traceability
             val screenSummary = buildString {
                 append("[IRL frame $i] ")
+                if (annotation.isNotEmpty()) append("UserNote: $annotation | ")
                 if (prevLabelBlock.isNotEmpty()) append("Labels: $prevLabelBlock | ")
                 if (prev.visionDesc.isNotBlank()) append("Vision: ${prev.visionDesc.take(120)} | ")
                 if (prev.samRegions.isNotEmpty()) append("SAM: ${prev.samRegions.take(3).joinToString(",")} | ")
@@ -472,12 +524,14 @@ object IrlModule {
         prevSam: List<String>,
         taskGoal: String,
         appPackage: String,
-        frameIdx: Int
+        frameIdx: Int,
+        annotation: String = ""
     ): Pair<String, Boolean> {
-        val prevLabelLine  = if (prevLabels.isNotEmpty())  "Elements A: $prevLabels\n" else ""
-        val nextLabelLine  = if (nextLabels.isNotEmpty())  "Elements B: $nextLabels\n" else ""
-        val visionLine     = if (prevVision.isNotBlank())  "Vision A: ${prevVision.take(120)}\n" else ""
-        val samLine        = if (prevSam.isNotEmpty())     "Tap candidates A: ${prevSam.take(4).joinToString(", ")}\n" else ""
+        val prevLabelLine    = if (prevLabels.isNotEmpty())  "Elements A: $prevLabels\n" else ""
+        val nextLabelLine    = if (nextLabels.isNotEmpty())  "Elements B: $nextLabels\n" else ""
+        val visionLine       = if (prevVision.isNotBlank())  "Vision A: ${prevVision.take(120)}\n" else ""
+        val samLine          = if (prevSam.isNotEmpty())     "Tap candidates A: ${prevSam.take(4).joinToString(", ")}\n" else ""
+        val annotationLine   = if (annotation.isNotBlank())  "Expert note: ${annotation.take(200)}\n" else ""
 
         val prompt = """<|system|>
 You are an Android UI action classifier. Reply with a single JSON object only.
@@ -485,7 +539,7 @@ JSON format: {"tool":"Click|Swipe|Type|Back|Scroll","node_id":"#N","reason":"bri
 If a tap candidate coordinate best explains the action, use TapXY: {"tool":"TapXY","x":0.55,"y":0.32,"reason":"brief"}
 <|user|>
 App: $appPackage  Goal: $taskGoal
-${visionLine}${samLine}${prevLabelLine}OCR A: ${prevOcr.take(200)}
+${visionLine}${annotationLine}${samLine}${prevLabelLine}OCR A: ${prevOcr.take(200)}
 ${nextLabelLine}OCR B: ${nextOcr.take(200)}
 What single UI action caused screen A → screen B?
 <|assistant|>

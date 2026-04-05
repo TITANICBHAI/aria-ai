@@ -1,8 +1,11 @@
 package com.ariaagent.mobile.ui.screens
 
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -17,11 +20,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.ariaagent.mobile.ui.theme.ARIAColors
 import com.ariaagent.mobile.ui.viewmodel.AgentViewModel
 
@@ -50,6 +57,8 @@ fun TrainScreen(
     val rlResult         by vm.rlResult.collectAsState()
     val irlRunning       by vm.irlRunning.collectAsState()
     val irlResult        by vm.irlResult.collectAsState()
+    val irlExtracting    by vm.irlExtracting.collectAsState()
+    val irlFramePaths    by vm.irlFramePaths.collectAsState()
     val autoSchedule     by vm.autoScheduleRl.collectAsState()
     val schedulerActive  by vm.schedulerActive.collectAsState()
     val loraHistory      by vm.loraHistory.collectAsState()
@@ -60,6 +69,8 @@ fun TrainScreen(
     var irlGoal       by remember { mutableStateOf("") }
     var irlApp        by remember { mutableStateOf("") }
 
+    var showAnnotationDialog by remember { mutableStateOf(false) }
+
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             videoUri  = uri
@@ -68,6 +79,11 @@ fun TrainScreen(
     }
 
     LaunchedEffect(Unit) { vm.refreshLearningStatus(); vm.refreshLoraHistory() }
+
+    // Open annotation dialog once frame extraction finishes
+    LaunchedEffect(irlFramePaths) {
+        if (irlFramePaths.isNotEmpty()) showAnnotationDialog = true
+    }
 
     Column(
         modifier = Modifier
@@ -106,16 +122,20 @@ fun TrainScreen(
         Spacer(Modifier.height(8.dp))
 
         IrlCard(
-            videoUri   = videoUri,
-            videoName  = videoName,
-            irlGoal    = irlGoal,
-            irlApp     = irlApp,
-            irlRunning = irlRunning,
-            irlResult  = irlResult,
+            videoUri      = videoUri,
+            videoName     = videoName,
+            irlGoal       = irlGoal,
+            irlApp        = irlApp,
+            irlRunning    = irlRunning,
+            irlExtracting = irlExtracting,
+            irlResult     = irlResult,
             onPickVideo   = { videoPicker.launch("video/*") },
             onClearVideo  = { videoUri = null; videoName = "" },
             onGoalChange  = { irlGoal = it },
             onAppChange   = { irlApp  = it },
+            onAnnotateFrames = {
+                videoUri?.let { uri -> vm.extractIrlFrames(uri.toString()) }
+            },
             onRunIrl      = {
                 videoUri?.let { uri ->
                     vm.processIrlVideo(
@@ -126,6 +146,29 @@ fun TrainScreen(
                 }
             },
         )
+
+        // Per-frame annotation dialog — shown after frame extraction completes
+        if (showAnnotationDialog && irlFramePaths.isNotEmpty()) {
+            IrlFrameAnnotationDialog(
+                framePaths = irlFramePaths,
+                onFinish = { annotations ->
+                    showAnnotationDialog = false
+                    vm.clearIrlFrames()
+                    videoUri?.let { uri ->
+                        vm.processIrlVideo(
+                            videoUri         = uri.toString(),
+                            goal             = irlGoal.trim(),
+                            appPackage       = irlApp.trim().ifBlank { "com.android.chrome" },
+                            frameAnnotations = annotations,
+                        )
+                    }
+                },
+                onDismiss = {
+                    showAnnotationDialog = false
+                    vm.clearIrlFrames()
+                },
+            )
+        }
 
         Spacer(Modifier.height(24.dp))
 
@@ -383,11 +426,13 @@ private fun IrlCard(
     irlGoal: String,
     irlApp: String,
     irlRunning: Boolean,
+    irlExtracting: Boolean,
     irlResult: com.ariaagent.mobile.ui.viewmodel.IrlResultUi?,
     onPickVideo: () -> Unit,
     onClearVideo: () -> Unit,
     onGoalChange: (String) -> Unit,
     onAppChange: (String) -> Unit,
+    onAnnotateFrames: () -> Unit,
     onRunIrl: () -> Unit,
 ) {
     TrainCard {
@@ -485,7 +530,29 @@ private fun IrlCard(
             }
         }
 
-        val canRun = !irlRunning && videoUri != null && irlGoal.isNotBlank()
+        val busy   = irlRunning || irlExtracting
+        val canRun = !busy && videoUri != null && irlGoal.isNotBlank()
+
+        // Annotate Frames — extract key frames first, then let user explain each one
+        OutlinedButton(
+            onClick  = onAnnotateFrames,
+            enabled  = canRun,
+            modifier = Modifier.fillMaxWidth(),
+            shape    = RoundedCornerShape(12.dp),
+            border   = BorderStroke(1.5.dp, if (canRun) ARIAColors.Primary.copy(alpha = 0.7f) else ARIAColors.Surface3),
+        ) {
+            if (irlExtracting) {
+                CircularProgressIndicator(Modifier.size(14.dp), color = ARIAColors.Primary, strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+                Text("Extracting frames…", color = ARIAColors.TextMuted, fontSize = 13.sp)
+            } else {
+                Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(15.dp), tint = if (canRun) ARIAColors.Primary else ARIAColors.TextMuted)
+                Spacer(Modifier.width(6.dp))
+                Text("Annotate Frames", color = if (canRun) ARIAColors.Primary else ARIAColors.TextMuted, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            }
+        }
+
+        // Process Video — run directly without per-frame annotations
         Button(
             onClick  = onRunIrl,
             enabled  = canRun,
@@ -748,6 +815,174 @@ private fun outlinedFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedTextColor        = ARIAColors.TextPrimary,
     unfocusedTextColor      = ARIAColors.TextPrimary,
 )
+
+// ─── IRL Frame Annotation Dialog ──────────────────────────────────────────────
+//
+// Shown after key-frame extraction completes. The user steps through each frame,
+// optionally writes an explanation of the action logic, then taps Finish & Train.
+//
+// Controls:
+//   Same as before — copies the annotation from the previous frame
+//   Skip           — leaves this frame un-annotated (no entry in the map)
+//   Next →         — saves current text and advances; on last frame becomes "Finish & Train"
+
+@Composable
+private fun IrlFrameAnnotationDialog(
+    framePaths: List<String>,
+    onFinish: (Map<Int, String>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val annotations = remember { mutableStateMapOf<Int, String>() }
+    var currentIdx  by remember { mutableStateOf(0) }
+    var currentText by remember { mutableStateOf("") }
+
+    val total  = framePaths.size
+    val isLast = currentIdx == total - 1
+
+    fun saveAndAdvance() {
+        if (currentText.isNotBlank()) annotations[currentIdx] = currentText.trim()
+        if (isLast) {
+            onFinish(annotations.toMap())
+        } else {
+            currentIdx++
+            currentText = annotations[currentIdx] ?: ""
+        }
+    }
+
+    fun skip() {
+        annotations.remove(currentIdx)
+        if (isLast) {
+            onFinish(annotations.toMap())
+        } else {
+            currentIdx++
+            currentText = annotations[currentIdx] ?: ""
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .wrapContentHeight()
+                .clip(RoundedCornerShape(16.dp))
+                .background(ARIAColors.Surface1)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            // ── Header ──────────────────────────────────────────────────────────
+            Row(
+                modifier              = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text       = "Annotate Frames",
+                    color      = ARIAColors.TextPrimary,
+                    fontSize   = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text       = "${currentIdx + 1} / $total",
+                    color      = ARIAColors.TextMuted,
+                    fontSize   = 13.sp,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+
+            // ── Frame image ─────────────────────────────────────────────────────
+            val framePath = framePaths.getOrNull(currentIdx)
+            val bitmap = remember(framePath) {
+                framePath?.let { runCatching { BitmapFactory.decodeFile(it) }.getOrNull() }
+            }
+            if (bitmap != null) {
+                Image(
+                    bitmap             = bitmap.asImageBitmap(),
+                    contentDescription = "Frame ${currentIdx + 1}",
+                    contentScale       = ContentScale.Fit,
+                    modifier           = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 260.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(ARIAColors.Surface2),
+                )
+            } else {
+                Box(
+                    modifier         = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(ARIAColors.Surface2),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("Frame ${currentIdx + 1}", color = ARIAColors.TextMuted, fontSize = 13.sp)
+                }
+            }
+
+            // ── Annotation text field ────────────────────────────────────────────
+            OutlinedTextField(
+                value         = currentText,
+                onValueChange = { currentText = it },
+                modifier      = Modifier.fillMaxWidth(),
+                placeholder   = { Text("Explain the action logic for this frame…", color = ARIAColors.TextMuted, fontSize = 13.sp) },
+                label         = { Text("Explanation (optional)", color = ARIAColors.TextMuted, fontSize = 11.sp) },
+                minLines      = 2,
+                maxLines      = 4,
+                colors        = outlinedFieldColors(),
+                shape         = RoundedCornerShape(8.dp),
+            )
+
+            // ── Button row ───────────────────────────────────────────────────────
+            Row(
+                modifier              = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // Same as before
+                OutlinedButton(
+                    onClick  = {
+                        if (currentIdx > 0) {
+                            currentText = annotations[currentIdx - 1] ?: ""
+                        }
+                    },
+                    enabled  = currentIdx > 0,
+                    modifier = Modifier.weight(1f),
+                    shape    = RoundedCornerShape(8.dp),
+                    border   = BorderStroke(1.dp, ARIAColors.Surface3),
+                ) {
+                    Text("Same as before", color = ARIAColors.TextMuted, fontSize = 11.sp, maxLines = 1)
+                }
+
+                // Skip
+                OutlinedButton(
+                    onClick  = { skip() },
+                    modifier = Modifier.weight(1f),
+                    shape    = RoundedCornerShape(8.dp),
+                    border   = BorderStroke(1.dp, ARIAColors.Surface3),
+                ) {
+                    Text("Skip", color = ARIAColors.TextMuted, fontSize = 11.sp)
+                }
+
+                // Next / Finish & Train
+                Button(
+                    onClick  = { saveAndAdvance() },
+                    modifier = Modifier.weight(1f),
+                    shape    = RoundedCornerShape(8.dp),
+                    colors   = ButtonDefaults.buttonColors(containerColor = ARIAColors.Primary),
+                ) {
+                    Text(
+                        text       = if (isLast) "Train" else "Next →",
+                        color      = ARIAColors.Background,
+                        fontSize   = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines   = 1,
+                    )
+                }
+            }
+        }
+    }
+}
 
 private fun formatTimeAgo(ts: Long): String {
     val diff = System.currentTimeMillis() - ts

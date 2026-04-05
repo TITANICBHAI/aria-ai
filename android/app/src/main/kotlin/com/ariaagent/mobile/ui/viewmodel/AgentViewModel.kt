@@ -380,6 +380,12 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     private val _irlResult = MutableStateFlow<IrlResultUi?>(null)
     val irlResult: StateFlow<IrlResultUi?> = _irlResult.asStateFlow()
 
+    private val _irlExtracting = MutableStateFlow(false)
+    val irlExtracting: StateFlow<Boolean> = _irlExtracting.asStateFlow()
+
+    private val _irlFramePaths = MutableStateFlow<List<String>>(emptyList())
+    val irlFramePaths: StateFlow<List<String>> = _irlFramePaths.asStateFlow()
+
     private val _autoScheduleRl = MutableStateFlow(false)
     val autoScheduleRl: StateFlow<Boolean> = _autoScheduleRl.asStateFlow()
 
@@ -1379,7 +1385,12 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun processIrlVideo(videoUri: String, goal: String, appPackage: String) {
+    fun processIrlVideo(
+        videoUri: String,
+        goal: String,
+        appPackage: String,
+        frameAnnotations: Map<Int, String> = emptyMap()
+    ) {
         if (_irlRunning.value) return
         _irlRunning.value = true
         _irlResult.value  = null
@@ -1387,7 +1398,14 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val resolvedPath = resolveContentUri(videoUri)
                 val store  = ExperienceStore.getInstance(context)
-                val result = IrlModule.processVideo(context, resolvedPath, goal, appPackage, store)
+                val result = IrlModule.processVideo(
+                    context          = context,
+                    videoPath        = resolvedPath,
+                    taskGoal         = goal,
+                    appPackage       = appPackage,
+                    store            = store,
+                    frameAnnotations = frameAnnotations
+                )
                 _irlResult.value = IrlResultUi(
                     framesProcessed  = result.framesProcessed,
                     tuplesExtracted  = result.tuplesExtracted,
@@ -1401,6 +1419,27 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                 _irlRunning.value = false
             }
         }
+    }
+
+    fun extractIrlFrames(videoUri: String) {
+        if (_irlExtracting.value || _irlRunning.value) return
+        _irlExtracting.value = true
+        _irlFramePaths.value = emptyList()
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                val resolvedPath = resolveContentUri(videoUri)
+                _irlFramePaths.value = IrlModule.extractKeyFramePaths(context, resolvedPath)
+            } catch (e: Exception) {
+                _irlFramePaths.value = emptyList()
+            } finally {
+                _irlExtracting.value = false
+            }
+        }
+    }
+
+    fun clearIrlFrames() {
+        _irlFramePaths.value.forEach { path -> runCatching { java.io.File(path).delete() } }
+        _irlFramePaths.value = emptyList()
     }
 
     fun setAutoScheduleRl(enabled: Boolean) {
