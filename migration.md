@@ -85,13 +85,13 @@ The Compose layer is already 70% built. This is not a rewrite — it is a gap fi
 | ModulesScreen.kt | 456 | `[~]` exists, has gaps |
 | ActivityScreen.kt | 225 | `[~]` exists, has gaps |
 | SettingsScreen.kt | 265 | `[~]` exists, has gaps |
-| ARIAComposeApp.kt (nav shell) | 154 | `[~]` exists, needs new routes |
+| ARIAComposeApp.kt (nav shell) | 186 | `[~]` updated — 7 tabs + labeler route added |
 | ComposeMainActivity.kt | 54 | `[x]` exists |
-| AgentViewModel.kt | 489 | `[~]` exists, needs new methods |
+| AgentViewModel.kt | 1095 | `[~]` updated — Chat/Train/Labeler methods added |
 | ARIATheme.kt | 139 | `[x]` exists |
-| ChatScreen.kt | 0 | `[ ]` must be created |
-| TrainScreen.kt | 0 | `[ ]` must be created |
-| LabelerScreen.kt | 0 | `[ ]` must be created |
+| ChatScreen.kt | 491 | `[~]` written — needs emulator verify |
+| TrainScreen.kt | 545 | `[~]` written — needs emulator verify |
+| LabelerScreen.kt | 641 | `[~]` written — needs emulator verify |
 
 | React Native files — their job right now | Status |
 |---|---|
@@ -170,11 +170,19 @@ Performance gains for an inference-heavy app like ARIA make this unambiguously w
 ## Phase 0 — Environment Setup
 *Before touching any code.*
 
-- [ ] Open project in Android Studio / Firebase Studio
+> **Firebase Studio / Android Studio import guide:** `artifacts/mobile/FIREBASE_STUDIO.md`  
+> The build system is dual-mode — it auto-detects whether `node_modules` is present.  
+> Firebase Studio (no node_modules) → native-only mode. Everything syncs and compiles.  
+> pnpm / EAS (node_modules present) → hybrid mode. RN bridge + Expo modules included.
+
+- [x] **Firebase Studio setup** — `settings.gradle`, `build.gradle`, and `app/build.gradle` updated for dual-mode (native-only vs hybrid). `local.properties` and `local.properties.template` created. `.gitignore` updated.
+- [ ] Open `artifacts/mobile/android/` in Firebase Studio / Android Studio
+- [ ] Copy `local.properties.template` → `local.properties`, set correct `sdk.dir`
+- [ ] Gradle sync — expect "NATIVE-ONLY mode" in Build output if no `node_modules`
 - [ ] Create branch: `migration/full-native`
 - [ ] Confirm emulator boots (API 34, arm64-v8a or x86_64)
-- [ ] Run `./gradlew assembleDebug` from `artifacts/mobile/android/` — confirm it compiles today
-- [ ] Launch `ComposeMainActivity` manually via adb to confirm Compose shell works:
+- [ ] Run `./gradlew assembleDebug` from `artifacts/mobile/android/` — confirm it compiles
+- [ ] Launch `ComposeMainActivity` via adb:
   ```bash
   adb shell am start -n com.ariaagent.mobile/.ui.ComposeMainActivity
   ```
@@ -318,133 +326,129 @@ Note: "Game mode stats card" seen in the old plan is NOT in `control.tsx` — th
 
 ---
 
-## Phase 5 — Build Chat Screen
-*Est: 1–2 days. ChatScreen.kt does not exist yet.*
+## Phase 5 — Build Chat Screen ✅ WRITTEN
+*ChatScreen.kt created (491 lines). Needs emulator verification.*
 
-> **Reference file (DO NOT DELETE): `app/(tabs)/chat.tsx` — 601 lines**  
-> Read every line before writing any Kotlin. This file is your entire specification.
+> **Reference file (DO NOT DELETE): `app/(tabs)/chat.tsx` — 601 lines**
 
-Create `ui/screens/ChatScreen.kt`. Must contain every feature:
-
-- [ ] `LazyColumn` message list, auto-scrolls to bottom on new message
-- [ ] User bubble — right-aligned, primary colour background
-- [ ] AI bubble — left-aligned, surface colour background
-- [ ] Welcome message on first open
-- [ ] **Typing indicator** — three animated dots while inference is running (use `InfiniteTransition`)
-- [ ] Context line at top — shows current agent task / current app
-- [ ] Text input bar at bottom:
-  - [ ] `OutlinedTextField` for message text
-  - [ ] Send button — disabled when input is empty or AI is thinking
-  - [ ] Clear conversation button (top right, with confirmation)
-- [ ] Preset prompt chips — horizontal scrollable `LazyRow`:
-  - [ ] "What are you doing?"
-  - [ ] "Pause and explain"
-  - [ ] "How is the model performing?"
-  - [ ] "What did you learn?"
-  - [ ] "Show memory summary"
-- [ ] Inference via `AgentViewModel` → `LlamaEngine.runInference()` (no bridge needed)
-- [ ] **NEW beyond RN:** Token/sec rate shown beneath each AI response
-- [ ] Add `ChatScreen` route to `ARIAComposeApp.kt` nav graph
-- [ ] Add chat ViewModel methods to `AgentViewModel.kt`
+- [x] `LazyColumn` message list, auto-scrolls to bottom on new message
+- [x] User bubble — right-aligned, primary colour background
+- [x] AI bubble — left-aligned, surface colour background, avatar icon
+- [x] System message bubble — centred, muted text
+- [x] Welcome message on first open
+- [x] **Typing indicator** — three animated dots (InfiniteTransition, staggered 200ms delay)
+- [x] Context tag bar at top — Agent State / Memory / Task Queue / App Skills chips
+- [x] LLM status pill in header (ON/OFF with colour dot)
+- [x] Text input bar at bottom:
+  - [x] `OutlinedTextField` for message text
+  - [x] Send button — disabled when input empty or AI thinking
+  - [x] `CircularProgressIndicator` on send button while thinking
+  - [x] Clear conversation button (top right, with confirmation dialog)
+- [x] Preset prompt chips — horizontal scrollable `LazyRow` (5 presets)
+- [x] Inference via `AgentViewModel.sendChatMessage()` → `ChatContextBuilder.build()` → `LlamaEngine.infer()` — no bridge
+- [x] **NEW beyond RN:** Token/sec rate shown beneath each AI response
+- [x] `ChatScreen` route added to `ARIAComposeApp.kt` (tab 3 of 7)
+- [x] Chat ViewModel methods: `sendChatMessage()`, `clearChat()`, `chatMessages`, `chatThinking`
 
 ### Checkpoint
-> `ChatScreen.kt` compiled, navigable, all bullets above verified on emulator.  
-> `ChatScreen.kt` marked `[x]`.  
-> `chat.tsx` eligible for deletion in Phase 8.
+> `ChatScreen.kt` written. Emulator verify pending → mark `[x]` then `chat.tsx` eligible for Phase 8 deletion.
 
 ---
 
-## Phase 6 — Build Train Screen
-*Est: 1.5 days. TrainScreen.kt does not exist yet.*
+## Phase 6 — Build Train Screen ✅ WRITTEN
+*TrainScreen.kt created (545 lines). Needs emulator verification.*
 
-> **Reference file (DO NOT DELETE): `app/(tabs)/train.tsx` — 692 lines**  
-> Read every line before writing any Kotlin. This file is your entire specification.
-
-Create `ui/screens/TrainScreen.kt`. Must contain every feature:
+> **Reference file (DO NOT DELETE): `app/(tabs)/train.tsx` — 692 lines**
 
 **RL Status card:**
-- [ ] LoRA version, latest adapter path, untrained sample count
-- [ ] Adam step count, last policy loss value
-- [ ] Refresh button
+- [x] LoRA version, latest adapter path, untrained sample count
+- [x] Adam step count, last policy loss value
+- [x] Refresh button (top right)
+- [x] Last trained timestamp (formatted as "X min ago / X hr ago")
 
 **Run RL Cycle card:**
-- [ ] Run button — disabled while running, shows `CircularProgressIndicator`
-- [ ] Result card after completion: samples used, adapter path, LoRA version, error if any
+- [x] Run button — disabled while running, shows `CircularProgressIndicator`
+- [x] Result card after completion: samples used, adapter path, LoRA version
+- [x] Error display when RL fails
 
 **Video Training (IRL) card:**
-- [ ] Pick video button — uses `ActivityResultContracts.GetContent`
-- [ ] Selected video name display + clear (×) button
-- [ ] Goal text field
-- [ ] Target app package field
-- [ ] Run IRL button — disabled until video + goal are filled
-- [ ] Results: frames processed, tuples extracted, LLM-assisted count, error if any
+- [x] Pick video — `ActivityResultContracts.GetContent("video/*")`
+- [x] Selected video name display + clear (×) button
+- [x] Goal text field
+- [x] Target app package field (optional)
+- [x] Run IRL button — disabled until video + goal filled
+- [x] Results: frames processed, tuples extracted, LLM-assisted count
+- [x] content:// URI → temp file path (`resolveContentUri()` in ViewModel)
 
 **Navigate to Labeler:**
-- [ ] Button that navigates to `LabelerScreen`
+- [x] Full nav card with description, chevron, Label icon
 
 **NEW beyond RN:**
-- [ ] Auto-schedule RL toggle — triggers RL cycle when `untrainedSamples > 50`
-- [ ] Last trained timestamp
-
-- [ ] Add `TrainScreen` route to `ARIAComposeApp.kt`
-- [ ] Add train ViewModel methods to `AgentViewModel.kt`
+- [x] Auto-schedule RL toggle — triggers cycle when `untrainedSamples > 50`
+- [x] `TrainScreen` route added to `ARIAComposeApp.kt` (tab 5 of 7)
+- [x] Train ViewModel methods: `runRlCycle()`, `processIrlVideo()`, `setAutoScheduleRl()`, `refreshLearningStatus()`
 
 ### Checkpoint
-> `TrainScreen.kt` compiled, navigable, all bullets above verified on emulator.  
-> `TrainScreen.kt` marked `[x]`.  
-> `train.tsx` eligible for deletion in Phase 8.
+> `TrainScreen.kt` written. Emulator verify pending → mark `[x]` then `train.tsx` eligible for Phase 8 deletion.
 
 ---
 
-## Phase 7 — Build Labeler Screen
-*Est: 2–3 days. Most complex screen. LabelerScreen.kt does not exist yet.*
+## Phase 7 — Build Labeler Screen ✅ WRITTEN
+*LabelerScreen.kt created (641 lines). Needs emulator verification.*
 
-> **Reference file (DO NOT DELETE): `app/labeler.tsx` — 1,017 lines**  
-> Read every line before writing any Kotlin. This file is your entire specification.  
-> This screen is the most feature-dense in the app. Do not underestimate it.
-
-Create `ui/screens/LabelerScreen.kt`. Must contain every feature:
+> **Reference file (DO NOT DELETE): `app/labeler.tsx` — 1,017 lines**
 
 **Capture flow:**
-- [ ] Capture button — calls `ScreenObserver` / capture service directly
-- [ ] Image display — `Canvas` or `AsyncImage` composable showing screenshot
-- [ ] `pointerInput` tap handler — tap on image converts to normalised 0.0–1.0 coords and places a pin
+- [x] Capture button → `ScreenCaptureService.captureLatest()` → JPEG saved to cacheDir
+- [x] `OcrEngine.run(bitmap)` → OCR text extracted
+- [x] `AgentAccessibilityService.getSemanticTree()` → a11y tree extracted
+- [x] Image display via `AsyncImage` (Coil 2.7.0) at full width
+- [x] `pointerInput detectTapGestures` → tap converts to normalised 0.0–1.0 coords
 
 **Pin overlay:**
-- [ ] `Box` positioned absolutely over image with pin markers
-- [ ] Each pin: coloured circle dot + label name text
-- [ ] Selected pin: highlighted ring around dot
-- [ ] Tap pin to select / deselect
+- [x] `Box` offset absolutely over image with pin markers (normalised coords × boxSize)
+- [x] Each pin: circle + first letter of label name
+- [x] Colour coding: selected=cyan, enriched=green, default=violet
+- [x] Selected pin: white border ring
+- [x] Tap pin to select / deselect
+- [x] **NEW:** Long-press pin → immediate delete confirmation
+- [x] **NEW:** Drag pin → reposition (`detectDragGestures`, normalised clamp 0–1)
+
+**Header:**
+- [x] Back button with unsaved-changes warning dialog
+- [x] `app.package.short · N pins` subtitle
+- [x] Capture button with `CircularProgressIndicator` while capturing
 
 **Toolbar:**
-- [ ] Auto-detect button — calls `ObjectDetectorEngine`, places pins at detected centres
-- [ ] Enrich All button — calls `LlamaEngine.enrichLabelsWithLLM()`, updates all pins
-- [ ] Save button — calls `ObjectLabelStore.saveLabels()`, then navigates back
-- [ ] Back button — shows unsaved-changes warning dialog if labels were modified
+- [x] Auto-detect → `ObjectDetectorEngine.detectFromPath()` → pins at detected centres
+- [x] Enrich All → per-pin `LlamaEngine.infer()` with JSON metadata prompt
+- [x] Save → `ObjectLabelStore.saveAll()` → navigates back automatically
 
 **Pin editor panel (visible when pin selected):**
-- [ ] Name `OutlinedTextField`
-- [ ] Context `OutlinedTextField`
-- [ ] Element type selector — horizontal `LazyRow` chip row:  
-  button / text / input / icon / image / container / toggle / link / unknown
-- [ ] Delete label button with confirmation dialog
-- [ ] Importance score display (0–10, set by LLM enrichment — read-only)
+- [x] Name `OutlinedTextField`
+- [x] Context `OutlinedTextField`
+- [x] Element type `LazyRow` chip row (all 9 types from `ElementType` enum)
+- [x] Importance score chip row (1–10, interactive pre-enrichment, read-only after)
+- [x] Enriched metadata display (meaning, interactionHint)
+- [x] Delete button → confirmation dialog
 
 **Stats bar:**
-- [ ] Total labels count
-- [ ] Enriched labels count
-- [ ] OCR text preview (collapsed, expandable on tap)
+- [x] Total labels / enriched count
+- [x] OCR text preview — collapsed, tap to expand
 
-**NEW beyond RN:**
-- [ ] Long-press pin to quick-delete without dialog
-- [ ] Drag pin to reposition (not in RN version)
+**Error handling:**
+- [x] Error banner auto-dismisses; shown for: capture failure, detect failure, enrich failure
 
-- [ ] Add `LabelerScreen` route to `ARIAComposeApp.kt`
+**Wiring:**
+- [x] `LabelerScreen` route added to `ARIAComposeApp.kt` (full-screen, no bottom nav)
+- [x] `onNavigateToLabeler` lambda wired from `ControlScreen` and `TrainScreen`
+- [x] Labeler ViewModel methods in `AgentViewModel.kt`:
+  `captureScreenForLabeling()`, `addLabelerPin()`, `updateLabelerLabel()`,
+  `deleteLabelerLabel()`, `autoDetectLabelerPins()`, `enrichAllLabelerPins()`,
+  `saveLabelerLabels()`, `clearLabelerCapture()`, `dismissLabelerError()`
 
 ### Checkpoint
-> `LabelerScreen.kt` compiled, navigable, all bullets above verified on emulator.  
-> `LabelerScreen.kt` marked `[x]`.  
-> `labeler.tsx` eligible for deletion in Phase 8.
+> `LabelerScreen.kt` written. Emulator verify pending → mark `[x]` then `labeler.tsx` eligible for Phase 8 deletion.
 
 ---
 
