@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.ariaagent.mobile.core.events.AgentEventBus
 import com.ariaagent.mobile.ui.ComposeMainActivity
@@ -13,30 +14,33 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
 /**
- * ModelDownloadService — foreground service that downloads a GGUF model.
+ * ModelDownloadService — foreground service that downloads a VLM model.
  *
- * Survives app backgrounding. Shows a persistent notification with live progress.
- * Supports resuming partial downloads via HTTP Range headers.
- * Emits progress events to AgentEventBus (consumed by AgentViewModel → Compose UI).
+ * All 4 catalog models are multimodal, so this service downloads TWO files
+ * for each model: the base GGUF and the vision mmproj GGUF.
  *
- * The model to download is specified by passing EXTRA_MODEL_ID in the start intent.
- * If omitted, falls back to the currently active model in ModelManager.
+ * Reliability features
+ * ────────────────────
+ * • Resume support     — HTTP Range header continues partial downloads after kills.
+ * • Retry with backoff — transient network errors retried up to MAX_RETRIES times
+ *                        (5 s → 10 s → 20 s) before giving up.
+ * • HTTP error handling — 4xx errors reported immediately without retrying.
+ * • mmproj download    — automatically downloads the vision projector after the
+ *                        base GGUF completes (skipped if already on disk).
  *
- * Flow:
- *   1. Resolve CatalogModel from EXTRA_MODEL_ID (or active model)
- *   2. Check if partial download exists → resume from byte offset
- *   3. Send Range: bytes=<offset>- header to HuggingFace
- *   4. Stream to partial file, emitting progress every 2 MB
- *   5. On completion: rename partial → final, emit model_download_complete
- *   6. Stop self
+ * The model to download is specified by EXTRA_MODEL_ID in the start Intent.
+ * Falls back to the currently active model in ModelManager if not provided.
  */
 class ModelDownloadService : Service() {
 
@@ -44,18 +48,23 @@ class ModelDownloadService : Service() {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(300, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
         .callTimeout(0, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
         .build()
 
     companion object {
-        private const val CHANNEL_ID        = "aria_model_download"
-        private const val NOTIF_ID          = 1001
+        private const val TAG              = "ModelDownload"
+        private const val CHANNEL_ID       = "aria_model_download"
+        private const val NOTIF_ID         = 1001
+        private const val MAX_RETRIES      = 3
+        private const val EMIT_EVERY_BYTES = 2_000_000L
+
         /** Pass a ModelCatalog ID string to download a specific model. */
-        const val EXTRA_MODEL_ID            = "aria_model_id"
+        const val EXTRA_MODEL_ID = "aria_model_id"
     }
 
-    /** The catalog entry being downloaded this session (resolved in onStartCommand). */
     private var targetModel: CatalogModel? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -72,45 +81,157 @@ class ModelDownloadService : Service() {
         } else {
             ModelManager.activeEntry(this)
         }
-        startForeground(NOTIF_ID, buildNotification("Starting download…", 0))
-        scope.launch { download() }
+        startForeground(NOTIF_ID, buildNotification("Starting download…", 0, false))
+        scope.launch { downloadAll() }
         return START_STICKY
     }
 
-    private suspend fun download() {
-        val model       = targetModel ?: ModelManager.activeEntry(this)
-        val partial     = ModelManager.partialPathFor(this, model.id)
-        val resumeFrom  = if (partial.exists()) partial.length() else 0L
-        val totalExpected = model.expectedSizeBytes
+    // ── Download both files ───────────────────────────────────────────────────
+
+    private suspend fun downloadAll() {
+        val model = targetModel ?: ModelManager.activeEntry(this)
+
+        // 1 ── Download base GGUF (with retry) ──────────────────────────────
+        if (!ModelManager.isModelDownloaded(this, model.id)) {
+            val baseResult = downloadFileWithRetry(
+                modelId      = model.id,
+                label        = model.displayName,
+                url          = model.url,
+                destFile     = ModelManager.modelPathFor(this, model.id),
+                partialFile  = ModelManager.partialPathFor(this, model.id),
+                minBytes     = model.expectedSizeBytes,
+                phasePrefix  = "[1/2] Base model",
+            )
+            if (baseResult != null) {
+                emitError(model.id, baseResult)
+                stopSelf()
+                return
+            }
+        } else {
+            Log.i(TAG, "Base GGUF already on disk for ${model.displayName}")
+        }
+
+        // 2 ── Download mmproj (vision projector) if the model has one ───────
+        val mmprojUrl      = model.mmprojUrl
+        val mmprojFilename = model.mmprojFilename
+        if (mmprojUrl != null && mmprojFilename != null) {
+            val mmprojFile    = File(ModelManager.modelDir(this), mmprojFilename)
+            val mmprojPartial = File(ModelManager.modelDir(this), "$mmprojFilename.part")
+
+            if (mmprojFile.exists() && mmprojFile.length() > 0) {
+                Log.i(TAG, "mmproj already on disk for ${model.displayName}")
+            } else {
+                updateNotification("[2/2] Vision projector…", 0, false)
+                val mmprojResult = downloadFileWithRetry(
+                    modelId     = model.id,
+                    label       = "${model.displayName} (vision)",
+                    url         = mmprojUrl,
+                    destFile    = mmprojFile,
+                    partialFile = mmprojPartial,
+                    minBytes    = 50_000_000L,     // mmproj always > 50 MB
+                    phasePrefix = "[2/2] Vision projector",
+                )
+                if (mmprojResult != null) {
+                    emitError(model.id, mmprojResult)
+                    stopSelf()
+                    return
+                }
+            }
+        }
+
+        // Both files done
+        emitComplete(model.id, ModelManager.modelPathFor(this, model.id).absolutePath)
+        stopSelf()
+    }
+
+    // ── File download with retry ──────────────────────────────────────────────
+
+    /**
+     * Downloads a single file with retry on network errors.
+     * @return null on success, or an error message string on failure.
+     */
+    private suspend fun downloadFileWithRetry(
+        modelId:     String,
+        label:       String,
+        url:         String,
+        destFile:    File,
+        partialFile: File,
+        minBytes:    Long,
+        phasePrefix: String,
+    ): String? {
+        var attempt   = 0
+        var lastError = ""
+
+        while (attempt <= MAX_RETRIES) {
+            if (attempt > 0) {
+                val waitSec = (5 * (1 shl (attempt - 1))).toLong()   // 5, 10, 20 s
+                Log.i(TAG, "[$label] Retry $attempt/$MAX_RETRIES in ${waitSec}s — $lastError")
+                updateNotification("$phasePrefix — retrying in ${waitSec}s…", 0, false)
+                delay(waitSec * 1000L)
+            }
+
+            val result = trySingleDownload(
+                modelId     = modelId,
+                label       = label,
+                url         = url,
+                destFile    = destFile,
+                partialFile = partialFile,
+                minBytes    = minBytes,
+                phasePrefix = phasePrefix,
+            )
+            when (result) {
+                DownloadResult.SUCCESS       -> return null
+                is DownloadResult.HTTP_ERROR -> return result.message
+                is DownloadResult.NETWORK_ERROR -> {
+                    lastError = result.message
+                    attempt++
+                }
+            }
+        }
+        return "Download failed after $MAX_RETRIES retries: $lastError"
+    }
+
+    private sealed class DownloadResult {
+        object SUCCESS                                : DownloadResult()
+        data class HTTP_ERROR(val message: String)    : DownloadResult()
+        data class NETWORK_ERROR(val message: String) : DownloadResult()
+    }
+
+    private fun trySingleDownload(
+        modelId:     String,
+        label:       String,
+        url:         String,
+        destFile:    File,
+        partialFile: File,
+        minBytes:    Long,
+        phasePrefix: String,
+    ): DownloadResult {
+        val resumeFrom = if (partialFile.exists()) partialFile.length() else 0L
 
         val request = Request.Builder()
-            .url(model.url)
+            .url(url)
             .apply { if (resumeFrom > 0) addHeader("Range", "bytes=$resumeFrom-") }
             .build()
 
-        try {
+        return try {
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    emitError(model.id, "HTTP ${response.code}: ${response.message}")
-                    stopSelf()
-                    return
+                if (!response.isSuccessful && response.code !in 200..299) {
+                    return DownloadResult.HTTP_ERROR(
+                        "HTTP ${response.code} for $label: ${response.message}"
+                    )
                 }
+                val body = response.body ?: return DownloadResult.HTTP_ERROR(
+                    "Empty response body for $label"
+                )
 
-                val body = response.body ?: run {
-                    emitError(model.id, "Empty response body")
-                    stopSelf()
-                    return
-                }
+                val serverContentLength = body.contentLength().takeIf { it > 0L } ?: 0L
+                val serverTotal = serverContentLength + resumeFrom
 
-                val serverTotal = (body.contentLength()
-                    .takeIf { it > 0 } ?: (totalExpected - resumeFrom)) + resumeFrom
+                var downloaded = resumeFrom
+                var lastEmitAt = resumeFrom
+                val startTime  = System.currentTimeMillis()
 
-                var downloaded  = resumeFrom
-                var lastEmitAt  = resumeFrom
-                val emitEveryBytes = 2_000_000L
-                val startTime   = System.currentTimeMillis()
-
-                FileOutputStream(partial, resumeFrom > 0).use { out ->
+                FileOutputStream(partialFile, resumeFrom > 0L).use { out ->
                     body.byteStream().use { input ->
                         val buf = ByteArray(32_768)
                         var read: Int
@@ -118,38 +239,48 @@ class ModelDownloadService : Service() {
                             out.write(buf, 0, read)
                             downloaded += read
 
-                            if (downloaded - lastEmitAt >= emitEveryBytes) {
+                            if (downloaded - lastEmitAt >= EMIT_EVERY_BYTES) {
                                 lastEmitAt = downloaded
                                 val elapsed = (System.currentTimeMillis() - startTime) / 1000.0
                                 val speed   = if (elapsed > 0) (downloaded - resumeFrom) / elapsed / 1_000_000 else 0.0
-                                val pct     = ((downloaded.toDouble() / serverTotal) * 100).roundToInt()
+                                val pct     = if (serverTotal > 0) {
+                                    ((downloaded.toDouble() / serverTotal) * 100).roundToInt().coerceIn(0, 100)
+                                } else 0
                                 val dlMb    = downloaded / 1_000_000.0
-                                val totalMb = serverTotal / 1_000_000.0
+                                val totalMb = if (serverTotal > 0) serverTotal / 1_000_000.0 else 0.0
+                                val notifText = "$phasePrefix — $pct%"
 
-                                updateNotification("Downloading ${model.displayName}… $pct%", pct)
-                                emitProgress(model.id, pct, dlMb, totalMb, speed)
+                                updateNotification(notifText, pct, pct > 0)
+                                emitProgress(modelId, pct, dlMb, totalMb, speed)
                             }
                         }
                     }
                 }
 
-                val success = ModelManager.finalizeDownloadFor(this, model.id)
-                if (success && ModelManager.isModelDownloaded(this, model.id)) {
-                    emitComplete(model.id, ModelManager.modelPathFor(this, model.id).absolutePath)
-                } else {
-                    emitError(model.id, "Failed to finalize download or file size mismatch")
+                // Verify then rename to final path
+                if (partialFile.length() < minBytes) {
+                    Log.w(TAG, "[$label] File too small (${partialFile.length()} < $minBytes) — retrying")
+                    return DownloadResult.NETWORK_ERROR("File smaller than expected — possible truncated response")
                 }
+                val renamed = partialFile.renameTo(destFile)
+                if (renamed) DownloadResult.SUCCESS
+                else DownloadResult.NETWORK_ERROR("Failed to rename partial file to $destFile")
             }
+        } catch (e: IOException) {
+            Log.w(TAG, "[$label] Network error: ${e.message}")
+            DownloadResult.NETWORK_ERROR(e.message ?: "Network IO error")
         } catch (e: Exception) {
-            emitError(model.id, e.message ?: "Unknown download error")
-        } finally {
-            stopSelf()
+            Log.e(TAG, "[$label] Unexpected error: ${e.message}")
+            DownloadResult.HTTP_ERROR(e.message ?: "Unexpected error")
         }
     }
 
     // ── Event helpers ─────────────────────────────────────────────────────────
 
-    private fun emitProgress(modelId: String, pct: Int, dlMb: Double, totalMb: Double, speedMbps: Double) {
+    private fun emitProgress(
+        modelId: String, pct: Int,
+        dlMb: Double, totalMb: Double, speedMbps: Double
+    ) {
         AgentEventBus.emit("model_download_progress", mapOf(
             "modelId"      to modelId,
             "percent"      to pct,
@@ -160,11 +291,18 @@ class ModelDownloadService : Service() {
     }
 
     private fun emitComplete(modelId: String, path: String) {
-        AgentEventBus.emit("model_download_complete", mapOf("modelId" to modelId, "path" to path))
+        AgentEventBus.emit("model_download_complete", mapOf(
+            "modelId" to modelId,
+            "path"    to path
+        ))
     }
 
     private fun emitError(modelId: String, error: String) {
-        AgentEventBus.emit("model_download_error", mapOf("modelId" to modelId, "error" to error))
+        AgentEventBus.emit("model_download_error", mapOf(
+            "modelId" to modelId,
+            "error"   to error
+        ))
+        Log.e(TAG, "Download error [$modelId]: $error")
     }
 
     // ── Notification ──────────────────────────────────────────────────────────
@@ -178,13 +316,13 @@ class ModelDownloadService : Service() {
         (getSystemService(NotificationManager::class.java)).createNotificationChannel(channel)
     }
 
-    private fun buildNotification(text: String, progress: Int) =
+    private fun buildNotification(text: String, progress: Int, indeterminate: Boolean) =
         NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("ARIA Agent")
+            .setContentTitle("ARIA — Downloading model")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setOngoing(true)
-            .setProgress(100, progress, progress == 0)
+            .setProgress(100, progress, indeterminate)
             .setContentIntent(
                 PendingIntent.getActivity(
                     this, 0,
@@ -194,9 +332,9 @@ class ModelDownloadService : Service() {
             )
             .build()
 
-    private fun updateNotification(text: String, progress: Int) {
+    private fun updateNotification(text: String, progress: Int, indeterminate: Boolean) {
         val nm = getSystemService(NotificationManager::class.java)
-        nm.notify(NOTIF_ID, buildNotification(text, progress))
+        nm.notify(NOTIF_ID, buildNotification(text, progress, indeterminate))
     }
 
     override fun onDestroy() {

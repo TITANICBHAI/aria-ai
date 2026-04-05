@@ -2,27 +2,29 @@
 <!--
     Accessibility service configuration for ARIA Agent.
 
-    Event types: only the events ARIA actually needs.
-      - TYPE_WINDOW_STATE_CHANGED   → detect app switches, activity transitions
-      - TYPE_WINDOW_CONTENT_CHANGED → detect UI updates within the same window
-      - TYPE_VIEW_FOCUSED           → track focus (editable fields, current element)
+    Event types:
+      - typeWindowStateChanged   → detect app switches, activity transitions, IME open/close
+      - typeWindowContentChanged → detect UI updates within the same window
+      - typeViewFocused          → track focus (editable fields, current element)
+      - typeViewClicked          → detect where the user physically taps on screen
+        (needed so the LLM knows what the user tapped, not just what ARIA tapped)
 
     Flags:
-      - flagDefault                 → standard operation
-      - flagReportViewIds           → needed to map nodes to resource-id strings
-      - flagRequestEnhancedWebAccessibility → needed to read WebView DOM nodes
+      - flagDefault                        → standard operation
+      - flagReportViewIds                  → map nodes to resource-id strings
+      - flagRequestEnhancedWebAccessibility → read WebView DOM nodes
 
-    Key-event filtering (canRequestFilterKeyEvents / flagRequestFilterKeyEvents)
-    is intentionally REMOVED — ARIA does not intercept keystrokes. Including it
-    triggers Play Store policy warnings about keylogger-class capabilities.
+    Note: canRequestFilterKeyEvents / flagRequestFilterKeyEvents intentionally
+    omitted — ARIA does not intercept keystrokes. Including it triggers Play
+    Store policy warnings about keylogger-class capabilities.
 
-    canRetrieveWindowContent=true is required for reading the UI tree.
-    canPerformGestures=true is required for tap/swipe dispatch.
+    canRetrieveWindowContent=true  required for reading the UI tree.
+    canPerformGestures=true        required for tap/swipe dispatch.
 -->
 <accessibility-service
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/accessibility_service_description"
-    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewFocused"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewFocused|typeViewClicked"
     android:accessibilityFlags="flagDefault|flagReportViewIds|flagRequestEnhancedWebAccessibility"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:notificationTimeout="100"

@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -57,43 +58,45 @@ private val ARIAOnSurface  = Color(0xFFEEEEFF)
  *   │  ╚══════════════════════════╝       │
  *   └─────────────────────────────────────┘
  *
- * Gesture capture: when user drags on the gesture canvas area, the direction
- * and approximate region (top/center/bottom, left/center/right) are reported
- * as a text annotation that goes straight into the agent as a frame hint.
+ * Keyboard fix
+ * ────────────
+ * [onInputFocused] is called with true when the text field gains focus (so
+ * FloatingChatService can clear FLAG_NOT_FOCUSABLE and let the keyboard attach),
+ * and with false when focus is lost (flag is restored so taps pass through).
  */
 @Composable
 fun FloatingChatOverlay(
-    onInstruction:      (String) -> Unit,
-    onGestureAnnotation:(String) -> Unit,
-    onDismiss:          () -> Unit
+    onInstruction:       (String) -> Unit,
+    onGestureAnnotation: (String) -> Unit,
+    onDismiss:           () -> Unit,
+    onInputFocused:      (Boolean) -> Unit = {}
 ) {
-    var expanded       by remember { mutableStateOf(true) }
-    var inputText      by remember { mutableStateOf("") }
-    var lastAction     by remember { mutableStateOf("Waiting…") }
-    var lastReason     by remember { mutableStateOf("") }
-    var status         by remember { mutableStateOf("idle") }
-    var stepCount      by remember { mutableStateOf(0) }
-    var gestureHint    by remember { mutableStateOf("") }
-    var gestureStart   by remember { mutableStateOf(Offset.Zero) }
+    var expanded     by remember { mutableStateOf(true) }
+    var inputText    by remember { mutableStateOf("") }
+    var lastAction   by remember { mutableStateOf("Waiting…") }
+    var lastReason   by remember { mutableStateOf("") }
+    var status       by remember { mutableStateOf("idle") }
+    var stepCount    by remember { mutableStateOf(0) }
+    var gestureHint  by remember { mutableStateOf("") }
+    var gestureStart by remember { mutableStateOf(Offset.Zero) }
 
     // Subscribe to AgentEventBus for live step updates
     LaunchedEffect(Unit) {
         AgentEventBus.flow
             .mapNotNull { (name, data) ->
-                when (name) {
-                    "action_performed" -> Triple(
-                        data["tool"] as? String ?: "",
-                        ((data["nodeId"] as? String) ?: "").take(60),
-                        data
-                    )
-                    else -> null
-                }
+                if (name == "action_performed") Triple(
+                    data["tool"] as? String ?: "",
+                    ((data["nodeId"] as? String) ?: "").take(60),
+                    data
+                ) else null
             }
             .distinctUntilChanged()
-            .collect { (tool, node, data) ->
+            .collect { (tool, node, _) ->
                 lastAction = if (node.isNotBlank()) "$tool → $node" else tool
             }
+    }
 
+    LaunchedEffect(Unit) {
         AgentEventBus.flow
             .mapNotNull { (name, data) ->
                 if (name == "agent_status_changed") data else null
@@ -127,7 +130,7 @@ fun FloatingChatOverlay(
             .border(1.dp, ARIAPrimary.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
     ) {
         Column {
-            // ── Header ──────────────────────────────────────────────────────
+            // ── Header ────────────────────────────────────────────────────────
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -137,10 +140,9 @@ fun FloatingChatOverlay(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
-                    verticalAlignment  = Alignment.CenterVertically,
+                    verticalAlignment     = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Pulsing status dot
                     Box(
                         Modifier
                             .size(8.dp)
@@ -154,7 +156,6 @@ fun FloatingChatOverlay(
                             fontWeight = FontWeight.Bold
                         )
                     )
-                    // Status pill
                     Box(
                         Modifier
                             .clip(RoundedCornerShape(6.dp))
@@ -197,7 +198,7 @@ fun FloatingChatOverlay(
                 }
             }
 
-            // ── Expanded body ────────────────────────────────────────────────
+            // ── Expanded body ─────────────────────────────────────────────────
             AnimatedVisibility(
                 visible = expanded,
                 enter   = fadeIn() + expandVertically(),
@@ -262,7 +263,6 @@ fun FloatingChatOverlay(
                                         gestureHint  = ""
                                     },
                                     onDragEnd = {
-                                        // gestureHint was set in onDrag
                                         if (gestureHint.isNotBlank()) {
                                             onGestureAnnotation(gestureHint)
                                         }
@@ -302,6 +302,8 @@ fun FloatingChatOverlay(
                     }
 
                     // Text instruction input
+                    // onFocusChanged → notifies FloatingChatService to toggle
+                    // FLAG_NOT_FOCUSABLE so the soft keyboard can attach/detach.
                     Row(
                         modifier              = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -310,8 +312,12 @@ fun FloatingChatOverlay(
                         OutlinedTextField(
                             value         = inputText,
                             onValueChange = { inputText = it },
-                            modifier      = Modifier.weight(1f),
-                            placeholder   = {
+                            modifier      = Modifier
+                                .weight(1f)
+                                .onFocusChanged { state ->
+                                    onInputFocused(state.isFocused)
+                                },
+                            placeholder = {
                                 Text(
                                     "instruction to ARIA…",
                                     style = MaterialTheme.typography.bodySmall.copy(
@@ -325,7 +331,7 @@ fun FloatingChatOverlay(
                                 fontSize = 11.sp
                             ),
                             singleLine = true,
-                            colors     = OutlinedTextFieldDefaults.colors(
+                            colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor   = ARIAPrimary,
                                 unfocusedBorderColor = ARIAMuted.copy(alpha = 0.4f),
                                 cursorColor          = ARIAPrimary

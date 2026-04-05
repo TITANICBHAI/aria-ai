@@ -4,48 +4,97 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
 import android.graphics.Rect
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.ariaagent.mobile.core.events.AgentEventBus
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * AgentAccessibilityService — two jobs:
  *   1. READ: parse the UI node tree into LLM-friendly semantic text
  *   2. WRITE: dispatch physical gestures (tap, swipe, text, scroll)
  *
- * This is the "hands and eyes" of the agent.
- * Must be enabled by user in Android Accessibility Settings.
+ * Thread-safety model
+ * ───────────────────
+ * onAccessibilityEvent() is called on the accessibility main thread.
+ * getSemanticTree() / getNodeById() may be called from any coroutine thread.
  *
- * Node tree format output:
- *   [#1] Button: "Play" (center, clickable)
- *   [#2] EditText: "Search..." (top, editable)
- *   [#3] ImageButton: "Settings" (top-right, clickable)
+ * Fix: The semantic tree is rebuilt on the accessibility thread and stored in a
+ * @Volatile field (cachedTree). All callers read that field — zero thread crossing.
+ * nodeRegistry uses ConcurrentHashMap so cross-thread reads are safe.
  *
- * Phase: 2 (Perception) + Phase 3 (Action)
+ * Keyboard awareness
+ * ──────────────────
+ * When the Android soft keyboard (IME) opens, TYPE_WINDOW_STATE_CHANGED fires
+ * for the IME window. We detect this by checking the event's package name for
+ * known IME packages and set isKeyboardVisible accordingly.
+ *
+ * Tap awareness
+ * ─────────────
+ * TYPE_VIEW_CLICKED events are now declared in accessibility_service_config.xml.
+ * Each click from the *user* (not from ARIA's own gesture dispatch) is emitted
+ * to AgentEventBus as "user_tapped" so the LLM knows what the user touched.
  */
 class AgentAccessibilityService : AccessibilityService() {
 
     companion object {
-        var isActive = false
+        private const val TAG = "AgentA11y"
+
+        // IME packages — extend list if needed for 3rd-party keyboards
+        private val IME_PACKAGES = setOf(
+            "com.android.inputmethod.latin",
+            "com.google.android.inputmethod.latin",
+            "com.samsung.android.honeyboard",
+            "com.swiftkey.swiftkeyapp",
+            "com.touchtype.swiftkey",
+            "com.nuance.swype.input",
+            "com.microsoft.swiftkey",
+        )
+
+        @Volatile var isActive = false
             private set
 
-        var currentPackage: String? = null
+        @Volatile var currentPackage: String? = null
             private set
 
-        var currentActivity: String? = null
+        @Volatile var currentActivity: String? = null
             private set
+
+        /** True while the soft keyboard (IME) is visible on screen. */
+        @Volatile var isKeyboardVisible = false
+            private set
+
+        /**
+         * Latest semantic tree snapshot — built on the accessibility thread
+         * whenever a window or content change fires.
+         * Safe to read from any thread with no locking overhead.
+         */
+        @Volatile private var cachedTree: String = "(not ready)"
+
+        /** Thread-safe node registry: nodeId → AccessibilityNodeInfo copy */
+        private val nodeRegistry = ConcurrentHashMap<String, AccessibilityNodeInfo>()
 
         private var instance: AgentAccessibilityService? = null
 
-        fun getSemanticTree(): String {
-            val svc = instance ?: return "(accessibility service not active)"
-            return svc.buildSemanticTree()
-        }
+        /**
+         * Returns the most recently built semantic tree.
+         * Guaranteed not to cross threads — reads a volatile String.
+         */
+        fun getSemanticTree(): String = cachedTree
+
+        fun getNodeById(id: String): AccessibilityNodeInfo? = nodeRegistry[id]
 
         fun dispatchTap(x: Float, y: Float, callback: GestureResultCallback) {
             instance?.dispatchTapAt(x, y, callback)
         }
 
-        fun dispatchSwipe(x1: Float, y1: Float, x2: Float, y2: Float, callback: GestureResultCallback) {
+        fun dispatchSwipe(
+            x1: Float, y1: Float, x2: Float, y2: Float,
+            callback: GestureResultCallback
+        ) {
             instance?.dispatchSwipeGesture(x1, y1, x2, y2, callback)
         }
 
@@ -53,17 +102,6 @@ class AgentAccessibilityService : AccessibilityService() {
             instance?.performGlobalAction(GLOBAL_ACTION_BACK)
         }
 
-        // node registry: nodeId → AccessibilityNodeInfo (rebuilt each screen state)
-        private val nodeRegistry = mutableMapOf<String, AccessibilityNodeInfo>()
-
-        fun getNodeById(id: String): AccessibilityNodeInfo? = nodeRegistry[id]
-
-        /**
-         * Return the physical screen dimensions in pixels.
-         * Used by GestureEngine.tapXY() to convert normalised (0–1) coordinates
-         * to actual pixel positions for TapXY / SwipeXY gesture dispatch.
-         * Falls back to Samsung Galaxy M31 native resolution if service is inactive.
-         */
         fun getScreenSize(): Pair<Int, Int> {
             val inst = instance ?: return Pair(1080, 2400)
             val dm = inst.resources.displayMetrics
@@ -71,57 +109,147 @@ class AgentAccessibilityService : AccessibilityService() {
         }
     }
 
+    // Handler bound to the accessibility thread for posting rebuilds
+    private val handler = Handler(Looper.getMainLooper())
+
+    // Debounce fast content-change bursts (e.g. text typing) — rebuild 150 ms
+    // after the last event rather than on every keystroke.
+    private val rebuildRunnable = Runnable { rebuildTree() }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
-        isActive = true
+        isActive  = true
+        Log.i(TAG, "Accessibility service connected")
     }
 
     override fun onInterrupt() {
         isActive = false
-        instance = null
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        isActive = false
-        instance = null
+        isActive  = false
+        instance  = null
+        recycleRegistry()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
-        if (event.packageName != null) {
-            currentPackage = event.packageName.toString()
+
+        when (event.eventType) {
+
+            // ── Window transitions (app switch, IME open/close, dialog) ───────
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                val pkg = event.packageName?.toString()
+                val cls = event.className?.toString()
+
+                if (pkg != null) {
+                    // Detect IME
+                    val imeVisible = IME_PACKAGES.contains(pkg) ||
+                        cls?.contains("InputMethod", ignoreCase = true) == true
+                    if (imeVisible != isKeyboardVisible) {
+                        isKeyboardVisible = imeVisible
+                        AgentEventBus.emit(
+                            "keyboard_visibility_changed",
+                            mapOf("visible" to imeVisible)
+                        )
+                        Log.d(TAG, "Keyboard visible: $imeVisible")
+                    }
+
+                    if (!imeVisible) {
+                        currentPackage  = pkg
+                        currentActivity = cls
+                    }
+                }
+
+                scheduleRebuild()
+            }
+
+            // ── Content updated inside the current window ─────────────────────
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+                // Debounce — only rebuild once bursts settle
+                handler.removeCallbacks(rebuildRunnable)
+                handler.postDelayed(rebuildRunnable, 150)
+            }
+
+            // ── User physically tapped a UI element ───────────────────────────
+            AccessibilityEvent.TYPE_VIEW_CLICKED -> {
+                // Only report taps that come from the *user*, not from ARIA's
+                // own gesture dispatches. ARIA's gestures don't go through
+                // TYPE_VIEW_CLICKED (they use dispatchGesture), so all events
+                // here are real user interactions.
+                val pkg  = event.packageName?.toString() ?: return
+                val text = event.text?.joinToString(" ")?.trim() ?: ""
+                val desc = event.contentDescription?.toString()?.trim() ?: ""
+                val label = text.ifBlank { desc }.ifBlank { "unknown" }
+
+                AgentEventBus.emit(
+                    "user_tapped",
+                    mapOf("package" to pkg, "label" to label)
+                )
+                Log.d(TAG, "User tapped: \"$label\" in $pkg")
+            }
+
+            // ── Focus tracking ────────────────────────────────────────────────
+            AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
+                if (event.packageName != null) {
+                    currentPackage = event.packageName.toString()
+                }
+            }
         }
-        if (event.className != null &&
-            event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
-        ) {
-            currentActivity = event.className.toString()
-        }
+    }
+
+    // ── Tree rebuild ──────────────────────────────────────────────────────────
+
+    private fun scheduleRebuild() {
+        handler.removeCallbacks(rebuildRunnable)
+        handler.post(rebuildRunnable)
     }
 
     /**
-     * Traverse the UI node tree and build LLM-friendly semantic text.
-     * Only includes interactable nodes (clickable, scrollable, editable, focusable).
-     *
-     * Node copies are recycled after extraction to avoid AccessibilityNodeInfo leaks.
-     * The nodeRegistry holds copies (via obtain()) that must be recycled when the
-     * registry is cleared. Copies are safe to hold across calls — only the live
-     * reference obtained from rootInActiveWindow needs recycling immediately.
+     * Rebuild the semantic tree snapshot.
+     * Must ONLY be called from the accessibility/main thread via [handler].
      */
-    private fun buildSemanticTree(): String {
-        // Recycle previously stored node copies before rebuilding
-        nodeRegistry.values.forEach { it.recycle() }
-        nodeRegistry.clear()
+    private fun rebuildTree() {
+        val root = try {
+            rootInActiveWindow
+        } catch (e: Exception) {
+            Log.w(TAG, "rootInActiveWindow failed: ${e.message}")
+            null
+        }
 
-        val root = rootInActiveWindow ?: return "(no active window)"
+        if (root == null) {
+            cachedTree = if (isKeyboardVisible) "(keyboard visible — no active window)" else "(no active window)"
+            return
+        }
+
+        // Recycle old copies and build fresh registry
+        recycleRegistry()
+
         val lines = mutableListOf<String>()
+        if (isKeyboardVisible) lines.add("[keyboard] Soft keyboard is currently visible")
         traverseNode(root, lines, 1)
         root.recycle()
-        return lines.joinToString("\n")
+
+        cachedTree = lines.joinToString("\n")
     }
 
-    private fun traverseNode(node: AccessibilityNodeInfo?, lines: MutableList<String>, counter: Int): Int {
+    private fun recycleRegistry() {
+        // Snapshot keys to avoid CME while recycling
+        val keys = nodeRegistry.keys.toList()
+        keys.forEach { key ->
+            nodeRegistry.remove(key)?.recycle()
+        }
+    }
+
+    // ── Node traversal ────────────────────────────────────────────────────────
+
+    private fun traverseNode(
+        node: AccessibilityNodeInfo?,
+        lines: MutableList<String>,
+        counter: Int
+    ): Int {
         var id = counter
         if (node == null) return id
 
@@ -130,23 +258,23 @@ class AgentAccessibilityService : AccessibilityService() {
 
         if (interactable) {
             val nodeId = "#$id"
-            // Store a copy — the original child reference is owned by the caller loop
+            // Store a obtain() copy — safe to hold after the traversal unwinds
             nodeRegistry[nodeId] = AccessibilityNodeInfo.obtain(node)
             id++
 
-            val type = getNodeType(node)
-            val text = node.text?.toString()?.trim()
+            val type     = getNodeType(node)
+            val text     = node.text?.toString()?.trim()
                 ?: node.contentDescription?.toString()?.trim()
                 ?: node.hintText?.toString()?.trim()
                 ?: ""
-            val rect = Rect()
+            val rect     = Rect()
             node.getBoundsInScreen(rect)
             val position = describePosition(rect)
-            val attrs = buildList {
+            val attrs    = buildList {
                 if (node.isClickable) add("clickable")
                 if (node.isScrollable) add("scrollable")
                 if (node.isEditable) add("editable")
-                if (node.isEnabled.not()) add("disabled")
+                if (!node.isEnabled) add("disabled")
             }.joinToString(", ")
 
             lines.add("[$nodeId] $type: \"$text\" ($position${if (attrs.isNotEmpty()) ", $attrs" else ""})")
@@ -161,55 +289,56 @@ class AgentAccessibilityService : AccessibilityService() {
     }
 
     private fun getNodeType(node: AccessibilityNodeInfo): String {
-        val className = node.className?.toString() ?: ""
+        val cls = node.className?.toString() ?: ""
         return when {
-            className.endsWith("Button") || className.endsWith("ImageButton") -> "Button"
-            className.endsWith("EditText") -> "EditText"
-            className.endsWith("TextView") -> "Text"
-            className.endsWith("ImageView") -> "Image"
-            className.endsWith("CheckBox") -> "CheckBox"
-            className.endsWith("Switch") -> "Switch"
-            className.endsWith("ListView") || className.endsWith("RecyclerView") -> "List"
-            className.endsWith("ScrollView") -> "ScrollView"
+            cls.endsWith("Button") || cls.endsWith("ImageButton") -> "Button"
+            cls.endsWith("EditText")    -> "EditText"
+            cls.endsWith("TextView")    -> "Text"
+            cls.endsWith("ImageView")   -> "Image"
+            cls.endsWith("CheckBox")    -> "CheckBox"
+            cls.endsWith("Switch")      -> "Switch"
+            cls.endsWith("ListView") || cls.endsWith("RecyclerView") -> "List"
+            cls.endsWith("ScrollView")  -> "ScrollView"
             else -> "View"
         }
     }
 
     private fun describePosition(rect: Rect): String {
-        val display = resources.displayMetrics
-        val cx = rect.centerX().toFloat() / display.widthPixels
-        val cy = rect.centerY().toFloat() / display.heightPixels
-        val h = when {
+        val dm = resources.displayMetrics
+        val cx = rect.centerX().toFloat() / dm.widthPixels
+        val cy = rect.centerY().toFloat() / dm.heightPixels
+        val v = when {
             cy < 0.25f -> "top"
             cy > 0.75f -> "bottom"
-            else -> "center"
+            else       -> "center"
         }
-        val v = when {
+        val h = when {
             cx < 0.33f -> "-left"
             cx > 0.66f -> "-right"
-            else -> ""
+            else       -> ""
         }
-        return "$h$v"
+        return "$v$h"
     }
 
-    // ─── Gesture dispatch ─────────────────────────────────────────────────────
+    // ── Gesture dispatch ──────────────────────────────────────────────────────
 
     private fun dispatchTapAt(x: Float, y: Float, callback: GestureResultCallback) {
-        val path = Path().apply { moveTo(x, y) }
-        val stroke = GestureDescription.StrokeDescription(path, 0, 50)
+        val path    = Path().apply { moveTo(x, y) }
+        val stroke  = GestureDescription.StrokeDescription(path, 0, 50)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
         dispatchGesture(gesture, callback, null)
     }
 
     private fun dispatchSwipeGesture(
-        x1: Float, y1: Float, x2: Float, y2: Float,
+        x1: Float, y1: Float,
+        x2: Float, y2: Float,
         callback: GestureResultCallback
     ) {
         val path = Path().apply {
             moveTo(x1, y1)
             lineTo(x2, y2)
         }
-        val stroke = GestureDescription.StrokeDescription(path, 0, 300)
+        val stroke  = GestureDescription.StrokeDescription(path, 0, 300)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
         dispatchGesture(gesture, callback, null)
     }

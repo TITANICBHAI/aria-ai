@@ -40,7 +40,7 @@ object ModelManager {
     }
 
     fun activeEntry(context: Context): CatalogModel =
-        ModelCatalog.findById(activeModelId(context)) ?: ModelCatalog.LLAMA_32_1B
+        ModelCatalog.findById(activeModelId(context)) ?: ModelCatalog.SMOLVLM_256M
 
     // ── Custom / local model path ─────────────────────────────────────────────
 
@@ -57,9 +57,9 @@ object ModelManager {
 
     // ── Backward-compatible constants (always reflect the active entry) ────────
 
-    val MODEL_URL: String get() = activeEntry_static ?: ModelCatalog.LLAMA_32_1B.url
-    val MODEL_FILENAME: String get() = activeEntry_static?.filename ?: ModelCatalog.LLAMA_32_1B.filename
-    val EXPECTED_SIZE_BYTES: Long get() = activeEntry_static?.expectedSizeBytes ?: ModelCatalog.LLAMA_32_1B.expectedSizeBytes
+    val MODEL_URL: String get() = activeEntry_static?.url ?: ModelCatalog.SMOLVLM_256M.url
+    val MODEL_FILENAME: String get() = activeEntry_static?.filename ?: ModelCatalog.SMOLVLM_256M.filename
+    val EXPECTED_SIZE_BYTES: Long get() = activeEntry_static?.expectedSizeBytes ?: ModelCatalog.SMOLVLM_256M.expectedSizeBytes
 
     // Static cache updated each time the active model is resolved — allows
     // ModelDownloadService (which doesn't always have a Context handy) to read

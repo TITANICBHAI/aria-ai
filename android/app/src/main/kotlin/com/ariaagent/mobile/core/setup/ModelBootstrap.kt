@@ -14,8 +14,8 @@ import kotlinx.coroutines.withContext
  *
  * Download order (hard dependency chain):
  *
- *   Step 1 ── GGUF LLM  (~870 MB, HuggingFace)
- *             Llama-3.2-1B-Instruct-Q4_K_M.gguf
+ *   Step 1 ── GGUF VLM  (size depends on selected model, HuggingFace)
+ *             Active model GGUF + mmproj (vision projector) if needed.
  *             Downloaded by ModelDownloadService (foreground service, user-visible).
  *             bootstrap() WAITS here until ModelManager.isModelReady() is true.
  *             After: LlamaEngine can load the model and inference begins.

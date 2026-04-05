@@ -27,21 +27,31 @@ import com.ariaagent.mobile.core.events.AgentEventBus
  *   - Type instructions that are injected into the AgentLoop
  *   - Draw gestures on screen — captured as frame annotations
  *
+ * Keyboard fix
+ * ────────────
+ * Overlay windows with FLAG_NOT_FOCUSABLE cannot receive keyboard input — the
+ * soft keyboard will never appear for the text field. We start with that flag
+ * set (so taps on the underlying app still pass through), then *temporarily*
+ * clear it when the user focuses the text field, and restore it on blur.
+ * This is the standard Android pattern for overlay text input.
+ *
  * Lifecycle: started by AgentForegroundService when AgentLoop starts;
  *            stopped when AgentLoop finishes or is paused.
- *
- * Companion helpers start() / stop() called from AgentViewModel.
  */
 class FloatingChatService : Service(), LifecycleOwner, SavedStateRegistryOwner {
 
-    private val lifecycleRegistry      = LifecycleRegistry(this)
-    private val savedStateController   = SavedStateRegistryController.create(this)
-    override val lifecycle: Lifecycle  get() = lifecycleRegistry
+    private val lifecycleRegistry    = LifecycleRegistry(this)
+    private val savedStateController = SavedStateRegistryController.create(this)
+    override val lifecycle: Lifecycle
+        get() = lifecycleRegistry
     override val savedStateRegistry: SavedStateRegistry
         get() = savedStateController.savedStateRegistry
 
     private var windowManager: WindowManager? = null
     private var overlayView: ComposeView?     = null
+
+    /** Kept so updateViewLayout() can toggle FLAG_NOT_FOCUSABLE without rebuilding. */
+    private var overlayParams: WindowManager.LayoutParams? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -69,6 +79,8 @@ class FloatingChatService : Service(), LifecycleOwner, SavedStateRegistryOwner {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    // ── Window setup ──────────────────────────────────────────────────────────
+
     private fun setup() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
@@ -76,6 +88,9 @@ class FloatingChatService : Service(), LifecycleOwner, SavedStateRegistryOwner {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            // FLAG_NOT_FOCUSABLE  — taps on underlying app pass through
+            // FLAG_NOT_TOUCH_MODAL — touches outside the window bounds don't cancel it
+            // (FLAG_NOT_FOCUSABLE is cleared temporarily when text field is focused)
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
@@ -84,6 +99,7 @@ class FloatingChatService : Service(), LifecycleOwner, SavedStateRegistryOwner {
             x = 24
             y = 120
         }
+        overlayParams = params
 
         val composeView = ComposeView(this).apply {
             setViewTreeLifecycleOwner(this@FloatingChatService)
@@ -102,9 +118,8 @@ class FloatingChatService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                             mapOf("annotation" to annotation, "source" to "floating_chat")
                         )
                     },
-                    onDismiss = {
-                        teardown(); stopSelf()
-                    }
+                    onDismiss = { teardown(); stopSelf() },
+                    onInputFocused = { focused -> setFocusable(focused) }
                 )
             }
         }
@@ -113,10 +128,32 @@ class FloatingChatService : Service(), LifecycleOwner, SavedStateRegistryOwner {
         overlayView = composeView
     }
 
+    /**
+     * Toggle focusability of the overlay window.
+     *
+     * focused=true  → clear FLAG_NOT_FOCUSABLE → keyboard can attach to this window
+     * focused=false → restore FLAG_NOT_FOCUSABLE → taps pass through to underlying app
+     */
+    private fun setFocusable(focused: Boolean) {
+        val params = overlayParams ?: return
+        val view   = overlayView   ?: return
+        if (focused) {
+            params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+        } else {
+            params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        }
+        try {
+            windowManager?.updateViewLayout(view, params)
+        } catch (e: Exception) {
+            android.util.Log.w("FloatingChatService", "updateViewLayout failed: ${e.message}")
+        }
+    }
+
     private fun teardown() {
         overlayView?.let {
             runCatching { windowManager?.removeView(it) }
-            overlayView = null
+            overlayView   = null
+            overlayParams = null
         }
     }
 
