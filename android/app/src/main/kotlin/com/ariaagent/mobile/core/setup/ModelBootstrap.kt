@@ -74,13 +74,14 @@ object ModelBootstrap {
     ) = withContext(Dispatchers.IO) {
 
         // ── Step 1: Wait for GGUF ─────────────────────────────────────────────
+        val activeModel = ModelManager.activeEntry(context)
         if (!ModelManager.isModelReady(context)) {
-            Log.i(TAG, "Waiting for GGUF model — user must trigger startModelDownload() from SettingsScreen")
+            Log.i(TAG, "Waiting for GGUF model (${activeModel.displayName}) — user must trigger download from SettingsScreen")
             emit(BootstrapEvent(
                 stage   = "awaiting_gguf",
                 step    = 1,
                 percent = 0,
-                label   = "Waiting for AI brain download…"
+                label   = "Waiting for ${activeModel.displayName} download…"
             ))
 
             // Poll — ModelDownloadService runs in parallel and writes the file.
@@ -89,13 +90,13 @@ object ModelBootstrap {
             // is not in the dark while we wait.
             while (!ModelManager.isModelReady(context)) {
                 val downloaded = ModelManager.downloadedBytes(context)
-                val total      = ModelManager.EXPECTED_SIZE_BYTES
+                val total      = activeModel.expectedSizeBytes
                 val pct        = if (total > 0) ((downloaded * 100L) / total).toInt() else 0
                 emit(BootstrapEvent(
                     stage   = "awaiting_gguf",
                     step    = 1,
                     percent = pct,
-                    label   = "AI brain: ${downloaded / 1_000_000} / ${total / 1_000_000} MB"
+                    label   = "${activeModel.displayName}: ${downloaded / 1_000_000} / ${total / 1_000_000} MB"
                 ))
                 delay(GGUF_POLL_INTERVAL_MS)
             }

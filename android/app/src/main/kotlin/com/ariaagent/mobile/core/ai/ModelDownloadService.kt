@@ -21,21 +21,22 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
 /**
- * ModelDownloadService — foreground service that downloads the GGUF model.
+ * ModelDownloadService — foreground service that downloads a GGUF model.
  *
  * Survives app backgrounding. Shows a persistent notification with live progress.
- * Supports resuming partial downloads using HTTP Range headers.
+ * Supports resuming partial downloads via HTTP Range headers.
  * Emits progress events to AgentEventBus (consumed by AgentViewModel → Compose UI).
  *
- * Migration note: RN bridge (AgentCoreModule / facebook.react.bridge.Arguments) removed.
- * All events are now emitted via AgentEventBus which AgentViewModel subscribes to.
+ * The model to download is specified by passing EXTRA_MODEL_ID in the start intent.
+ * If omitted, falls back to the currently active model in ModelManager.
  *
  * Flow:
- *   1. Check if partial download exists (partialPath) → resume from byte offset
- *   2. Send Range: bytes=<offset>- header to HuggingFace
- *   3. Stream to partial file, emitting progress every 2MB
- *   4. On completion: rename partial → final, emit model_download_complete
- *   5. Stop self
+ *   1. Resolve CatalogModel from EXTRA_MODEL_ID (or active model)
+ *   2. Check if partial download exists → resume from byte offset
+ *   3. Send Range: bytes=<offset>- header to HuggingFace
+ *   4. Stream to partial file, emitting progress every 2 MB
+ *   5. On completion: rename partial → final, emit model_download_complete
+ *   6. Stop self
  */
 class ModelDownloadService : Service() {
 
@@ -48,9 +49,14 @@ class ModelDownloadService : Service() {
         .build()
 
     companion object {
-        private const val CHANNEL_ID = "aria_model_download"
-        private const val NOTIF_ID = 1001
+        private const val CHANNEL_ID        = "aria_model_download"
+        private const val NOTIF_ID          = 1001
+        /** Pass a ModelCatalog ID string to download a specific model. */
+        const val EXTRA_MODEL_ID            = "aria_model_id"
     }
+
+    /** The catalog entry being downloaded this session (resolved in onStartCommand). */
+    private var targetModel: CatalogModel? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -60,31 +66,38 @@ class ModelDownloadService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIF_ID, buildNotification("Starting download...", 0))
+        val modelId = intent?.getStringExtra(EXTRA_MODEL_ID)
+        targetModel = if (modelId != null) {
+            ModelCatalog.findById(modelId) ?: ModelManager.activeEntry(this)
+        } else {
+            ModelManager.activeEntry(this)
+        }
+        startForeground(NOTIF_ID, buildNotification("Starting download…", 0))
         scope.launch { download() }
         return START_STICKY
     }
 
     private suspend fun download() {
-        val partial = ModelManager.partialPath(this)
-        val resumeFrom = if (partial.exists()) partial.length() else 0L
-        val totalExpected = ModelManager.EXPECTED_SIZE_BYTES
+        val model       = targetModel ?: ModelManager.activeEntry(this)
+        val partial     = ModelManager.partialPathFor(this, model.id)
+        val resumeFrom  = if (partial.exists()) partial.length() else 0L
+        val totalExpected = model.expectedSizeBytes
 
         val request = Request.Builder()
-            .url(ModelManager.MODEL_URL)
+            .url(model.url)
             .apply { if (resumeFrom > 0) addHeader("Range", "bytes=$resumeFrom-") }
             .build()
 
         try {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    emitError("HTTP ${response.code}: ${response.message}")
+                    emitError(model.id, "HTTP ${response.code}: ${response.message}")
                     stopSelf()
                     return
                 }
 
                 val body = response.body ?: run {
-                    emitError("Empty response body")
+                    emitError(model.id, "Empty response body")
                     stopSelf()
                     return
                 }
@@ -92,10 +105,10 @@ class ModelDownloadService : Service() {
                 val serverTotal = (body.contentLength()
                     .takeIf { it > 0 } ?: (totalExpected - resumeFrom)) + resumeFrom
 
-                var downloaded = resumeFrom
-                var lastEmitAt = resumeFrom
+                var downloaded  = resumeFrom
+                var lastEmitAt  = resumeFrom
                 val emitEveryBytes = 2_000_000L
-                val startTime = System.currentTimeMillis()
+                val startTime   = System.currentTimeMillis()
 
                 FileOutputStream(partial, resumeFrom > 0).use { out ->
                     body.byteStream().use { input ->
@@ -108,55 +121,60 @@ class ModelDownloadService : Service() {
                             if (downloaded - lastEmitAt >= emitEveryBytes) {
                                 lastEmitAt = downloaded
                                 val elapsed = (System.currentTimeMillis() - startTime) / 1000.0
-                                val speed = if (elapsed > 0) (downloaded - resumeFrom) / elapsed / 1_000_000 else 0.0
-                                val pct = ((downloaded.toDouble() / serverTotal) * 100).roundToInt()
-                                val dlMb = downloaded / 1_000_000.0
+                                val speed   = if (elapsed > 0) (downloaded - resumeFrom) / elapsed / 1_000_000 else 0.0
+                                val pct     = ((downloaded.toDouble() / serverTotal) * 100).roundToInt()
+                                val dlMb    = downloaded / 1_000_000.0
                                 val totalMb = serverTotal / 1_000_000.0
 
-                                updateNotification("Downloading AI brain... $pct%", pct)
-                                emitProgress(pct, dlMb, totalMb, speed)
+                                updateNotification("Downloading ${model.displayName}… $pct%", pct)
+                                emitProgress(model.id, pct, dlMb, totalMb, speed)
                             }
                         }
                     }
                 }
 
-                val success = ModelManager.finalizeDownload(this)
-                if (success && ModelManager.isModelReady(this)) {
-                    emitComplete(ModelManager.modelPath(this).absolutePath)
+                val success = ModelManager.finalizeDownloadFor(this, model.id)
+                if (success && ModelManager.isModelDownloaded(this, model.id)) {
+                    emitComplete(model.id, ModelManager.modelPathFor(this, model.id).absolutePath)
                 } else {
-                    emitError("Failed to finalize download or file size mismatch")
+                    emitError(model.id, "Failed to finalize download or file size mismatch")
                 }
             }
         } catch (e: Exception) {
-            emitError(e.message ?: "Unknown download error")
+            emitError(model.id, e.message ?: "Unknown download error")
         } finally {
             stopSelf()
         }
     }
 
-    private fun emitProgress(pct: Int, dlMb: Double, totalMb: Double, speedMbps: Double) {
+    // ── Event helpers ─────────────────────────────────────────────────────────
+
+    private fun emitProgress(modelId: String, pct: Int, dlMb: Double, totalMb: Double, speedMbps: Double) {
         AgentEventBus.emit("model_download_progress", mapOf(
-            "percent"     to pct,
+            "modelId"      to modelId,
+            "percent"      to pct,
             "downloadedMb" to dlMb,
-            "totalMb"     to totalMb,
-            "speedMbps"   to speedMbps
+            "totalMb"      to totalMb,
+            "speedMbps"    to speedMbps
         ))
     }
 
-    private fun emitComplete(path: String) {
-        AgentEventBus.emit("model_download_complete", mapOf("path" to path))
+    private fun emitComplete(modelId: String, path: String) {
+        AgentEventBus.emit("model_download_complete", mapOf("modelId" to modelId, "path" to path))
     }
 
-    private fun emitError(error: String) {
-        AgentEventBus.emit("model_download_error", mapOf("error" to error))
+    private fun emitError(modelId: String, error: String) {
+        AgentEventBus.emit("model_download_error", mapOf("modelId" to modelId, "error" to error))
     }
+
+    // ── Notification ──────────────────────────────────────────────────────────
 
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
             "ARIA Model Download",
             NotificationManager.IMPORTANCE_LOW
-        ).apply { description = "Downloading the on-device AI model" }
+        ).apply { description = "Downloading an on-device AI model" }
         (getSystemService(NotificationManager::class.java)).createNotificationChannel(channel)
     }
 

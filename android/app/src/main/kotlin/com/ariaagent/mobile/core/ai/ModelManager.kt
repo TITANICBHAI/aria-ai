@@ -5,28 +5,74 @@ import java.io.File
 import java.security.MessageDigest
 
 /**
- * ModelManager — single source of truth for GGUF model state on disk.
+ * ModelManager — single source of truth for GGUF model state on device.
  *
- * Model: Llama-3.2-1B-Instruct-Q4_K_M.gguf
- * Source: bartowski/Llama-3.2-1B-Instruct-GGUF on HuggingFace
- * Size: ~870 MB disk, ~1700 MB RSS on Exynos 9611
+ * Supports multiple models from ModelCatalog. The user can download any or
+ * all catalog models and activate whichever one they want. The active model
+ * ID is persisted in SharedPreferences (key: "active_model_id").
  *
- * The model is NEVER bundled in the APK. It is downloaded at first launch
- * by ModelDownloadService and stored in internal storage forever after.
+ * Backward-compatible constants (MODEL_URL, MODEL_FILENAME, EXPECTED_SIZE_BYTES)
+ * always delegate to the currently active catalog entry so callers that have
+ * not yet been updated continue to work correctly.
+ *
+ * Local / custom GGUF:
+ *   The user can also supply an absolute path to any GGUF they placed on the
+ *   device themselves. This is stored separately (key: "custom_model_path").
+ *   When a custom path is set and the file exists, it takes priority over the
+ *   active catalog model.
  */
 object ModelManager {
 
-    const val MODEL_URL =
-        "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/" +
-        "Llama-3.2-1B-Instruct-Q4_K_M.gguf"
+    private const val PREFS_NAME        = "aria_model_prefs"
+    private const val KEY_ACTIVE_ID     = "active_model_id"
+    private const val KEY_CUSTOM_PATH   = "custom_model_path"
 
-    const val MODEL_FILENAME = "llama-3.2-1b-q4_k_m.gguf"
+    // ── Active model helpers ──────────────────────────────────────────────────
 
-    const val EXPECTED_SIZE_BYTES = 780_000_000L
+    fun activeModelId(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_ACTIVE_ID, ModelCatalog.DEFAULT_ID) ?: ModelCatalog.DEFAULT_ID
+    }
 
-    // SHA256 of the exact bartowski Q4_K_M file — verify after download
-    // Update this if HuggingFace re-uploads the file
-    const val EXPECTED_SHA256 = "VERIFY_AFTER_FIRST_DOWNLOAD"
+    fun setActiveModelId(context: Context, id: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_ACTIVE_ID, id).apply()
+    }
+
+    fun activeEntry(context: Context): CatalogModel =
+        ModelCatalog.findById(activeModelId(context)) ?: ModelCatalog.LLAMA_32_1B
+
+    // ── Custom / local model path ─────────────────────────────────────────────
+
+    /** Returns the user-set absolute path to a local GGUF, or null if not set. */
+    fun customModelPath(context: Context): String? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_CUSTOM_PATH, null)?.takeIf { it.isNotBlank() }
+    }
+
+    fun setCustomModelPath(context: Context, path: String?) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_CUSTOM_PATH, path?.takeIf { it.isNotBlank() }).apply()
+    }
+
+    // ── Backward-compatible constants (always reflect the active entry) ────────
+
+    val MODEL_URL: String get() = activeEntry_static ?: ModelCatalog.LLAMA_32_1B.url
+    val MODEL_FILENAME: String get() = activeEntry_static?.filename ?: ModelCatalog.LLAMA_32_1B.filename
+    val EXPECTED_SIZE_BYTES: Long get() = activeEntry_static?.expectedSizeBytes ?: ModelCatalog.LLAMA_32_1B.expectedSizeBytes
+
+    // Static cache updated each time the active model is resolved — allows
+    // ModelDownloadService (which doesn't always have a Context handy) to read
+    // the active values via the top-level constants.
+    @Volatile private var activeEntry_static: CatalogModel? = null
+
+    private fun resolveActive(context: Context): CatalogModel {
+        val entry = activeEntry(context)
+        activeEntry_static = entry
+        return entry
+    }
+
+    // ── Directories ───────────────────────────────────────────────────────────
 
     fun modelDir(context: Context): File {
         val internal = File(context.filesDir, "models").also { it.mkdirs() }
@@ -34,22 +80,56 @@ object ModelManager {
         return (context.getExternalFilesDir("models") ?: internal).also { it.mkdirs() }
     }
 
-    fun modelPath(context: Context): File =
-        File(modelDir(context), MODEL_FILENAME)
+    // ── Paths for the ACTIVE model ────────────────────────────────────────────
 
-    fun partialPath(context: Context): File =
-        File(modelDir(context), "$MODEL_FILENAME.part")
-
-    /**
-     * Returns true if the GGUF is fully present and has the expected minimum size.
-     * Does not check SHA256 on every launch (too slow) — only after download.
-     */
-    fun isModelReady(context: Context): Boolean {
-        val f = modelPath(context)
-        return f.exists() && f.length() >= EXPECTED_SIZE_BYTES
+    fun modelPath(context: Context): File {
+        val custom = customModelPath(context)
+        if (custom != null) return File(custom)
+        val entry = resolveActive(context)
+        return File(modelDir(context), entry.filename)
     }
 
-    /** Bytes already downloaded (partial file size, for resume). */
+    fun partialPath(context: Context): File {
+        val entry = resolveActive(context)
+        return File(modelDir(context), "${entry.filename}.part")
+    }
+
+    // ── Paths for ANY catalog model (used by SettingsScreen / download logic) ─
+
+    fun modelPathFor(context: Context, modelId: String): File {
+        val entry = ModelCatalog.findById(modelId) ?: return modelPath(context)
+        return File(modelDir(context), entry.filename)
+    }
+
+    fun partialPathFor(context: Context, modelId: String): File {
+        val entry = ModelCatalog.findById(modelId) ?: return partialPath(context)
+        return File(modelDir(context), "${entry.filename}.part")
+    }
+
+    fun isModelDownloaded(context: Context, modelId: String): Boolean {
+        val entry = ModelCatalog.findById(modelId) ?: return false
+        val f = File(modelDir(context), entry.filename)
+        return f.exists() && f.length() >= entry.expectedSizeBytes
+    }
+
+    // ── Ready check (active model or custom path) ─────────────────────────────
+
+    /**
+     * Returns true if the currently active GGUF (or custom path) is fully
+     * present and meets the minimum expected size.
+     */
+    fun isModelReady(context: Context): Boolean {
+        val custom = customModelPath(context)
+        if (custom != null) {
+            val f = File(custom)
+            return f.exists() && f.length() > 0
+        }
+        val entry = resolveActive(context)
+        val f = File(modelDir(context), entry.filename)
+        return f.exists() && f.length() >= entry.expectedSizeBytes
+    }
+
+    /** Bytes already on disk for the active model (partial file, for resume). */
     fun downloadedBytes(context: Context): Long {
         val partial = partialPath(context)
         return if (partial.exists()) partial.length() else 0L
@@ -58,9 +138,21 @@ object ModelManager {
     /** Move the partial file to the final path after verified download. */
     fun finalizeDownload(context: Context): Boolean {
         val partial = partialPath(context)
-        val final = modelPath(context)
+        val final   = modelPath(context)
         return partial.renameTo(final)
     }
+
+    /**
+     * Finalize a download for a specific catalog model ID.
+     * Used by ModelDownloadService when downloading a non-active model.
+     */
+    fun finalizeDownloadFor(context: Context, modelId: String): Boolean {
+        val partial = partialPathFor(context, modelId)
+        val final   = modelPathFor(context, modelId)
+        return partial.renameTo(final)
+    }
+
+    // ── SHA-256 ───────────────────────────────────────────────────────────────
 
     fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")

@@ -938,6 +938,49 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ── Catalog model management ───────────────────────────────────────────────
+
+    /**
+     * Persist [modelId] as the active model without downloading anything.
+     * The new active model will be loaded on the next ARIA start / reload.
+     */
+    fun selectActiveModel(modelId: String) {
+        ModelManager.setActiveModelId(context, modelId)
+        refreshModuleState()
+    }
+
+    /**
+     * Download a specific catalog model by [modelId] via the foreground
+     * ModelDownloadService. If the model is already fully downloaded this
+     * returns immediately (same behaviour as downloadLlmModel).
+     *
+     * Progress and completion are delivered through the same AgentEventBus
+     * events ("model_download_progress", "model_download_complete",
+     * "model_download_error") already handled by the ViewModel's event loop.
+     */
+    fun downloadCatalogModel(modelId: String) {
+        if (_llmDownloading.value) return
+        if (ModelManager.isModelDownloaded(context, modelId)) {
+            refreshModuleState()
+            return
+        }
+        _llmDownloading.value = true
+        _moduleState.update { it.copy(llmDownloadPercent = 0, llmDownloadError = null) }
+        val intent = Intent(context, ModelDownloadService::class.java)
+            .putExtra(ModelDownloadService.EXTRA_MODEL_ID, modelId)
+        context.startForegroundService(intent)
+    }
+
+    /**
+     * Save [path] as the user's custom local GGUF path and clear the active
+     * catalog selection so ARIA will load this file instead.
+     * Pass null or blank to remove the custom path override.
+     */
+    fun setLocalModelPath(path: String?) {
+        ModelManager.setCustomModelPath(context, path)
+        refreshModuleState()
+    }
+
     // ─── Phase 18: SAM2 / MobileSAM pixel segmentation ──────────────────────
 
     /**
