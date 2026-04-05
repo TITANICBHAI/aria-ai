@@ -58,6 +58,14 @@ import com.ariaagent.mobile.ui.theme.ARIAColors
  *  13  Mode 3: Manual Labeling
  *  14  Mode 4: LoRA Fine-Tuning
  *  15  Training Recipes (combined examples)
+ *
+ *  ── DEEP KNOWLEDGE ──
+ *  16  Why On-Device Over Cloud
+ *  17  What Makes ARIA Agentic (not just a bot)
+ *  18  How All Three Models See Your Screen
+ *  19  Annotating Frames — Teaching Like a Sensei
+ *  20  Model Size Tradeoffs on Mobile Hardware
+ *  21  When ARIA Fails and How to Fix It
  */
 
 private data class KnowledgePage(
@@ -308,6 +316,98 @@ fun KnowledgeWizardScreen(onBack: () -> Unit) {
             ),
             callout   = "You do not need to do all of this. Even just running REINFORCE for two weeks of normal use makes ARIA significantly smarter at your daily apps.",
             calloutColor = ARIAColors.Success,
+        ),
+
+        // ── DEEP KNOWLEDGE ────────────────────────────────────────────────────
+
+        KnowledgePage(
+            icon      = Icons.Default.WifiOff,
+            iconTint  = ARIAColors.Primary,
+            title     = "Why On-Device Over Cloud",
+            body      = "Cloud AI (ChatGPT, Gemini, Claude) is powerful but fundamentally incompatible with an autonomous phone agent. Here is why ARIA must run on your device:\n\nPRIVACY — A cloud agent would send every screenshot of your phone to a remote server. That includes your banking apps, your messages, your contacts, your passwords. No legitimate agent can do this.\n\nLATENCY — A cloud round-trip takes 300–1500 ms per step. ARIA runs 3–8 steps per second locally. At 1 step/second for a 20-step task, cloud adds 5–30 minutes of wait time versus 20 seconds on-device.\n\nCOST — GPT-4 Vision at ~2000 tokens/step × 50 steps/task × 10 tasks/day = $3–15/day per user. On-device: $0 forever.\n\nCONTROL — Cloud models are updated without notice. On-device, the model you trust today is the model running tomorrow. No prompt injection from model updates.\n\nThe real tradeoff: on-device models are smaller (1B–7B params vs 70B–1T) and less capable at reasoning. ARIA compensates with structured prompting, memory retrieval, and continuous on-device fine-tuning.",
+            bullets   = listOf(
+                Icons.Default.Lock          to "Privacy: zero screenshots leave the device — ever",
+                Icons.Default.Speed         to "Latency: <100 ms/step local vs 300–1500 ms cloud round-trip",
+                Icons.Default.AttachMoney   to "Cost: $0 forever vs $3–15/day for GPT-4 Vision",
+                Icons.Default.PhoneAndroid  to "Control: your model, your data, your rules — no silent updates",
+            ),
+            callout   = "Cloud AI is not better for this use case — it is architecturally wrong. An agent that sends your banking screen to a server is a privacy violation, not a feature.",
+            calloutColor = ARIAColors.Warning,
+        ),
+
+        KnowledgePage(
+            icon      = Icons.Default.AutoAwesome,
+            iconTint  = ARIAColors.Accent,
+            title     = "What Makes ARIA Agentic",
+            body      = "A chatbot answers questions. A bot follows a fixed script. An agent reasons about its environment and decides what to do next — even when the situation is new.\n\nFour things make ARIA agentic instead of just a bot:\n\n1. PERCEPTION — ARIA reads live screen state (accessibility tree + OCR + vision) at every step. It sees the actual current state, not a pre-programmed snapshot.\n\n2. REASONING — The LLM reasons about what it sees and produces a justified action (the 'reason' field in the JSON). It can handle unexpected screens by reasoning from first principles.\n\n3. MEMORY — Past experiences are retrieved and injected into every prompt. ARIA knows it has tried this before, and what happened.\n\n4. ADAPTATION — If stuck, ARIA changes strategy (tries Back, then a different path, then scrolls). It does not loop on the same failed action.\n\nEXAMPLE of agentic vs bot behaviour:\n  Bot: \"If screen = home screen, tap Gmail\"\n  ARIA: \"I see a home screen. My goal is to send email. Gmail is visible as icon #7. I will tap it. Reason: shortest path to email compose.\"\n  If Gmail is not there: Bot fails. ARIA searches the app drawer instead.",
+            bullets   = listOf(
+                Icons.Default.Visibility    to "Perceives real live screen state every step — not hardcoded",
+                Icons.Default.Psychology    to "Reasons with justified JSON — not pattern-matched rules",
+                Icons.Default.History       to "Retrieves relevant memory — learns from its own past",
+                Icons.Default.AltRoute      to "Adapts when stuck — tries alternative paths autonomously",
+            ),
+            callout   = "The 'reason' field in every action JSON is ARIA's live reasoning trace. Reading it in the Activity screen shows exactly what the agent is thinking step by step.",
+            calloutColor = ARIAColors.Accent,
+        ),
+
+        KnowledgePage(
+            icon      = Icons.Default.RemoveRedEye,
+            iconTint  = ARIAColors.Primary,
+            title     = "How All Three Models See Your Screen",
+            body      = "When ARIA processes a frame, three completely different models each contribute a different kind of understanding. They run in sequence and their outputs are fused into a single prompt.\n\nMODEL 1 — Llama 3.2-1B (The Thinker)\n  Input: structured text (accessibility tree + OCR + vision summary + memory)\n  Output: one JSON action command\n  Strength: multi-step reasoning, goal interpretation, handling novel situations\n  Weakness: cannot see raw pixels — depends on the other two for visual input\n\nMODEL 2 — SmolVLM-256M (The Eyes)\n  Input: a JPEG screenshot letterboxed to 384×384\n  Output: a 2–3 sentence natural language description of what it sees\n  Strength: describes icon-only UI, game graphics, visual states (loading, error, empty)\n  Weakness: small model — sometimes misidentifies fine text or small icons\n\nMODEL 3 — MobileSAM ViT-Tiny (The Finger Pointer)\n  Input: same JPEG screenshot at 1024×1024\n  Output: top-8 normalised (x, y) coordinates of salient regions\n  Strength: finds tappable regions even with no accessibility tree at all\n  Weakness: saliency-based — finds visually prominent regions, not logically important ones\n\nFusion: SmolVLM's description + SAM's coordinates + OCR text → all injected into Llama's prompt → Llama decides which region to tap and why.",
+            bullets   = listOf(
+                Icons.Default.Memory        to "Llama: reasons with text — the decision-maker",
+                Icons.Default.PhotoCamera   to "SmolVLM: reads pixels — describes what human eyes see",
+                Icons.Default.TouchApp      to "MobileSAM: finds tap targets — works with zero accessibility data",
+                Icons.Default.MergeType     to "Fusion: all three outputs combined → richer than any alone",
+            ),
+            callout   = "On a Flutter app or game with no accessibility tree: SmolVLM describes the screen and SAM provides tap coordinates. Llama picks the right one. All without a single accessibility node.",
+            calloutColor = ARIAColors.Primary,
+        ),
+
+        KnowledgePage(
+            icon      = Icons.Default.EditNote,
+            iconTint  = ARIAColors.Success,
+            title     = "Annotating Frames: Teaching Like a Sensei",
+            body      = "When you annotate a video frame in the IRL trainer — typing \"here I tapped the Share button at the top right\" — you are doing something much more powerful than just labeling an action.\n\nYour annotation flows into ALL THREE models simultaneously:\n\nTO SmolVLM: Your text is injected into the vision prompt. Instead of \"describe this screen\", SmolVLM is now asked: \"The user says they tapped the Share button here — confirm what you see and what the screen state shows.\" SmolVLM then produces a vision description that is grounded in your logic, not just pixel saliency.\n\nTO MobileSAM: If your annotation mentions a screen region (\"top button\", \"bottom nav\", \"left panel\"), SAM's tap candidates are re-ranked toward that area. So the coordinates ARIA receives are already biased toward where you said the action happened.\n\nTO Llama: Your annotation appears as \"Expert note\" in the action inference prompt. The LLM sees your reasoning directly and uses it to produce the correct action JSON — even if OCR or accessibility data would have suggested something different.\n\nThis is why annotating even a few frames of a complex workflow teaches ARIA exponentially faster than running the task blindly. You are teaching it your reasoning, not just your actions.",
+            bullets   = listOf(
+                Icons.Default.RemoveRedEye  to "SmolVLM: annotation becomes part of the vision prompt",
+                Icons.Default.TouchApp      to "MobileSAM: spatial words re-rank which tap targets rank first",
+                Icons.Default.Psychology    to "Llama: sees your reasoning as 'Expert note' in the prompt",
+                Icons.Default.Bolt          to "Effect: one annotated video > ten unannotated task runs",
+            ),
+            callout   = "Best annotation style: explain your reasoning, not just what you did. 'I tapped Settings because Bluetooth toggle is only accessible from there' teaches more than 'tapped Settings'.",
+            calloutColor = ARIAColors.Success,
+        ),
+
+        KnowledgePage(
+            icon      = Icons.Default.Memory,
+            iconTint  = ARIAColors.Warning,
+            title     = "Model Size Tradeoffs on Mobile",
+            body      = "ARIA uses Llama 3.2-1B by design. Here is why — and what you gain and lose versus larger models:\n\nLlama 3.2-1B Q4_K_M (~870 MB, ~10–15 tok/s on M31)\n  PRO: Fits in 6 GB RAM alongside the OS, SmolVLM, and SAM. Runs at real-time speed.\n  CON: Weaker multi-step reasoning than 3B+. May struggle with very complex tasks.\n\nLlama 3.2-3B Q4_K_M (~2.0 GB, ~4–6 tok/s on M31)\n  PRO: Noticeably better reasoning, fewer mistakes on ambiguous screens.\n  CON: Marginal fit — leaves only ~3.5 GB for OS + other apps. May trigger OOM kills.\n  STATUS: Supported in code, gated by device RAM check. Enable in Settings → Model.\n\nLlama 3.2-8B Q4_K_M (~5.0 GB, not feasible on M31)\n  Would need 8–10 GB RAM total. Would not load on 6 GB devices.\n  Feasible on flagship 12 GB devices (Galaxy S24 Ultra, Pixel 9 Pro).\n\nSmolVLM 256M vs 500M:\n  256M fits in ~200 MB. 500M doubles disk + RAM for ~15% better descriptions.\n  Currently locked to 256M for M31 safety. Future: configurable per device.\n\nRule of thumb: use the largest model that loads without OOM on your specific device. ARIA will tell you if a model is too large during the download check.",
+            bullets   = listOf(
+                Icons.Default.Memory        to "1B: fits any 6 GB device — current default, real-time speed",
+                Icons.Default.Memory        to "3B: better reasoning — borderline on 6 GB, safe on 8 GB+",
+                Icons.Default.Warning       to "8B+: requires 12 GB+ RAM — not supported on M31",
+                Icons.Default.Tune          to "Q4_K_M quantisation: best quality/size tradeoff for 4-bit",
+            ),
+            callout   = "If you have a newer high-RAM device (8 GB+), try switching to 3B. The reasoning improvement is significant for complex multi-app workflows.",
+            calloutColor = ARIAColors.Warning,
+        ),
+
+        KnowledgePage(
+            icon      = Icons.Default.BugReport,
+            iconTint  = ARIAColors.Warning,
+            title     = "When ARIA Fails and Why",
+            body      = "Understanding why ARIA fails helps you fix it faster. Almost all failures fall into five categories:\n\n1. ACCESSIBILITY TREE EMPTY\n  Cause: game, Unity, Flutter, or WebView app with no a11y nodes.\n  Symptom: ARIA types Wait repeatedly, never taps anything useful.\n  Fix: enable SmolVLM + MobileSAM in Modules. Label the key UI elements in the Labeler.\n\n2. WRONG ELEMENT TAPPED\n  Cause: two elements look similar in OCR text (two buttons both labelled \"OK\").\n  Symptom: ARIA keeps tapping the wrong OK.\n  Fix: label the specific element in the Labeler with a unique name.\n\n3. STUCK LOOP (same screen for 5+ steps)\n  Cause: the action isn't registering, or the screen needs a different gesture.\n  Symptom: ARIA keeps clicking the same node, screen doesn't change.\n  Fix: ARIA auto-detects stuck at step 5 (forces Back) and step 8 (aborts). If it keeps happening, record an IRL video of the correct action.\n\n4. LLM PRODUCES INVALID JSON\n  Cause: context too long, model confused by ambiguous prompt.\n  Symptom: action shows Wait with reason 'no action parsed'.\n  Fix: shorten the goal description. Very long goals confuse the 1B model.\n\n5. MODEL NOT LOADED (stub mode)\n  Cause: NDK library not compiled yet.\n  Symptom: every action is a fixed stub output from LlamaEngine.\n  Fix: build the NDK library. See the 'What Needs the NDK Build' page.",
+            bullets   = listOf(
+                Icons.Default.Visibility    to "Empty a11y tree → enable SmolVLM + SAM + label key elements",
+                Icons.Default.AdsClick      to "Wrong tap → label the specific confused element in Labeler",
+                Icons.Default.Loop          to "Stuck loop → ARIA auto-breaks at step 5/8; record IRL to fix pattern",
+                Icons.Default.Code          to "Invalid JSON → shorten goal text; 1B model has 4096 token limit",
+            ),
+            callout   = "The Activity screen shows every step's action JSON and reason in real time. Reading the reason field tells you exactly what the model was thinking when it failed.",
+            calloutColor = ARIAColors.Warning,
         ),
     )
 
