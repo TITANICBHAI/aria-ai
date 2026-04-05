@@ -8,8 +8,8 @@ import kotlinx.coroutines.flow.asSharedFlow
 /**
  * AgentEventBus — the internal event backbone for ARIA's Kotlin brain.
  *
- * Both the React Native JS bridge (AgentCoreModule via DeviceEventEmitter) and
- * the Jetpack Compose UI (AgentViewModel via StateFlow) subscribe to this bus.
+ * AgentViewModel (via StateFlow → Compose UI) subscribes to this bus.
+ * The React Native bridge has been removed — this is the sole subscriber path.
  *
  * Pattern: AgentLoop/GameLoop/LearningScheduler/ThermalGuard emit here.
  *          Subscribers react independently — no coupling between them.
@@ -35,7 +35,7 @@ import kotlinx.coroutines.flow.asSharedFlow
  *   model_download_error    error
  *   config_updated          (same keys as getConfig return)
  *
- * Phase: 10 (JS Thinning) — enables Compose ViewModel to subscribe without a bridge.
+ * Phase: 10+ (Migration complete) — sole event channel for Compose ViewModel.
  */
 object AgentEventBus {
 

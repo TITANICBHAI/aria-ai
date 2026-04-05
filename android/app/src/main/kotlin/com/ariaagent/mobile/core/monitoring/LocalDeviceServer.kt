@@ -32,7 +32,7 @@ import java.net.Socket
  *   GET /aria/activity — recent action logs (last 50)
  *   GET /aria/modules  — per-module status
  *
- * Started automatically by [AgentCoreModule.init] when the app launches.
+ * Started automatically by AgentViewModel.init when the app launches.
  * Default port: 8765.
  *
  * Phase: 16 (Local Monitoring)

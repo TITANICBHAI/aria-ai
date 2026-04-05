@@ -34,7 +34,7 @@ import kotlinx.coroutines.launch
  *   7. Game-over detection: OCR for terminal state keywords
  *   8. Reward: +score_delta, -1.0 game over, +5.0 new high score
  *   9. Store: ExperienceTuple(task_type="game") → ExperienceStore
- *  10. Emit: game_loop_status event → JS via onEvent callback
+ *  10. Emit: game_loop_status event → AgentEventBus → AgentViewModel → Compose UI
  *
  * IRL bootstrapping: experience tuples from game videos (via IrlModule)
  * are stored as task_type="irl_expert" and used to pre-train the policy

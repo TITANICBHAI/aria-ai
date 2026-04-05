@@ -281,9 +281,8 @@ class ObjectLabelStore private constructor(context: Context) :
     }
 
     /**
-     * Serialize a list of ObjectLabels to a JSON string for the JS bridge.
-     * The bridge passes this as a string because WritableArray of complex objects
-     * is verbose — JSON string is more reliable across the JNI boundary.
+     * Serialize a list of ObjectLabels to a JSON string.
+     * Used for storage and inter-component transfer within the Kotlin layer.
      */
     fun toJson(labels: List<ObjectLabel>): String {
         val arr = JSONArray()
@@ -312,7 +311,7 @@ class ObjectLabelStore private constructor(context: Context) :
     }
 
     /**
-     * Parse a JSON string from the JS bridge back into ObjectLabels.
+     * Parse a JSON string back into ObjectLabels.
      */
     fun fromJson(json: String, appPackage: String, screenHash: String): List<ObjectLabel> {
         return runCatching {

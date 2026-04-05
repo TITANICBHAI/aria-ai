@@ -9,7 +9,7 @@ package com.ariaagent.mobile.core.ai
  *   cd android/app/src/main/cpp
  *   git submodule add https://github.com/ggerganov/llama.cpp llama.cpp
  *   git submodule update --init --recursive
- *   Then run: eas build --profile development
+ *   Then run: ./gradlew assembleDebug (from android/)
  *
  * Hardware target: Samsung Galaxy M31 (Exynos 9611)
  *   - Mali-G72 MP3 → Vulkan 1.1 → n_gpu_layers = 32 (all layers offloaded)
@@ -22,7 +22,7 @@ package com.ariaagent.mobile.core.ai
  *   - RAM (RSS): ~1500–1900MB with mmap
  *   - Speed: 8–15 tok/s on Exynos 9611 with Vulkan offload
  *
- * Token callback interface (implemented in AgentCoreModule for streaming to JS):
+ * Token callback interface (streamed to ChatScreen / AgentViewModel):
  *   interface TokenCallback { fun onToken(token: String) }
  */
 object LlamaEngine {

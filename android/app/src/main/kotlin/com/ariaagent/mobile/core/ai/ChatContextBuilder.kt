@@ -15,10 +15,10 @@ import com.ariaagent.mobile.core.memory.ExperienceStore
  * in JavaScript. This violated the Kotlin-owns-logic rule and caused 4× bridge
  * round-trips per message. Now a single bridge call returns the fully-formed prompt.
  *
- * Called by: AgentCoreModule.buildChatContext()
- * Consumed by: chat.tsx via AgentCoreBridge.buildChatContext()
+ * Called by: AgentViewModel.sendChatMessage()
+ * Consumed by: ChatScreen via AgentViewModel.
  *
- * Assessment gap fix: non-UI logic migrated from JS → Kotlin (JS-Independence principle).
+ * Assessment gap fix: non-UI logic migrated to pure Kotlin (JS-Independence principle).
  * Phase: Post-16 / Assessment
  */
 object ChatContextBuilder {

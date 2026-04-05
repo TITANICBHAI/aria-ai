@@ -37,7 +37,7 @@ import kotlinx.coroutines.launch
  *   5. ACT       — dispatch gesture via GestureEngine
  *   6. EVALUATE  — wait for screen to settle, assign reward
  *   7. STORE     — persist ExperienceTuple to SQLite
- *   8. EMIT      — push status event to JS via bridge callback
+ *   8. EMIT      — push status event to AgentEventBus (→ AgentViewModel → Compose UI)
  *
  * Loop stops when:
  *   - LLM returns {"tool":"Done"}
@@ -45,7 +45,7 @@ import kotlinx.coroutines.launch
  *   - stop() is called
  *   - An unrecoverable exception is thrown
  *
- * Events emitted to JS (via AgentCoreModule.emitEvent):
+ * Events emitted to AgentEventBus (consumed by AgentViewModel → Compose screens):
  *   agent_status_changed  { status, currentTask, currentApp, stepCount }
  *   action_performed      { tool, nodeId, success, reward, stepCount }
  *   token_generated       { token, tokensPerSecond }
@@ -73,7 +73,7 @@ object AgentLoop {
     var state = LoopState()
         private set
 
-    // Called by AgentCoreModule — emits events back to JS
+    // Event callback — wired by AgentViewModel to forward events into AgentEventBus
     var onEvent: ((name: String, data: Map<String, Any>) -> Unit)? = null
 
     private const val MAX_STEPS = 50
@@ -145,7 +145,7 @@ object AgentLoop {
                 while (isActive && state.stepCount < MAX_STEPS) {
 
                     // ── 0. STEP STARTED ──────────────────────────────────────
-                    // Push to JS and Compose ViewModel before any work begins.
+                    // Push to AgentEventBus → Compose ViewModel before any work begins.
                     // Lets the UI show "OBSERVE" spinner immediately.
                     run {
                         val stepData = mapOf(

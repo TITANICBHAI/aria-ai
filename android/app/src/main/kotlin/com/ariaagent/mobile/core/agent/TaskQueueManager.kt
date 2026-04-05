@@ -29,12 +29,12 @@ import java.io.File
  * }
  * ```
  *
- * Bridge methods in AgentCoreModule:
- *   enqueueTask(goal, appPackage, priority) → QueuedTask JSON
- *   dequeueTask()                           → QueuedTask JSON | null
- *   getTaskQueue()                          → QueuedTask[] JSON
+ * ControlScreen operations (via AgentViewModel):
+ *   enqueueTask(goal, appPackage, priority) → QueuedTask
+ *   dequeueTask()                           → QueuedTask?
+ *   getTaskQueue()                          → List<QueuedTask>
  *   removeQueuedTask(taskId)                → Boolean
- *   clearTaskQueue()                        → void
+ *   clearTaskQueue()                        → Unit
  *
  * Phase: 15 — App Skill Registry & Task Chaining.
  */

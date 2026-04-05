@@ -18,7 +18,7 @@ import org.json.JSONObject
  *  1. **Prompt injection** — [getPromptHint] returns a concise one-liner injected into every
  *     LLM prompt as an [APP KNOWLEDGE] block. This gives the model app-specific context
  *     (success rate, known elements, past goals) before it reasons about the current screen.
- *  2. **Monitoring** — exposed to JS via AgentCoreModule bridge methods so the Modules screen
+ *  2. **Monitoring** — read by ModulesScreen via AgentViewModel so the Modules screen
  *     can display per-app skill levels and task history.
  *
  * Schema (aria_app_skills.db / app_skills):

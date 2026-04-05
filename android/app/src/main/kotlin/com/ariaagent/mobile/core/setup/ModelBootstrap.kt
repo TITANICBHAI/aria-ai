@@ -36,7 +36,7 @@ import kotlinx.coroutines.withContext
  *             If LoRA adapter already exists on disk it is auto-loaded by
  *             LlamaEngine.loadLora() during normal agent startup — not here.
  *
- * Events emitted to JS via the [emit] callback:
+ * Events emitted via the [emit] callback (forwarded to AgentEventBus):
  *   "bootstrap_stage" {
  *     stage:   "awaiting_gguf" | "downloading_minilm" | "downloading_detector" | "ready"
  *     step:    1 | 2 | 3 | 4          (which step we are on)
@@ -45,7 +45,7 @@ import kotlinx.coroutines.withContext
  *     label:   "Downloading AI brain…" (human-readable status)
  *   }
  *
- * Usage in AgentCoreModule:
+ * Usage in AgentViewModel:
  *   scope.launch(Dispatchers.IO) { ModelBootstrap.run(ctx, ::emitBootstrapEvent) }
  */
 object ModelBootstrap {
@@ -75,7 +75,7 @@ object ModelBootstrap {
 
         // ── Step 1: Wait for GGUF ─────────────────────────────────────────────
         if (!ModelManager.isModelReady(context)) {
-            Log.i(TAG, "Waiting for GGUF model — user must trigger startModelDownload() from JS")
+            Log.i(TAG, "Waiting for GGUF model — user must trigger startModelDownload() from SettingsScreen")
             emit(BootstrapEvent(
                 stage   = "awaiting_gguf",
                 step    = 1,

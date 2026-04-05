@@ -75,7 +75,7 @@ object PolicyNetwork {
     private var isInitialized = false
     private var neonAvailable = false
 
-    // ─── Exposed stats (read by AgentCoreModule → JS) ─────────────────────────
+    // ─── Exposed stats (read by TrainScreen via AgentViewModel) ──────────────
     var lastPolicyLoss: Double = 0.0
         private set
 

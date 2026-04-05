@@ -15,9 +15,9 @@ import com.ariaagent.mobile.ui.theme.ARIAColors
  *
  * Hosts ARIAComposeApp (NavHost + bottom nav + all 5 screens).
  *
- * Registration: AndroidManifest.xml lists this as a secondary Activity (NOT launcher).
- *   - Launcher is still ReactActivity (Phase 1/React Native shell) until EAS build is complete.
- *   - Once EAS produces an APK with the Compose launcher, the intent-filter moves here.
+ * Registration: AndroidManifest.xml — this IS the launcher Activity (Phase 1 complete).
+ *   - Intent-filter with MAIN + LAUNCHER is on this Activity.
+ *   - MainActivity.kt is a no-op stub (Phase 8 deletion target).
  *
  * Edge-to-edge: enabled so the ARIA navy background fills the status bar and nav bar areas.
  * The NavigationBar in ARIAComposeApp uses navigationBarsPadding() to avoid overlap.

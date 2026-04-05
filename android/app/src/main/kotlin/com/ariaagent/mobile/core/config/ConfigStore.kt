@@ -27,11 +27,10 @@ import kotlinx.coroutines.runBlocking
  *
  * Usage patterns:
  *   — Compose ViewModel: `ConfigStore.flow(context).collectAsState()` — reactive, zero-cost
- *   — AgentCoreModule (bridge): `ConfigStore.getBlocking(context)` — safe from @ReactMethod coroutine scope
+ *   — AgentViewModel (blocking read): `ConfigStore.getBlocking(context)` — safe from coroutine scope
  *   — AgentLoop: reads model path from `ModelManager.modelPath()` directly (no config dependency)
  *
- * The `AriaConfig` data class is the canonical in-memory config type.
- * It mirrors the `AgentConfig` TypeScript interface in AgentCoreBridge.ts.
+ * The `AriaConfig` data class is the canonical in-memory config type for the pure Kotlin build.
  *
  * Fully on-device: no network endpoints, no cloud config. All values stored in
  * Android DataStore within the app's private internal storage.

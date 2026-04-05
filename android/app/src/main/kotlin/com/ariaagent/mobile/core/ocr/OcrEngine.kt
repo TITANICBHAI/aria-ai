@@ -13,7 +13,7 @@ import kotlin.coroutines.suspendCoroutine
  * OcrEngine — ML Kit on-device text recognition.
  *
  * Wraps the ML Kit TextRecognition async API with a suspending coroutine bridge.
- * Used by AgentCoreModule for screen reading and labeled capture flows.
+ * Used by AgentLoop and LabelerScreen (via AgentViewModel) for screen reading and labeled capture flows.
  *
  * RAM: ~100 MB peak (shared ML Kit process pool).
  * Latency: ~50–150ms per frame on mid-range hardware.

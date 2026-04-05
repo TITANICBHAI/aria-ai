@@ -80,7 +80,7 @@ class LearningScheduler(private val context: Context) {
         isRunning = false
     }
 
-    // Called by AgentCoreModule to emit events back to JS
+    // Callback emitted to AgentEventBus on cycle completion (read by TrainScreen via AgentViewModel)
     var onLearningCycleComplete: ((loraVersion: Int, policyVersion: Int) -> Unit)? = null
 
     private fun runTrainingCycle() {

@@ -62,8 +62,7 @@ import com.ariaagent.mobile.ui.theme.ARIAColors
  *   - Reset Agent button (ProgressPersistence.clearProgress) with confirmation dialog
  *
  * TODO (Phase 10): Web Dashboard / Local Monitoring Server section.
- *   The server backend currently lives in bridge/AgentCoreModule.kt (RN bridge).
- *   Extract it into a standalone LocalMonitoringServer.kt before adding the toggle here.
+ *   LocalDeviceServer.kt already exists — add a toggle here to start/stop it.
  */
 @Composable
 fun SettingsScreen(vm: AgentViewModel = viewModel()) {
