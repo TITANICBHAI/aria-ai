@@ -41,6 +41,7 @@ class LearningScheduler(private val context: Context) {
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var isRunning = false
+    private var wakeLock: PowerManager.WakeLock? = null
 
     private val chargingReceiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context, intent: Intent) {
@@ -79,6 +80,8 @@ class LearningScheduler(private val context: Context) {
 
     private fun cancelTraining() {
         isRunning = false
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wakeLock = null
     }
 
     // Callback emitted to AgentEventBus on cycle completion (read by TrainScreen via AgentViewModel)
@@ -87,6 +90,19 @@ class LearningScheduler(private val context: Context) {
     private fun runTrainingCycle() {
         if (isRunning) return
         isRunning = true
+
+        // Keep the CPU alive during training. The scheduler runs while the screen
+        // is off and the device is charging — prime Doze mode territory. Without a
+        // partial wake lock the OS can suspend the process mid-epoch, silently
+        // killing the training coroutine and leaving isRunning stuck at true.
+        // Timeout: 2 h safety cap so the lock can never be permanently orphaned
+        // (e.g. if the finally block is skipped by a hard process kill).
+        val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "AriaAgent:LearningScheduler"
+        ).also { it.acquire(2 * 60 * 60 * 1000L) }
+        Log.d(TAG, "WakeLock acquired for training cycle")
 
         scope.launch {
             try {
@@ -170,6 +186,9 @@ class LearningScheduler(private val context: Context) {
                 Log.e(TAG, "Training cycle failed: ${e.message}")
             } finally {
                 isRunning = false
+                wakeLock?.let { if (it.isHeld) it.release() }
+                wakeLock = null
+                Log.d(TAG, "WakeLock released after training cycle")
             }
         }
     }
