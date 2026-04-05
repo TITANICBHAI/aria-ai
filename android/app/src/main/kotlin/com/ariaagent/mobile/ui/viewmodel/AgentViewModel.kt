@@ -26,6 +26,8 @@ import com.ariaagent.mobile.core.ocr.OcrEngine
 import com.ariaagent.mobile.core.perception.ObjectDetectorEngine
 import com.ariaagent.mobile.core.perception.ScreenObserver
 import com.ariaagent.mobile.core.persistence.ProgressPersistence
+import com.ariaagent.mobile.core.memory.SessionReplayStore
+import com.ariaagent.mobile.core.patterns.SuggestionStore
 import com.ariaagent.mobile.core.rl.IrlModule
 import com.ariaagent.mobile.core.rl.LoraTrainer
 import com.ariaagent.mobile.core.rl.PolicyNetwork
@@ -280,6 +282,37 @@ data class ChainedTaskItem(
     val timestamp: Long,
 )
 
+/** T002: Session Replay — summary of one recorded agent session. */
+data class ReplaySessionItem(
+    val sessionId: String,
+    val goal: String,
+    val stepCount: Int,
+    val succeeded: Int,
+    val failed: Int,
+    val startTime: Long,
+    val endTime: Long,
+)
+
+/** T002: Session Replay — one step within a recorded session. */
+data class ReplayStepItem(
+    val stepIdx: Int,
+    val screenHash: String,
+    val actionJson: String,
+    val reason: String,
+    val result: String,
+    val appPackage: String,
+    val timestamp: Long,
+)
+
+/** T005: Proactive Goal Surfacing — pending automation suggestion for DashboardScreen banner. */
+data class SuggestionBannerItem(
+    val id: Long,
+    val appPackage: String,
+    val goalText: String,
+    val suggestionText: String,
+    val repeatCount: Int,
+)
+
 /**
  * AgentViewModel — primary state holder for the Jetpack Compose UI.
  *
@@ -473,6 +506,17 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     private val _loraTrainingProgress = MutableStateFlow<LoraTrainingProgress?>(null)
     val loraTrainingProgress: StateFlow<LoraTrainingProgress?> = _loraTrainingProgress.asStateFlow()
 
+    // ── T002: Session Replay ──────────────────────────────────────────────────
+    private val _replaySessions = MutableStateFlow<List<ReplaySessionItem>>(emptyList())
+    val replaySessions: StateFlow<List<ReplaySessionItem>> = _replaySessions.asStateFlow()
+
+    private val _replaySteps = MutableStateFlow<List<ReplayStepItem>>(emptyList())
+    val replaySteps: StateFlow<List<ReplayStepItem>> = _replaySteps.asStateFlow()
+
+    // ── T005: Proactive Goal Surfacing ────────────────────────────────────────
+    private val _pendingSuggestions = MutableStateFlow<List<SuggestionBannerItem>>(emptyList())
+    val pendingSuggestions: StateFlow<List<SuggestionBannerItem>> = _pendingSuggestions.asStateFlow()
+
     /** Config — reactive DataStore flow, auto-updates on any config change. */
     val config: StateFlow<AriaConfig> = ConfigStore.flow(context)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), AriaConfig())
@@ -488,6 +532,8 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
             _safetyConfig.value = SafetyConfigStore.load(context)
         }
         refreshLoraHistory()
+        refreshReplaySessions()
+        refreshPendingSuggestions()
 
         // Auto-load vision model on startup if files are already on disk.
         // This pre-warms the ~200 MB model so the first agent step does not
@@ -1129,6 +1175,81 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     /** Dismiss the chained task notification banner. */
     fun dismissChainNotification() {
         _chainedTask.value = null
+    }
+
+    // ─── T002: Session Replay ─────────────────────────────────────────────────
+
+    /** Load recent sessions from SessionReplayStore for the ActivityScreen Replay tab. */
+    fun refreshReplaySessions() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val store = SessionReplayStore.getInstance(context)
+            _replaySessions.value = store.getRecentSessions(20).map { s ->
+                ReplaySessionItem(
+                    sessionId = s.sessionId,
+                    goal      = s.goal,
+                    stepCount = s.stepCount,
+                    succeeded = s.succeeded,
+                    failed    = s.failed,
+                    startTime = s.startTime,
+                    endTime   = s.endTime,
+                )
+            }
+        }
+    }
+
+    /** Load the step-by-step replay for a specific session (used by Replay timeline). */
+    fun loadReplaySteps(sessionId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val store = SessionReplayStore.getInstance(context)
+            _replaySteps.value = store.getSteps(sessionId).map { e ->
+                ReplayStepItem(
+                    stepIdx    = e.stepIdx,
+                    screenHash = e.screenHash,
+                    actionJson = e.actionJson,
+                    reason     = e.reason,
+                    result     = e.result,
+                    appPackage = e.appPackage,
+                    timestamp  = e.timestamp,
+                )
+            }
+        }
+    }
+
+    // ─── T005: Proactive Goal Surfacing ───────────────────────────────────────
+
+    /** Load pending automation suggestions from SuggestionStore for DashboardScreen banner. */
+    fun refreshPendingSuggestions() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val store = SuggestionStore.getInstance(context)
+            _pendingSuggestions.value = store.getPending().map { s ->
+                SuggestionBannerItem(
+                    id             = s.id,
+                    appPackage     = s.appPackage,
+                    goalText       = s.goalText,
+                    suggestionText = s.suggestionText,
+                    repeatCount    = s.repeatCount,
+                )
+            }
+        }
+    }
+
+    /** Accept a suggestion — mark accepted in DB, remove from UI, and launch the agent task. */
+    fun acceptSuggestion(item: SuggestionBannerItem) {
+        viewModelScope.launch(Dispatchers.IO) {
+            SuggestionStore.getInstance(context).accept(item.id)
+            _pendingSuggestions.update { list -> list.filter { it.id != item.id } }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                startAgent(item.goalText, item.appPackage)
+            }
+        }
+    }
+
+    /** Dismiss (snooze) a suggestion — mark dismissed in DB, remove from banner UI. */
+    fun dismissSuggestion(id: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            SuggestionStore.getInstance(context).dismiss(id)
+            _pendingSuggestions.update { list -> list.filter { it.id != id } }
+        }
     }
 
     // ─── Migration Phase 3: memory entries ───────────────────────────────────

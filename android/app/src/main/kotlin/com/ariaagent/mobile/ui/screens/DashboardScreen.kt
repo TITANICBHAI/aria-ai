@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ariaagent.mobile.ui.viewmodel.AgentViewModel
+import com.ariaagent.mobile.ui.viewmodel.SuggestionBannerItem
 import com.ariaagent.mobile.ui.theme.ARIAColors
 
 /**
@@ -42,13 +43,16 @@ import com.ariaagent.mobile.ui.theme.ARIAColors
  */
 @Composable
 fun DashboardScreen(vm: AgentViewModel = viewModel()) {
-    val agentState    by vm.agentState.collectAsStateWithLifecycle()
-    val thermalState  by vm.thermalState.collectAsStateWithLifecycle()
-    val stepState     by vm.stepState.collectAsStateWithLifecycle()
-    val learningState by vm.learningState.collectAsStateWithLifecycle()
-    val streamBuffer  by vm.streamBuffer.collectAsStateWithLifecycle()
-    val chainedTask   by vm.chainedTask.collectAsStateWithLifecycle()
-    val gameLoopState by vm.gameLoopState.collectAsStateWithLifecycle()
+    val agentState         by vm.agentState.collectAsStateWithLifecycle()
+    val thermalState       by vm.thermalState.collectAsStateWithLifecycle()
+    val stepState          by vm.stepState.collectAsStateWithLifecycle()
+    val learningState      by vm.learningState.collectAsStateWithLifecycle()
+    val streamBuffer       by vm.streamBuffer.collectAsStateWithLifecycle()
+    val chainedTask        by vm.chainedTask.collectAsStateWithLifecycle()
+    val gameLoopState      by vm.gameLoopState.collectAsStateWithLifecycle()
+    val pendingSuggestions by vm.pendingSuggestions.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) { vm.refreshPendingSuggestions() }
 
     Column(
         modifier = Modifier
@@ -67,6 +71,16 @@ fun DashboardScreen(vm: AgentViewModel = viewModel()) {
                 letterSpacing = 4.sp
             )
         )
+
+        // ── T005: Proactive Goal Surfacing — suggestion banner ────────────────────
+        val topSuggestion = pendingSuggestions.firstOrNull()
+        if (topSuggestion != null) {
+            SuggestionBanner(
+                suggestion = topSuggestion,
+                onAccept   = { vm.acceptSuggestion(topSuggestion) },
+                onDismiss  = { vm.dismissSuggestion(topSuggestion.id) }
+            )
+        }
 
         // ── Phase 15: Chained task notification banner ─────────────────────────
         chainedTask?.let { chain ->
@@ -468,6 +482,93 @@ private fun LearningStat(label: String, value: String) {
             color = ARIAColors.Accent, fontWeight = FontWeight.Bold))
         Text(label, style = MaterialTheme.typography.labelSmall.copy(
             color = ARIAColors.Muted, fontSize = 10.sp))
+    }
+}
+
+@Composable
+private fun SuggestionBanner(
+    suggestion: SuggestionBannerItem,
+    onAccept: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Card(
+        modifier  = Modifier.fillMaxWidth(),
+        shape     = RoundedCornerShape(10.dp),
+        colors    = CardDefaults.cardColors(
+            containerColor = ARIAColors.Success.copy(alpha = 0.10f)
+        ),
+        elevation = CardDefaults.cardElevation(0.dp)
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment     = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint     = ARIAColors.Success,
+                    modifier = Modifier.size(18.dp)
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "SUGGESTION · seen ${suggestion.repeatCount}×",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color      = ARIAColors.Success,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                    )
+                    Text(
+                        suggestion.suggestionText.ifBlank { suggestion.goalText },
+                        style   = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.OnSurface),
+                        maxLines = 2
+                    )
+                }
+                IconButton(
+                    onClick  = onDismiss,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Dismiss",
+                        tint     = ARIAColors.Muted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onAccept,
+                    colors  = ButtonDefaults.buttonColors(containerColor = ARIAColors.Success),
+                    shape   = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                    modifier = Modifier.height(34.dp)
+                ) {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "Automate it",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+                TextButton(
+                    onClick = onDismiss,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                    modifier = Modifier.height(34.dp)
+                ) {
+                    Text(
+                        "Not now",
+                        style = MaterialTheme.typography.labelMedium.copy(color = ARIAColors.Muted)
+                    )
+                }
+            }
+        }
     }
 }
 
