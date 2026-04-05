@@ -125,6 +125,12 @@ data class ModuleUiState(
     val mmProjDownloadedMb: Float     = 0f,
     val visionDownloadPercent: Int    = 0,
     val visionDownloadError: String?  = null,
+    // SAM2 / MobileSAM pixel segmentation encoder (Phase 18)
+    val sam2Ready: Boolean            = false,
+    val sam2Loaded: Boolean           = false,
+    val sam2DownloadedMb: Float       = 0f,
+    val sam2DownloadPercent: Int      = 0,
+    val sam2DownloadError: String?    = null,
 )
 
 /** ExperienceStore breakdown for ActivityScreen. */
@@ -421,6 +427,12 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     private val _visionLoading = MutableStateFlow(false)
     val visionLoading: StateFlow<Boolean> = _visionLoading.asStateFlow()
 
+    private val _sam2Downloading = MutableStateFlow(false)
+    val sam2Downloading: StateFlow<Boolean> = _sam2Downloading.asStateFlow()
+
+    private val _sam2Loading = MutableStateFlow(false)
+    val sam2Loading: StateFlow<Boolean> = _sam2Loading.asStateFlow()
+
     private val _memoryStats = MutableStateFlow(MemoryStatsUi())
     val memoryStats: StateFlow<MemoryStatsUi> = _memoryStats.asStateFlow()
 
@@ -663,6 +675,9 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                 visionLoaded         = LlamaEngine.isVisionLoaded(),
                 visionModelDownloadedMb = com.ariaagent.mobile.core.ai.VisionEngine.visionModelDownloadedBytes(context).toFloat() / 1_048_576f,
                 mmProjDownloadedMb   = com.ariaagent.mobile.core.ai.VisionEngine.mmProjDownloadedBytes(context).toFloat() / 1_048_576f,
+                sam2Ready            = com.ariaagent.mobile.core.ai.Sam2Engine.isModelReady(context),
+                sam2Loaded           = com.ariaagent.mobile.core.ai.Sam2Engine.isLoaded(),
+                sam2DownloadedMb     = com.ariaagent.mobile.core.ai.Sam2Engine.downloadedBytes(context).toFloat() / 1_048_576f,
             )}
             _agentState.update { it.copy(
                 modelReady          = ModelManager.isModelReady(context),
@@ -843,6 +858,63 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { visionEngine.ensureLoaded(context) }
             _visionLoading.value = false
+            refreshModuleState()
+        }
+    }
+
+    // ─── Phase 18: SAM2 / MobileSAM pixel segmentation ──────────────────────
+
+    /**
+     * Download the MobileSAM ViT-Tiny encoder ONNX (~22 MB) to internal storage.
+     * Reports download progress via moduleState.sam2DownloadPercent.
+     * Safe to call when already downloaded — exits immediately.
+     */
+    fun downloadSam2Model() {
+        if (_sam2Downloading.value) return
+        val sam2 = com.ariaagent.mobile.core.ai.Sam2Engine
+        if (sam2.isModelReady(context)) {
+            refreshModuleState()
+            return
+        }
+        _sam2Downloading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                var lastPct = 0
+                sam2.downloadModel(context) { downloaded, total ->
+                    if (total > 0) {
+                        val pct = ((downloaded.toDouble() / total) * 100).toInt().coerceIn(0, 100)
+                        if (pct != lastPct) {
+                            lastPct = pct
+                            _moduleState.update { it.copy(sam2DownloadPercent = pct, sam2DownloadError = null) }
+                        }
+                    }
+                }
+                _moduleState.update { it.copy(sam2DownloadPercent = 100, sam2DownloadError = null) }
+                refreshModuleState()
+            } catch (e: Exception) {
+                _moduleState.update { it.copy(sam2DownloadError = e.message ?: "SAM2 download failed") }
+            } finally {
+                _sam2Downloading.value = false
+            }
+        }
+    }
+
+    /** Load MobileSAM encoder ONNX session into RAM (~22 MB). */
+    fun loadSam2Model() {
+        if (_sam2Loading.value || com.ariaagent.mobile.core.ai.Sam2Engine.isLoaded()) return
+        if (!com.ariaagent.mobile.core.ai.Sam2Engine.isModelReady(context)) return
+        _sam2Loading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { com.ariaagent.mobile.core.ai.Sam2Engine.ensureLoaded(context) }
+            _sam2Loading.value = false
+            refreshModuleState()
+        }
+    }
+
+    /** Release MobileSAM encoder ONNX session and free ~22 MB of RAM. */
+    fun unloadSam2Model() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { com.ariaagent.mobile.core.ai.Sam2Engine.unload() }
             refreshModuleState()
         }
     }

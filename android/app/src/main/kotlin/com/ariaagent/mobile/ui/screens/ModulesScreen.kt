@@ -51,6 +51,8 @@ fun ModulesScreen(
     val embeddingDownloading by vm.embeddingDownloading.collectAsStateWithLifecycle()
     val visionDownloading    by vm.visionDownloading.collectAsStateWithLifecycle()
     val visionLoading        by vm.visionLoading.collectAsStateWithLifecycle()
+    val sam2Downloading      by vm.sam2Downloading.collectAsStateWithLifecycle()
+    val sam2Loading          by vm.sam2Loading.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -160,6 +162,41 @@ fun ModulesScreen(
                 {{ vm.loadVisionModel() }} else null,
             loading = visionLoading,
             onUnload = if (modules.visionLoaded) {{ vm.unloadVisionModel() }} else null,
+        )
+
+        // ── SAM2 / MobileSAM pixel segmentation (Phase 18) ───────────────────
+        val sam2Status = when {
+            modules.sam2Loaded -> ModuleStatus.ACTIVE
+            modules.sam2Ready  -> ModuleStatus.READY
+            else               -> ModuleStatus.MISSING
+        }
+        val sam2Detail = when {
+            modules.sam2Loaded ->
+                "MobileSAM active  •  ${String.format("%.0f", modules.sam2DownloadedMb)} MB"
+            modules.sam2Ready  ->
+                "Encoder ready  •  ${String.format("%.0f", modules.sam2DownloadedMb)} MB"
+            sam2Downloading && modules.sam2DownloadPercent > 0 ->
+                "${modules.sam2DownloadPercent}%  •  encoder downloading"
+            modules.sam2DownloadedMb > 0 ->
+                "${String.format("%.0f", modules.sam2DownloadedMb)} MB  •  download incomplete"
+            else -> "~22 MB  •  not downloaded"
+        }
+        ModuleCard(
+            icon = Icons.Default.CropFree,
+            title = "MobileSAM (ViT-Tiny)",
+            subtitle = "Pixel segmentation for game / Flutter screens  •  ~22 MB",
+            status = sam2Status,
+            detail = sam2Detail,
+            downloadProgress = if (sam2Downloading && modules.sam2DownloadPercent > 0)
+                modules.sam2DownloadPercent / 100f else null,
+            downloadError = modules.sam2DownloadError,
+            onDownload = if (sam2Status == ModuleStatus.MISSING && !sam2Downloading)
+                {{ vm.downloadSam2Model() }} else null,
+            downloading = sam2Downloading,
+            onLoad = if (modules.sam2Ready && !modules.sam2Loaded && !sam2Loading && !sam2Downloading)
+                {{ vm.loadSam2Model() }} else null,
+            loading = sam2Loading,
+            onUnload = if (modules.sam2Loaded) {{ vm.unloadSam2Model() }} else null,
         )
 
         // ── Vector Memory / Embedding model ──────────────────────────────────
@@ -447,6 +484,40 @@ private fun ModuleCard(
                         )
                         Spacer(Modifier.width(6.dp))
                         Text("Download", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+            // Load into RAM button (shown when downloaded but not yet loaded)
+            if (onLoad != null) {
+                Spacer(Modifier.height(10.dp))
+                Button(
+                    onClick   = onLoad,
+                    enabled   = !loading,
+                    modifier  = Modifier.fillMaxWidth(),
+                    shape     = RoundedCornerShape(8.dp),
+                    colors    = ButtonDefaults.buttonColors(
+                        containerColor         = ARIAColors.Primary,
+                        disabledContainerColor = ARIAColors.Primary.copy(alpha = 0.4f),
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    if (loading) {
+                        CircularProgressIndicator(
+                            modifier    = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                            color       = Color.White,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Loading into RAM…", fontSize = 12.sp, color = Color.White)
+                    } else {
+                        Icon(
+                            Icons.Default.Memory,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint     = Color.White,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Load into RAM", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
