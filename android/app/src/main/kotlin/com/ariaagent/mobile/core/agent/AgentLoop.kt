@@ -78,7 +78,10 @@ object AgentLoop {
     // Event callback — wired by AgentViewModel to forward events into AgentEventBus
     var onEvent: ((name: String, data: Map<String, Any>) -> Unit)? = null
 
-    private const val MAX_STEPS = 50
+    private const val MAX_STEPS = 200             // total steps across all sub-tasks in one run
+    private const val MAX_STEPS_PER_SUBTASK = 30  // per-sub-task ceiling — prevents one task eating all budget
+    private const val A11Y_RETRY_COUNT = 3        // retry attempts before declaring service dead
+    private const val A11Y_RETRY_DELAY_MS = 2_000L
     private const val STEP_DELAY_MS = 800L
     private const val SCREEN_SETTLE_MS = 600L
     private const val WAIT_RETRY_DELAY_MS = 1200L
@@ -132,6 +135,12 @@ object AgentLoop {
             var lastScreenHash  = ""
             var stuckHint       = ""
 
+            // ── Task chaining step budget ──────────────────────────────────────
+            // stepsInCurrentSubTask is reset to 0 each time we advance to a new
+            // sub-task. This prevents any single sub-task from consuming the entire
+            // MAX_STEPS budget and starving later sub-tasks in a chained plan.
+            var stepsInCurrentSubTask = 0
+
             // ── Phase 14.4: Log task start + inject previous progress into context ─
             ProgressPersistence.logTaskStart(context, goal)
 
@@ -182,7 +191,41 @@ object AgentLoop {
             try {
                 while (isActive && state.stepCount < MAX_STEPS) {
 
-                    // ── 0. STEP STARTED ──────────────────────────────────────
+                    // ── 0. PER-SUB-TASK STEP BUDGET CHECK ────────────────────
+                    // If the current sub-task has consumed MAX_STEPS_PER_SUBTASK steps
+                    // without completing, advance to the next sub-task rather than blocking
+                    // the entire chained plan. This prevents one slow/stuck sub-task from
+                    // eating the full session budget and starving the remaining sub-tasks.
+                    if (stepsInCurrentSubTask >= MAX_STEPS_PER_SUBTASK) {
+                        val nextSubGoal = subTasksRaw.getOrNull(subTaskIdx + 1)
+                        if (nextSubGoal != null) {
+                            Log.w("AgentLoop",
+                                "Sub-task ${subTaskIdx + 1} hit step limit ($MAX_STEPS_PER_SUBTASK) — advancing to sub-task ${subTaskIdx + 2}")
+                            ProgressPersistence.logNote(context,
+                                "Step limit reached for sub-task ${subTaskIdx + 1} — skipping to ${subTaskIdx + 2}/${subTasksRaw.size}")
+                            subTaskIdx++
+                            currentSubGoal        = nextSubGoal
+                            stepsInCurrentSubTask = 0
+                            stuckCount            = 0
+                            stuckHint             = ""
+                            lastScreenHash        = ""
+                            delay(STEP_DELAY_MS)
+                            continue
+                        } else {
+                            // No more sub-tasks — record partial failure and end
+                            Log.w("AgentLoop", "Last sub-task hit step limit — ending task")
+                            state = state.copy(status = Status.DONE, lastError = "subtask_step_limit")
+                            ProgressPersistence.logNote(context, "Last sub-task hit $MAX_STEPS_PER_SUBTASK step limit")
+                            ProgressPersistence.logTaskEnd(context, goal, succeeded = false)
+                            SustainedPerformanceManager.disable()
+                            emitStatus()
+                            recordAndChain(context, goal, lastAppPackage, succeeded = false,
+                                stepsTaken = state.stepCount, elementsTouched = elementsTouched)
+                            break
+                        }
+                    }
+
+                    // ── 0b. STEP STARTED ──────────────────────────────────────
                     // Push to AgentEventBus → Compose ViewModel before any work begins.
                     // Lets the UI show "OBSERVE" spinner immediately.
                     run {
@@ -195,22 +238,34 @@ object AgentLoop {
                     }
 
                     // ── 0b. ACCESSIBILITY SERVICE GUARD ──────────────────────
-                    // On low-RAM devices (M31: 6 GB) the OS kills the Accessibility
-                    // Service without warning. When instance is null, getSemanticTree()
-                    // returns the sentinel "(accessibility service not active)" — not
-                    // empty — so snapshot.isEmpty() passes and the LLM reasons over
-                    // garbage until MAX_STEPS is exhausted, burning battery and CPU.
-                    // Hard-abort the moment we detect the service is gone.
+                    // On low-RAM devices (M31: 6 GB) the OS can temporarily suspend the
+                    // Accessibility Service. A single null frame must not abort the task —
+                    // retry A11Y_RETRY_COUNT times with A11Y_RETRY_DELAY_MS between checks.
+                    // Only if the service is still absent after all retries do we abort.
+                    // Without this guard, getSemanticTree() returns the sentinel string
+                    // "(accessibility service not active)" which looks non-empty and causes
+                    // the LLM to hallucinate actions over garbage until MAX_STEPS runs out.
                     if (!AgentAccessibilityService.isActive) {
-                        Log.e("AgentLoop", "Accessibility Service died mid-task — aborting")
-                        state = state.copy(status = Status.DONE, lastError = "accessibility_service_dead")
-                        ProgressPersistence.logNote(context, "Aborted: accessibility service not active")
-                        ProgressPersistence.logTaskEnd(context, goal, succeeded = false)
-                        SustainedPerformanceManager.disable()
-                        emitStatus()
-                        recordAndChain(context, goal, lastAppPackage, succeeded = false,
-                            stepsTaken = state.stepCount, elementsTouched = elementsTouched)
-                        break
+                        var a11yRetries = 0
+                        while (a11yRetries < A11Y_RETRY_COUNT && !AgentAccessibilityService.isActive) {
+                            Log.w("AgentLoop",
+                                "A11y service not active — waiting ${A11Y_RETRY_DELAY_MS}ms (retry ${a11yRetries + 1}/$A11Y_RETRY_COUNT)")
+                            delay(A11Y_RETRY_DELAY_MS)
+                            a11yRetries++
+                        }
+                        if (!AgentAccessibilityService.isActive) {
+                            Log.e("AgentLoop",
+                                "Accessibility Service still dead after $A11Y_RETRY_COUNT retries — aborting")
+                            state = state.copy(status = Status.DONE, lastError = "accessibility_service_dead")
+                            ProgressPersistence.logNote(context, "Aborted: accessibility service not active after retries")
+                            ProgressPersistence.logTaskEnd(context, goal, succeeded = false)
+                            SustainedPerformanceManager.disable()
+                            emitStatus()
+                            recordAndChain(context, goal, lastAppPackage, succeeded = false,
+                                stepsTaken = state.stepCount, elementsTouched = elementsTouched)
+                            break
+                        }
+                        Log.i("AgentLoop", "A11y service recovered after $a11yRetries retry/retries — continuing")
                     }
 
                     // ── 1. OBSERVE ────────────────────────────────────────────
@@ -470,10 +525,11 @@ object AgentLoop {
                         subTaskIdx++
                         val nextSubGoal = subTasksRaw.getOrNull(subTaskIdx)
                         if (nextSubGoal != null) {
-                            currentSubGoal = nextSubGoal
-                            stuckCount     = 0
-                            stuckHint      = ""
-                            lastScreenHash = ""
+                            currentSubGoal        = nextSubGoal
+                            stuckCount            = 0
+                            stuckHint             = ""
+                            lastScreenHash        = ""
+                            stepsInCurrentSubTask = 0   // fresh budget for each sub-task
                             Log.i("AgentLoop", "Sub-task done → step ${subTaskIdx + 1}/${subTasksRaw.size}: \"$currentSubGoal\"")
                             ProgressPersistence.logNote(context,
                                 "Step ${subTaskIdx + 1}/${subTasksRaw.size}: $currentSubGoal")
@@ -595,6 +651,7 @@ object AgentLoop {
 
                     // ── 8. EMIT ───────────────────────────────────────────────
                     val newStep = state.stepCount + 1
+                    stepsInCurrentSubTask++
                     state = state.copy(
                         stepCount  = newStep,
                         lastAction = actionJson

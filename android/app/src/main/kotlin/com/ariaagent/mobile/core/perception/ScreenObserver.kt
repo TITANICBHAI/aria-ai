@@ -62,12 +62,30 @@ object ScreenObserver {
         }
 
         /**
-         * A short hash of the observation used for SQLite lookup and edge case matching.
-         * Stable enough to match same screens; different enough to differ across screens.
+         * A stable hash of the observation used for SQLite lookup, stuck detection, and
+         * edge-case matching.
+         *
+         * Quality improvements over the old 200-char / 100-char version:
+         *   • activityName included — catches in-app navigations that don't change the
+         *     package but do change the screen (e.g. Settings subscreen navigation).
+         *   • a11y window extended to 500 chars — reduces false-positive "stuck" signals
+         *     when a dialog or list item appears beyond the first 200 chars of the tree.
+         *   • OCR window extended to 200 chars — catches text-only screen changes that
+         *     produce no new a11y nodes (e.g. dynamic content inside a WebView).
+         *   • Uses SHA-256 truncated to 16 hex chars instead of Java's signed 32-bit
+         *     hashCode() — eliminates sign-bit collisions and reduces birthday-paradox
+         *     false matches on long agent sessions.
          */
         fun screenHash(): String {
-            val combined = "$appPackage|${a11yTree.take(200)}|${ocrText.take(100)}"
-            return combined.hashCode().toString(16)
+            val combined = "$appPackage|${activityName.substringAfterLast('.')}|${a11yTree.take(500)}|${ocrText.take(200)}"
+            return try {
+                val digest = java.security.MessageDigest.getInstance("SHA-256")
+                val bytes  = digest.digest(combined.toByteArray(Charsets.UTF_8))
+                bytes.take(8).joinToString("") { "%02x".format(it) }
+            } catch (_: Exception) {
+                // Fallback to hashCode if MessageDigest is somehow unavailable
+                combined.hashCode().toString(16)
+            }
         }
 
         fun isEmpty(): Boolean = a11yTree.isBlank() && ocrText.isBlank()

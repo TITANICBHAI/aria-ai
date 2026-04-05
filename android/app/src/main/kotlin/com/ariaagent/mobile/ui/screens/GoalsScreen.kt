@@ -26,9 +26,13 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ariaagent.mobile.core.triggers.TriggerItem
+import com.ariaagent.mobile.core.triggers.TriggerType
 import com.ariaagent.mobile.ui.theme.ARIAColors
 import com.ariaagent.mobile.ui.viewmodel.AgentViewModel
 import com.ariaagent.mobile.ui.viewmodel.QueuedTaskItem
@@ -199,7 +203,7 @@ fun GoalsScreen(
                     activeTab = GoalsTab.Queue
                 }
             )
-            GoalsTab.Triggers -> TriggersTab()
+            GoalsTab.Triggers -> TriggersTab(vm = vm)
         }
     }
 }
@@ -502,72 +506,380 @@ private fun TemplateCard(title: String, goal: String, app: String, onClick: () -
 
 // ─── Triggers tab ─────────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TriggersTab() {
-    val upcoming = listOf(
-        Triple(Icons.Default.Schedule,       "Time-based",       "Run tasks at a specific time or on a schedule"),
-        Triple(Icons.Default.Notifications,  "On Notification",  "Trigger when a notification arrives from a specific app"),
-        Triple(Icons.Default.AppShortcut,    "On App Launch",    "Run a task whenever a specific app is opened"),
-        Triple(Icons.Default.BatteryFull,    "On Charging",      "Queue a task to run when the device starts charging"),
-        Triple(Icons.Default.Wifi,           "On Network",       "Trigger when connecting to a specific Wi-Fi network"),
-        Triple(Icons.Default.LocationOn,     "On Location",      "Run a task when arriving at or leaving a location"),
-    )
+private fun TriggersTab(vm: AgentViewModel) {
+    val triggers by vm.triggers.collectAsStateWithLifecycle()
+    val focusManager = LocalFocusManager.current
+
+    LaunchedEffect(Unit) { vm.loadTriggers() }
+
+    var showCreateForm by remember { mutableStateOf(false) }
+    var selectedType  by remember { mutableStateOf(TriggerType.TIME_DAILY) }
+    var triggerGoal   by remember { mutableStateOf("") }
+    var goalApp       by remember { mutableStateOf("") }
+    var watchApp      by remember { mutableStateOf("") }
+    var hourStr       by remember { mutableStateOf("09") }
+    var minuteStr     by remember { mutableStateOf("00") }
+    var dayOfWeek     by remember { mutableIntStateOf(2) }
+    var deleteConfirm by remember { mutableStateOf<String?>(null) }
+
+    if (deleteConfirm != null) {
+        AlertDialog(
+            onDismissRequest = { deleteConfirm = null },
+            containerColor   = ARIAColors.Surface,
+            title = { Text("Delete trigger?", style = MaterialTheme.typography.titleMedium.copy(color = ARIAColors.OnSurface, fontWeight = FontWeight.Bold)) },
+            text  = { Text("This trigger will be permanently removed.", style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)) },
+            confirmButton = {
+                Button(onClick = { vm.deleteTrigger(deleteConfirm!!); deleteConfirm = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = ARIAColors.Destructive),
+                    shape  = RoundedCornerShape(8.dp)) {
+                    Text("Delete", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = { TextButton(onClick = { deleteConfirm = null }) { Text("Cancel", color = ARIAColors.Muted) } }
+        )
+    }
 
     LazyColumn(
         modifier        = Modifier.fillMaxSize(),
-        contentPadding  = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+        contentPadding  = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+
+        // ── Create trigger card ────────────────────────────────────────────────
         item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(ARIAColors.Primary.copy(alpha = 0.08f))
-                    .border(1.dp, ARIAColors.Primary.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                    .padding(14.dp)
+            Card(
+                modifier  = Modifier.fillMaxWidth(),
+                shape     = RoundedCornerShape(14.dp),
+                colors    = CardDefaults.cardColors(containerColor = ARIAColors.Surface),
+                elevation = CardDefaults.cardElevation(0.dp)
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Construction, contentDescription = null, tint = ARIAColors.Primary, modifier = Modifier.size(18.dp))
-                    Column {
-                        Text("Triggers coming soon", style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Primary, fontWeight = FontWeight.Bold))
-                        Text("Automatic task scheduling is in development. Below is a preview of the trigger types planned.", style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted))
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("ADD TRIGGER",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = ARIAColors.Muted, fontFamily = FontFamily.Monospace, letterSpacing = 1.sp))
+                        IconButton(
+                            onClick = { showCreateForm = !showCreateForm },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                if (showCreateForm) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = if (showCreateForm) "Collapse" else "Expand",
+                                tint = ARIAColors.Muted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    if (!showCreateForm) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(ARIAColors.SurfaceVariant)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication        = null,
+                                    onClick           = { showCreateForm = true }
+                                )
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, tint = ARIAColors.Primary, modifier = Modifier.size(16.dp))
+                            Text("Tap to create a new trigger",
+                                style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted))
+                        }
+                    } else {
+                        // Trigger type chips
+                        Text("Type", style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted))
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(
+                                TriggerType.TIME_DAILY  to "Daily",
+                                TriggerType.TIME_ONCE   to "Once",
+                                TriggerType.TIME_WEEKLY to "Weekly",
+                                TriggerType.APP_LAUNCH  to "App Launch",
+                                TriggerType.CHARGING    to "Charging",
+                            ).forEach { (type, label) ->
+                                val sel = selectedType == type
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (sel) ARIAColors.Primary.copy(alpha = 0.18f) else ARIAColors.SurfaceVariant)
+                                        .border(1.dp, if (sel) ARIAColors.Primary.copy(alpha = 0.6f) else ARIAColors.Divider, RoundedCornerShape(6.dp))
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null,
+                                            onClick = { selectedType = type }
+                                        )
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                ) {
+                                    Text(label, style = MaterialTheme.typography.labelSmall.copy(
+                                        color = if (sel) ARIAColors.Primary else ARIAColors.Muted,
+                                        fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal
+                                    ))
+                                }
+                            }
+                        }
+
+                        // Goal input
+                        OutlinedTextField(
+                            value         = triggerGoal,
+                            onValueChange = { triggerGoal = it },
+                            modifier      = Modifier.fillMaxWidth(),
+                            placeholder   = { Text("Goal for ARIA to run", style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)) },
+                            colors        = goalsFieldColors(),
+                            shape         = RoundedCornerShape(8.dp),
+                            minLines      = 2,
+                            maxLines      = 3,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                            label = { Text("Goal", style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted)) }
+                        )
+
+                        // Goal app package (optional)
+                        OutlinedTextField(
+                            value         = goalApp,
+                            onValueChange = { goalApp = it },
+                            modifier      = Modifier.fillMaxWidth(),
+                            placeholder   = { Text("com.example.app (optional)", style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)) },
+                            colors        = goalsFieldColors(),
+                            shape         = RoundedCornerShape(8.dp),
+                            singleLine    = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                            label = { Text("App package for goal", style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted)) },
+                            leadingIcon = { Icon(Icons.Default.Apps, contentDescription = null, tint = ARIAColors.Muted, modifier = Modifier.size(16.dp)) }
+                        )
+
+                        // Time-based fields
+                        if (selectedType == TriggerType.TIME_DAILY ||
+                            selectedType == TriggerType.TIME_ONCE  ||
+                            selectedType == TriggerType.TIME_WEEKLY) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value         = hourStr,
+                                    onValueChange = { if (it.length <= 2 && it.all { c -> c.isDigit() }) hourStr = it },
+                                    modifier      = Modifier.weight(1f),
+                                    label = { Text("Hour (0-23)", style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted)) },
+                                    colors        = goalsFieldColors(),
+                                    shape         = RoundedCornerShape(8.dp),
+                                    singleLine    = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                                )
+                                OutlinedTextField(
+                                    value         = minuteStr,
+                                    onValueChange = { if (it.length <= 2 && it.all { c -> c.isDigit() }) minuteStr = it },
+                                    modifier      = Modifier.weight(1f),
+                                    label = { Text("Minute (0-59)", style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted)) },
+                                    colors        = goalsFieldColors(),
+                                    shape         = RoundedCornerShape(8.dp),
+                                    singleLine    = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                                )
+                            }
+                        }
+
+                        // Weekly day selector
+                        if (selectedType == TriggerType.TIME_WEEKLY) {
+                            Text("Day of week", style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted))
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                listOf(1 to "Su", 2 to "Mo", 3 to "Tu", 4 to "We", 5 to "Th", 6 to "Fr", 7 to "Sa")
+                                    .forEach { (d, label) ->
+                                        val sel = dayOfWeek == d
+                                        Box(
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(CircleShape)
+                                                .background(if (sel) ARIAColors.Primary else ARIAColors.SurfaceVariant)
+                                                .clickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null,
+                                                    onClick = { dayOfWeek = d }
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(label, style = MaterialTheme.typography.labelSmall.copy(
+                                                color = if (sel) ARIAColors.Background else ARIAColors.Muted,
+                                                fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
+                                                fontSize = 10.sp
+                                            ))
+                                        }
+                                    }
+                            }
+                        }
+
+                        // App launch watcher field
+                        if (selectedType == TriggerType.APP_LAUNCH) {
+                            OutlinedTextField(
+                                value         = watchApp,
+                                onValueChange = { watchApp = it },
+                                modifier      = Modifier.fillMaxWidth(),
+                                placeholder   = { Text("com.whatsapp", style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)) },
+                                colors        = goalsFieldColors(),
+                                shape         = RoundedCornerShape(8.dp),
+                                singleLine    = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                                label = { Text("Watch for app launch", style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted)) },
+                                leadingIcon = { Icon(Icons.Default.Visibility, contentDescription = null, tint = ARIAColors.Muted, modifier = Modifier.size(16.dp)) }
+                            )
+                        }
+
+                        // Save button
+                        Button(
+                            onClick = {
+                                if (triggerGoal.isBlank()) return@Button
+                                val h = hourStr.toIntOrNull()?.coerceIn(0, 23) ?: 9
+                                val m = minuteStr.toIntOrNull()?.coerceIn(0, 59) ?: 0
+                                vm.addTrigger(TriggerItem(
+                                    type           = selectedType,
+                                    goal           = triggerGoal.trim(),
+                                    goalAppPackage = goalApp.trim(),
+                                    watchPackage   = watchApp.trim(),
+                                    hourOfDay      = h,
+                                    minuteOfHour   = m,
+                                    dayOfWeek      = dayOfWeek,
+                                    enabled        = true,
+                                ))
+                                triggerGoal = ""; goalApp = ""; watchApp = ""; hourStr = "09"; minuteStr = "00"; dayOfWeek = 2
+                                showCreateForm = false
+                                focusManager.clearFocus()
+                            },
+                            enabled  = triggerGoal.isNotBlank(),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape    = RoundedCornerShape(8.dp),
+                            colors   = ButtonDefaults.buttonColors(
+                                containerColor         = ARIAColors.Primary,
+                                disabledContainerColor = ARIAColors.SurfaceVariant,
+                            )
+                        ) {
+                            Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Save Trigger", fontWeight = FontWeight.SemiBold,
+                                color = if (triggerGoal.isNotBlank()) ARIAColors.Background else ARIAColors.Muted)
+                        }
                     }
                 }
             }
         }
 
-        items(upcoming) { (icon, title, desc) ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(ARIAColors.Surface)
-                    .padding(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+        // ── Active triggers list ───────────────────────────────────────────────
+        if (triggers.isEmpty()) {
+            item {
                 Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(ARIAColors.Muted.copy(alpha = 0.12f)),
+                    modifier = Modifier.fillMaxWidth().padding(top = 32.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(icon, contentDescription = null, tint = ARIAColors.Muted, modifier = Modifier.size(18.dp))
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.Schedule, contentDescription = null, tint = ARIAColors.Muted, modifier = Modifier.size(48.dp))
+                        Text("No triggers yet", style = MaterialTheme.typography.bodyLarge.copy(color = ARIAColors.OnSurface, fontWeight = FontWeight.SemiBold))
+                        Text("Create a trigger above to automate tasks", style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted), textAlign = TextAlign.Center)
+                    }
                 }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(title, style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.OnSurface, fontWeight = FontWeight.SemiBold))
-                    Text(desc,  style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted, lineHeight = 15.sp))
-                }
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(ARIAColors.Muted.copy(alpha = 0.12f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text("SOON", style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted, fontWeight = FontWeight.Bold, fontSize = 9.sp))
-                }
+            }
+        } else {
+            item {
+                Text("ACTIVE TRIGGERS",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color = ARIAColors.Muted, fontFamily = FontFamily.Monospace, letterSpacing = 1.sp))
+            }
+            items(triggers, key = { it.id }) { trigger ->
+                TriggerRow(
+                    trigger   = trigger,
+                    onToggle  = { vm.toggleTrigger(trigger.id) },
+                    onDelete  = { deleteConfirm = trigger.id },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TriggerRow(
+    trigger: TriggerItem,
+    onToggle: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val typeIcon = when (trigger.type) {
+        TriggerType.TIME_ONCE, TriggerType.TIME_DAILY, TriggerType.TIME_WEEKLY -> Icons.Default.Schedule
+        TriggerType.APP_LAUNCH -> Icons.Default.Launch
+        TriggerType.CHARGING   -> Icons.Default.BatteryFull
+    }
+    val typeLabel = when (trigger.type) {
+        TriggerType.TIME_ONCE    -> "Once · ${trigger.displayTime}"
+        TriggerType.TIME_DAILY   -> "Daily · ${trigger.displayTime}"
+        TriggerType.TIME_WEEKLY  -> "${trigger.dayLabel} · ${trigger.displayTime}"
+        TriggerType.APP_LAUNCH   -> "App launch · ${trigger.watchPackage.substringAfterLast('.').ifBlank { trigger.watchPackage }}"
+        TriggerType.CHARGING     -> "On charging"
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(ARIAColors.Surface)
+            .border(
+                1.dp,
+                if (trigger.enabled) ARIAColors.Primary.copy(alpha = 0.25f) else ARIAColors.Divider,
+                RoundedCornerShape(10.dp)
+            )
+            .padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(
+                    if (trigger.enabled) ARIAColors.Primary.copy(alpha = 0.15f)
+                    else ARIAColors.Muted.copy(alpha = 0.1f)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(typeIcon, contentDescription = null,
+                tint = if (trigger.enabled) ARIAColors.Primary else ARIAColors.Muted,
+                modifier = Modifier.size(16.dp))
+        }
+
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(trigger.goal,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = if (trigger.enabled) ARIAColors.OnSurface else ARIAColors.Muted),
+                maxLines = 2)
+            Text(typeLabel,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    color = if (trigger.enabled) ARIAColors.Primary else ARIAColors.Muted,
+                    fontSize = 10.sp))
+            if (trigger.goalAppPackage.isNotBlank()) {
+                Text(trigger.goalAppPackage.substringAfterLast('.'),
+                    style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted, fontSize = 10.sp))
+            }
+        }
+
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Switch(
+                checked  = trigger.enabled,
+                onCheckedChange = { onToggle() },
+                modifier = Modifier.height(24.dp),
+                colors   = SwitchDefaults.colors(
+                    checkedThumbColor       = ARIAColors.Background,
+                    checkedTrackColor       = ARIAColors.Primary,
+                    uncheckedThumbColor     = ARIAColors.Muted,
+                    uncheckedTrackColor     = ARIAColors.SurfaceVariant,
+                )
+            )
+            IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete",
+                    tint = ARIAColors.Destructive, modifier = Modifier.size(14.dp))
             }
         }
     }

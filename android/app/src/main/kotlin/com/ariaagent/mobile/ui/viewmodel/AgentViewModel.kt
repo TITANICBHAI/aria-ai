@@ -34,6 +34,8 @@ import com.ariaagent.mobile.system.accessibility.AgentAccessibilityService
 import com.ariaagent.mobile.system.screen.ScreenCaptureService
 import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
+import com.ariaagent.mobile.core.triggers.TriggerItem
+import com.ariaagent.mobile.core.triggers.TriggerStore
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -448,6 +450,10 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     // ── Safety config ─────────────────────────────────────────────────────────
     private val _safetyConfig = MutableStateFlow(SafetyConfig())
     val safetyConfig: StateFlow<SafetyConfig> = _safetyConfig.asStateFlow()
+
+    // ── Triggers ──────────────────────────────────────────────────────────────
+    private val _triggers = MutableStateFlow<List<TriggerItem>>(emptyList())
+    val triggers: StateFlow<List<TriggerItem>> = _triggers.asStateFlow()
 
     // ── LoRA training history + live progress ─────────────────────────────────
     private val _loraHistory = MutableStateFlow<List<LoraCheckpointItem>>(emptyList())
@@ -1720,6 +1726,35 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
 
     fun removeAllowedPackage(pkg: String) =
         persistSafety(_safetyConfig.value.copy(allowedPackages = _safetyConfig.value.allowedPackages - pkg))
+
+    // ─── Triggers ─────────────────────────────────────────────────────────────
+
+    fun loadTriggers() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _triggers.value = TriggerStore.load(context)
+        }
+    }
+
+    fun addTrigger(trigger: TriggerItem) {
+        viewModelScope.launch(Dispatchers.IO) {
+            TriggerStore.add(context, trigger)
+            _triggers.value = TriggerStore.load(context)
+        }
+    }
+
+    fun deleteTrigger(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            TriggerStore.delete(context, id)
+            _triggers.value = TriggerStore.load(context)
+        }
+    }
+
+    fun toggleTrigger(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            TriggerStore.toggle(context, id)
+            _triggers.value = TriggerStore.load(context)
+        }
+    }
 
     // ─── LoRA Training History ────────────────────────────────────────────────
 

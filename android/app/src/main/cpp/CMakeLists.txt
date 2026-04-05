@@ -102,18 +102,18 @@ target_compile_options(llama-jni PRIVATE
 )
 
 # ─── On-device LoRA training via llama_opt_* API ─────────────────────────────
-# DISABLED: The ggml_opt_* / llama_opt_* training API (llama_opt_init,
-# llama_opt_epoch, ggml_opt_dataset_t, etc.) has not been verified against the
-# vendored llama.cpp version. Enabling without verification may cause compile
-# errors if the API surface has changed.
+# ENABLED: LLAMA_HAS_TRAINING is defined. The JNI function nativeTrainLora()
+# in llama_jni.cpp is compiled with the real llama_opt_* / ggml_opt_* code path.
 #
-# To re-enable: verify that the pinned llama.cpp tag exports:
-#   llama_opt_init, llama_opt_epoch, ggml_opt_dataset_t, ggml_opt_dataset_init,
-#   ggml_opt_dataset_data, llama_opt_params, llama_opt_param_filter_all,
-#   ggml_opt_get_constant_optimizer_params
-# Then uncomment the line below.
+# The build uses the vendored llama.cpp submodule at android/app/src/main/cpp/llama.cpp/.
+# The llama_jni.cpp training block is guarded by #if defined(LLAMA_HAS_TRAINING)
+# so removing this line is safe and causes a graceful fallback:
+#   → nativeTrainLora() returns JNI_FALSE
+#   → LoraTrainer.kt calls stubTrainLora() — writes metadata-only .bin
+#   → No inference regression
 #
+# If the vendored llama.cpp version does not export these symbols, the linker
+# will fail at build time (not at runtime). Remove the definition below to
+# disable training and get a guaranteed clean build, then re-enable once the
+# API surface is verified.
 add_compile_definitions(LLAMA_HAS_TRAINING)
-#
-# Without LLAMA_HAS_TRAINING, nativeTrainLora() returns JNI_FALSE and Kotlin
-# falls back to stubTrainLora() — safe, no inference regression.
