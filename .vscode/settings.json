@@ -1,0 +1,55 @@
+{
+  "java.home": "/usr/lib/jvm/java-17-openjdk",
+  "java.configuration.runtimes": [
+    {
+      "name": "JavaSE-17",
+      "path": "/usr/lib/jvm/java-17-openjdk",
+      "default": true
+    }
+  ],
+
+  "java.gradle.version": "8.12.1",
+  "gradle.gradleDaemon": true,
+  "gradle.nestedProjects": true,
+  "gradle.projectDir": "${workspaceFolder}/artifacts/mobile/android",
+  "gradle.reuseTerminals": "task",
+
+  "kotlin.languageServer.enabled": true,
+
+  "files.associations": {
+    "*.kt": "kotlin",
+    "*.kts": "kotlin",
+    "*.gradle": "groovy",
+    "*.nix": "nix",
+    "*.tsx": "typescriptreact"
+  },
+
+  "files.exclude": {
+    "**/node_modules": true,
+    "**/.gradle": true,
+    "**/build": false,
+    "**/.expo": true,
+    "**/__pycache__": true
+  },
+
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/.gradle": true,
+    "**/build/intermediates": true,
+    "**/build/generated": true,
+    "**/build/tmp": true
+  },
+
+  "editor.formatOnSave": false,
+  "editor.tabSize": 4,
+
+  "terminal.integrated.env.linux": {
+    "ANDROID_HOME": "${env:ANDROID_HOME}",
+    "GRADLE_USER_HOME": "${env:HOME}/.gradle"
+  },
+
+  "[kotlin]": {
+    "editor.tabSize": 4,
+    "editor.detectIndentation": false
+  }
+}

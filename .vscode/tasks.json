@@ -1,0 +1,143 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "ARIA: Build Debug APK",
+      "type": "shell",
+      "command": "./gradlew assembleDebug --stacktrace",
+      "options": {
+        "cwd": "${workspaceFolder}/artifacts/mobile/android",
+        "env": {
+          "ANDROID_HOME": "${env:ANDROID_HOME}",
+          "JAVA_HOME": "${env:JAVA_HOME}"
+        }
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "problemMatcher": [
+        "$gradle"
+      ]
+    },
+    {
+      "label": "ARIA: Install Debug APK on Emulator",
+      "type": "shell",
+      "command": "./gradlew installDebug",
+      "options": {
+        "cwd": "${workspaceFolder}/artifacts/mobile/android"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "dependsOn": "ARIA: Build Debug APK"
+    },
+    {
+      "label": "ARIA: Build Release APK",
+      "type": "shell",
+      "command": "./gradlew assembleRelease --stacktrace",
+      "options": {
+        "cwd": "${workspaceFolder}/artifacts/mobile/android"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [
+        "$gradle"
+      ]
+    },
+    {
+      "label": "ARIA: Gradle Clean",
+      "type": "shell",
+      "command": "./gradlew clean",
+      "options": {
+        "cwd": "${workspaceFolder}/artifacts/mobile/android"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "ARIA: Run Instrumented Tests",
+      "type": "shell",
+      "command": "./gradlew connectedDebugAndroidTest --stacktrace",
+      "options": {
+        "cwd": "${workspaceFolder}/artifacts/mobile/android"
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "ARIA: Lint",
+      "type": "shell",
+      "command": "./gradlew lint",
+      "options": {
+        "cwd": "${workspaceFolder}/artifacts/mobile/android"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "ARIA: Sync local.properties",
+      "type": "shell",
+      "command": "printf 'sdk.dir=%s\\nndk.dir=%s/ndk/27.1.12297006\\n' \"$ANDROID_HOME\" \"$ANDROID_HOME\" > local.properties && echo 'local.properties updated'",
+      "options": {
+        "cwd": "${workspaceFolder}/artifacts/mobile/android"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "ARIA: adb logcat (ARIA tag)",
+      "type": "shell",
+      "command": "adb logcat -s ARIA:D AriaAgent:D AndroidRuntime:E *:S",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "isBackground": true
+    },
+    {
+      "label": "ARIA: adb logcat (Compose)",
+      "type": "shell",
+      "command": "adb logcat -s ComposeMainActivity:D AgentViewModel:D Choreographer:I *:S",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "isBackground": true
+    }
+  ]
+}

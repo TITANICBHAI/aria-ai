@@ -1,0 +1,47 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "ARIA — Run on Emulator (Debug)",
+      "type": "android",
+      "request": "launch",
+      "appId": "com.ariaagent.mobile",
+      "target": {
+        "type": "emulator"
+      },
+      "preLaunchTask": "ARIA: Build Debug APK"
+    },
+    {
+      "name": "ARIA — Run on Physical Device (Debug)",
+      "type": "android",
+      "request": "launch",
+      "appId": "com.ariaagent.mobile",
+      "target": {
+        "type": "device"
+      },
+      "preLaunchTask": "ARIA: Build Debug APK"
+    },
+    {
+      "name": "ARIA — Attach Debugger to Running App",
+      "type": "android",
+      "request": "attach",
+      "appId": "com.ariaagent.mobile",
+      "target": {
+        "type": "emulator"
+      }
+    },
+    {
+      "name": "ARIA — Compose UI Inspection Mode",
+      "type": "android",
+      "request": "launch",
+      "appId": "com.ariaagent.mobile",
+      "target": {
+        "type": "emulator"
+      },
+      "preLaunchTask": "ARIA: Build Debug APK",
+      "env": {
+        "COMPOSE_RECOMPILER_TRACE": "true"
+      }
+    }
+  ]
+}
