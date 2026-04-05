@@ -50,6 +50,14 @@ import com.ariaagent.mobile.ui.theme.ARIAColors
  *   7  What Needs the NDK Build
  *   8  The Permissions & Why
  *   9  Tips for Best Results
+ *
+ *  ── TRAINING MANUAL ──
+ *  10  Training ARIA From Zero (overview)
+ *  11  Mode 1: REINFORCE (Auto-Learning)
+ *  12  Mode 2: IRL (Imitation from Video)
+ *  13  Mode 3: Manual Labeling
+ *  14  Mode 4: LoRA Fine-Tuning
+ *  15  Training Recipes (combined examples)
  */
 
 private data class KnowledgePage(
@@ -207,6 +215,98 @@ fun KnowledgeWizardScreen(onBack: () -> Unit) {
                 Icons.Default.Queue         to "Queue tasks: line up multiple tasks and ARIA chains them automatically when one completes",
             ),
             callout   = "Tip: after training on IRL video, run an RL cycle immediately. The two learning signals combine for faster convergence.",
+            calloutColor = ARIAColors.Success,
+        ),
+
+        // ── TRAINING MANUAL ───────────────────────────────────────────────────
+
+        KnowledgePage(
+            icon      = Icons.Default.School,
+            iconTint  = ARIAColors.Primary,
+            title     = "Training ARIA From Zero",
+            body      = "Training ARIA is not like training a traditional app. You are teaching a live AI agent that already knows how to reason — you just need to show it your phone, your apps, and your goals.\n\nThere are four distinct training modes. Each one teaches ARIA something different, and they all compound over time:\n\n  1. REINFORCE — learns automatically from every task it runs\n  2. IRL (Imitation) — you record a video, ARIA copies your actions\n  3. Manual Labeling — you annotate UI elements by name\n  4. LoRA Fine-Tuning — directly improves the LLM brain (advanced)\n\nYou can use all four, but start with REINFORCE — it requires zero effort and starts working immediately.",
+            bullets   = listOf(
+                Icons.Default.AutoMode      to "Day 1–3: just run tasks. REINFORCE learns automatically",
+                Icons.Default.VideoLibrary  to "Day 4+: record IRL videos for complex workflows",
+                Icons.Default.Label         to "Week 2: annotate stubborn UI elements in the Labeler",
+                Icons.Default.AutoAwesome   to "Advanced: LoRA fine-tuning once NDK is compiled",
+            ),
+            callout   = "No GPU, no cloud, no data labels required to start. Just run a task, and ARIA starts learning.",
+            calloutColor = ARIAColors.Primary,
+        ),
+
+        KnowledgePage(
+            icon      = Icons.Default.AutoMode,
+            iconTint  = ARIAColors.Success,
+            title     = "Mode 1: REINFORCE (Auto-Learning)",
+            body      = "REINFORCE is always on. Every time ARIA completes a step — success or failure — it stores the experience and updates its policy network automatically.\n\nHow it works:\n  • ARIA runs a step and records (screen, action, result, reward)\n  • After the task ends, it calculates discounted returns: steps that led to success get high reward, failed paths get penalised\n  • The 3-layer policy network is updated with Adam gradient descent\n  • Over 20–50 tasks, ARIA learns which action types work in which context\n\nEXAMPLE — Teaching ARIA to open WhatsApp:\n  Task 1: ARIA tries random things, opens the wrong app (reward = −1)\n  Task 5: ARIA scrolls then taps WhatsApp icon (reward = +0.5)\n  Task 20: ARIA finds and opens WhatsApp in 2 steps every time (reward = +1)\n\nYou do nothing except run the task and give feedback (thumbs up / thumbs down).",
+            bullets   = listOf(
+                Icons.Default.ThumbUp       to "Thumbs up = +1 reward → that action path is reinforced",
+                Icons.Default.ThumbDown     to "Thumbs down = −1 reward → that path is penalised",
+                Icons.Default.AutoAwesome   to "No feedback = neutral reward from task completion signal",
+                Icons.Default.BarChart      to "Watch policy loss in the Train screen — falling = learning",
+            ),
+            callout   = "The policy network starts completely random. After 20 tasks it becomes 2–3× faster. After 100 tasks it becomes highly reliable for familiar apps.",
+            calloutColor = ARIAColors.Success,
+        ),
+
+        KnowledgePage(
+            icon      = Icons.Default.VideoLibrary,
+            iconTint  = ARIAColors.Accent,
+            title     = "Mode 2: IRL (Imitation from Video)",
+            body      = "IRL (Inverse Reinforcement Learning) is the fastest way to teach ARIA a specific workflow. You record a screen recording of yourself doing the task — ARIA watches it frame by frame and extracts what you tapped, where, and in what order.\n\nHow to record a teaching video:\n  1. Go to the Train screen → tap \"Record IRL Session\"\n  2. Do the task naturally (it records your screen + taps)\n  3. Stop recording — ARIA processes the video automatically\n  4. Each frame is matched to an action: tap, scroll, type, swipe\n  5. These become high-confidence training examples (3× normal weight)\n\nEXAMPLE — Teaching ARIA to recharge Paytm:\n  You record: open Paytm → tap Recharge → tap Mobile → enter number → tap Proceed → select UPI → tap Pay\n  ARIA extracts 7 action steps with coordinates and labels them\n  After just 1 video, ARIA can complete the same flow with ~80% accuracy\n\nEXAMPLE — Teaching ARIA to book a cab on Ola:\n  You record the booking flow once (takes ~90 seconds)\n  ARIA learns: home → tap Bike → enter destination → confirm pickup → tap Book\n  It generalises: if the destination changes, it still follows the same structure",
+            bullets   = listOf(
+                Icons.Default.Videocam      to "Record once → ARIA trains for ~2 minutes on-device",
+                Icons.Default.Repeat        to "Record the same flow 3 times → accuracy jumps to 95%+",
+                Icons.Default.SlowMotion24  to "Record at normal speed — ARIA handles frame extraction",
+                Icons.Default.Warning       to "Avoid recording personal info — process runs locally but store is on-device",
+            ),
+            callout   = "IRL + REINFORCE together: record the task once (IRL), then run it 10 times (REINFORCE). This is the fastest training recipe in ARIA.",
+            calloutColor = ARIAColors.Accent,
+        ),
+
+        KnowledgePage(
+            icon      = Icons.Default.Label,
+            iconTint  = ARIAColors.Warning,
+            title     = "Mode 3: Manual Labeling",
+            body      = "Some UI elements have no text — icons, image buttons, custom-drawn views in games, Flutter apps. ARIA cannot name these from the accessibility tree alone. Manual labeling teaches it what they mean.\n\nHow to label:\n  1. Go to the Train screen → tap \"Open Labeler\"\n  2. Take a screenshot of the app you want to teach\n  3. Draw a box around a UI element\n  4. Type its name and role: e.g. \"Send button\" or \"Hamburger menu\"\n  5. Save — ARIA immediately uses this label in all future tasks\n\nEXAMPLE — Labeling a game UI:\n  You open PUBG Mobile. The fire button has no accessibility label.\n  You draw a box around it and label it: \"Fire button\"\n  The jump button: \"Jump button\"\n  Now ARIA can play the game using these names in its reasoning\n\nEXAMPLE — Labeling a custom icon bar:\n  A banking app has 5 icon tabs with no text.\n  You label each one: \"Home\", \"Pay\", \"Cards\", \"History\", \"Profile\"\n  Next task: ARIA says \"tap Pay tab\" and finds it instantly\n\nLabeled elements get 3× reward weight in training — your annotations override ARIA's guesses.",
+            bullets   = listOf(
+                Icons.Default.TouchApp      to "Draw box → type name → save. Takes 5 seconds per element",
+                Icons.Default.Games         to "Essential for games — accessibility tree is empty in Unity/Unreal",
+                Icons.Default.Apps          to "Essential for Flutter apps — they render their own widgets",
+                Icons.Default.Bolt          to "Immediate effect — ARIA uses the label from the very next task",
+            ),
+            callout   = "Start with the 3–5 elements ARIA gets wrong most often. Labeling those specific elements gives the biggest accuracy jump.",
+            calloutColor = ARIAColors.Warning,
+        ),
+
+        KnowledgePage(
+            icon      = Icons.Default.AutoAwesome,
+            iconTint  = ARIAColors.Primary,
+            title     = "Mode 4: LoRA Fine-Tuning",
+            body      = "LoRA (Low-Rank Adaptation) is the most powerful training mode. It directly modifies the weights of Llama 3.2-1B — the AI brain itself — making it permanently smarter at your specific use cases.\n\nRequires: NDK compiled (libllama-jni.so must be built). See the \"NDK Build\" page.\n\nHow LoRA works:\n  • ARIA gathers your best experiences (high-reward episodes)\n  • Converts them to a JSONL fine-tuning dataset in llama.cpp format\n  • Trains a small set of adapter matrices (LoRA rank 8–16)\n  • These adapters are loaded on top of the base model — no re-download needed\n  • LoRA version counter increments in the Train screen\n\nEXAMPLE — Before vs After LoRA for Swiggy orders:\n  Before LoRA (Day 1): takes 18 steps, sometimes clicks wrong restaurant\n  After 1 LoRA cycle on 30 episodes: takes 9 steps, >90% correct first tap\n  After 3 LoRA cycles: completes Swiggy order in 6 steps reliably\n\nWhen to trigger LoRA:\n  • After collecting 50+ successful episodes (Train → tap \"Train LoRA\")\n  • After IRL sessions (combine IRL data with RL data)\n  • Scheduled: enable auto-training in Settings → Train runs overnight\n\nLoRA runs on CPU (4 cores, ~15 min/cycle). Battery drain is real — plug in first.",
+            bullets   = listOf(
+                Icons.Default.Memory        to "LoRA adapters are ~10–30 MB — tiny compared to the 800 MB base model",
+                Icons.Default.Battery5Bar   to "Always plug in before LoRA training — it takes 10–20 minutes",
+                Icons.Default.History       to "Old adapters are kept — revert anytime from the Train screen",
+                Icons.Default.PriorityHigh  to "Requires NDK build — check Modules screen → LLM must show ACTIVE",
+            ),
+            callout   = "LoRA is optional. ARIA improves meaningfully through REINFORCE + IRL alone. LoRA is for users who want maximum performance.",
+            calloutColor = ARIAColors.Primary,
+        ),
+
+        KnowledgePage(
+            icon      = Icons.Default.RocketLaunch,
+            iconTint  = ARIAColors.Success,
+            title     = "Training Recipes",
+            body      = "The fastest ways to train ARIA for real-world tasks, combining the four modes:\n\nRECIPE A — Learn a new app in one evening:\n  1. Run the task 5 times (REINFORCE collects data)\n  2. Record 2 IRL videos of yourself doing it\n  3. Label any icon-only buttons ARIA missed\n  4. Run LoRA fine-tuning overnight (optional)\n  → Next morning: ARIA handles that app reliably\n\nRECIPE B — Fix a recurring mistake:\n  ARIA keeps tapping the wrong button → record an IRL video of the correct tap → that action gets 3× weight → mistake disappears within 3 tasks\n\nRECIPE C — Train for gaming:\n  1. Label all game UI elements (fire, jump, aim, map)\n  2. Enable MobileSAM (Modules screen) for pixel-level detection\n  3. Switch to Game Mode in the Control screen\n  4. Run a 10-minute training session — ARIA observes your gameplay\n  5. Let REINFORCE run for 20 game sessions\n  → ARIA learns game-specific tap timing and sequences\n\nRECIPE D — Total from-scratch setup (first week):\n  Day 1: download all modules, run 5 tasks (any app)\n  Day 2–3: run 10 tasks, give thumbs up/down honestly\n  Day 4: record 3 IRL videos of your most-used workflows\n  Day 5: open Labeler, label 10–15 stubborn icons\n  Day 7: trigger first LoRA cycle (if NDK is built)\n  → End of week 1: ARIA is 3–5× faster and more accurate than Day 1",
+            bullets   = listOf(
+                Icons.Default.Speed         to "Fastest gain: IRL video (1 recording = 50+ labelled examples)",
+                Icons.Default.Stairs        to "Steady gain: REINFORCE runs automatically — just keep using ARIA",
+                Icons.Default.Tune          to "Targeted fix: labeling specific missed elements fixes them immediately",
+                Icons.Default.NightsStay    to "Overnight boost: LoRA scheduled training while you sleep",
+            ),
+            callout   = "You do not need to do all of this. Even just running REINFORCE for two weeks of normal use makes ARIA significantly smarter at your daily apps.",
             calloutColor = ARIAColors.Success,
         ),
     )

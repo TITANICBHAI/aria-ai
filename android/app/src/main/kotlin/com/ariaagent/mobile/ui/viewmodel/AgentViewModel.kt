@@ -513,6 +513,13 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                         _llmDownloading.value = false
                         _moduleState.update { it.copy(llmDownloadPercent = 100, llmDownloadError = null) }
                         refreshModuleState()
+                        val downloadedPath = data["path"] as? String
+                        if (!downloadedPath.isNullOrBlank()) {
+                            val current = config.value
+                            if (current.modelPath.isBlank() || current.modelPath != downloadedPath) {
+                                saveConfig(current.copy(modelPath = downloadedPath))
+                            }
+                        }
                     }
                     "model_download_error"     -> {
                         _llmDownloading.value = false
