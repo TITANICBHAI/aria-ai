@@ -410,7 +410,7 @@ fun SettingsScreen(vm: AgentViewModel = viewModel()) {
                         temperatureX100  = temperatureX100,
                         nGpuLayers       = nGpuLayers,
                         rlEnabled        = rlEnabled,
-                        loraAdapterPath  = loraPath.trim().ifBlank { null },
+                        loraAdapterPath  = loraPath.trim(),
                     )
                 )
                 saveSuccess = true

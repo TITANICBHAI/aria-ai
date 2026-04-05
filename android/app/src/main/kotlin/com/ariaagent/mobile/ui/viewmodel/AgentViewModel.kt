@@ -647,7 +647,7 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun loadModel() {
         viewModelScope.launch(Dispatchers.IO) {
-            val cfg = ConfigStore.load(context)
+            val cfg = ConfigStore.getBlocking(context)
             runCatching {
                 LlamaEngine.load(
                     path         = cfg.modelPath,
@@ -811,7 +811,8 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.Default) {
             try {
                 val store  = ExperienceStore.getInstance(context)
-                val result = LoraTrainer.train(context, store)
+                val cfg    = ConfigStore.getBlocking(context)
+                val result = LoraTrainer.train(context, store, cfg.modelPath)
                 _rlResult.value = RlResultUi(
                     success      = result.success,
                     samplesUsed  = result.samplesUsed,
