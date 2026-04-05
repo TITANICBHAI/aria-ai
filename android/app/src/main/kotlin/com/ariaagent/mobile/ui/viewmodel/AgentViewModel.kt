@@ -1325,7 +1325,8 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                 val store  = ExperienceStore.getInstance(context)
                 val cfg    = ConfigStore.getBlocking(context)
                 reportLoraTrainingProgress(25, 0.0, 0, "training")
-                val result = LoraTrainer.train(context, store, cfg.modelPath)
+                val labelStore = ObjectLabelStore.getInstance(context)
+                val result = LoraTrainer.train(context, store, cfg.modelPath, labelStore = labelStore)
                 reportLoraTrainingProgress(
                     if (result.success) 100 else 0,
                     0.0,

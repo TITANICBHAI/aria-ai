@@ -11,6 +11,7 @@ import com.ariaagent.mobile.core.ai.LlamaEngine
 import com.ariaagent.mobile.core.ai.ModelManager
 import com.ariaagent.mobile.core.config.ConfigStore
 import com.ariaagent.mobile.core.memory.ExperienceStore
+import com.ariaagent.mobile.core.memory.ObjectLabelStore
 import com.ariaagent.mobile.core.system.ThermalGuard
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -111,9 +112,14 @@ class LearningScheduler(private val context: Context) {
                 }
 
                 // ── Step 2: LoRA fine-tuning ───────────────────────────────────
-                // Requires the base GGUF model path
-                val modelPath = ModelManager.modelPath(context).absolutePath
+                // Requires the base GGUF model path.
+                // Both ExperienceStore (agent-generated) and ObjectLabelStore
+                // (human-annotated, 3× weight) are passed so the trainer uses
+                // all available signal — not just agent experiences.
+                val modelPath  = ModelManager.modelPath(context).absolutePath
+                val labelStore = ObjectLabelStore.getInstance(context)
                 val loraResult = LoraTrainer.train(context, store, modelPath,
+                    labelStore      = labelStore,
                     enrichedRewards = enrichedRewards)
 
                 if (loraResult.success && loraResult.adapterPath.isNotEmpty()) {

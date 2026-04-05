@@ -208,7 +208,7 @@ Items are ranked by impact and safety risk.
 | 6 | **Wire `ThermalGuard` → `AgentEventBus`** | `[x]` **Done** | Thermal warnings in the UI now fire from real data. |
 | 7 | **Wire `LoraTrainer` → `reportLoraTrainingProgress()`** | `[x]` **Done** | `runRlCycle()` in AgentViewModel now emits progress at 10% (loading_data), 25% (training), and 100%/0% (complete/failed). Error path also emits "failed". |
 | 8 | **Wire `Dashboard.tsx` to `LocalDeviceServer`** | `[x]` **Done** | Live tab added with real polling, IP config, and all 8 endpoints wired. |
-| 9 | **Wire `LoraTrainer` → `ExperienceStore`** | `[ ]` | Learning loop accumulates data that is never used for training. |
+| 9 | **Wire `LoraTrainer` → `ExperienceStore` + `ObjectLabelStore`** | `[x]` **Done** | Both callers (`runRlCycle` in ViewModel, `LearningScheduler`) now pass `ObjectLabelStore.getInstance(context)` — human-annotated 3× weighted labels are no longer silently dropped from training. |
 | 10 | **Expose vision C++ code to Kotlin** | `[ ]` | Vision inference C++ exists and matches JNI, but is completely inaccessible from Kotlin. |
 | 11 | **Fix `onInterrupt()` in `AgentAccessibilityService`** | `[x]` **Done** | Service now clears state properly when interrupted. |
 | 12 | **Fix `WAKE_LOCK` orphan** | `[ ]` | Either acquire it in code or remove the permission declaration. |
