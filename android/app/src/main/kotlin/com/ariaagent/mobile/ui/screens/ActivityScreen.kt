@@ -63,7 +63,7 @@ fun ActivityScreen(vm: AgentViewModel = viewModel()) {
     val allLabels     by vm.allLabels.collectAsStateWithLifecycle()
 
     var activeTab by remember { mutableStateOf(ActivityTab.Actions) }
-    var showClearConfirm      by remember { mutableStateOf(false) }
+    var showClearConfirm       by remember { mutableStateOf(false) }
     var showClearLabelsConfirm by remember { mutableStateOf(false) }
 
     // Refresh memory entries + stats + labels whenever screen becomes active
@@ -107,6 +107,40 @@ fun ActivityScreen(vm: AgentViewModel = viewModel()) {
         )
     }
 
+    // Clear all labels confirmation dialog
+    if (showClearLabelsConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearLabelsConfirm = false },
+            containerColor   = ARIAColors.Surface,
+            title = {
+                Text(
+                    "Clear All Labels?",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        color = ARIAColors.OnSurface, fontWeight = FontWeight.Bold
+                    )
+                )
+            },
+            text = {
+                Text(
+                    "All stored UI element labels will be deleted across all apps. This cannot be undone.",
+                    style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showClearLabelsConfirm = false; vm.clearAllLabels() },
+                    colors  = ButtonDefaults.buttonColors(containerColor = ARIAColors.Destructive),
+                    shape   = RoundedCornerShape(8.dp)
+                ) { Text("Clear Labels", fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearLabelsConfirm = false }) {
+                    Text("Cancel", color = ARIAColors.Muted)
+                }
+            }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -126,10 +160,15 @@ fun ActivityScreen(vm: AgentViewModel = viewModel()) {
                         fontWeight = FontWeight.Bold
                     )
                 )
-                // Clear button — only in memory tab with entries
-                if (activeTab == ActivityTab.Memory && memoryEntries.isNotEmpty()) {
+                // Clear button — shown in Memory and Labels tabs when entries exist
+                val showClearBtn = (activeTab == ActivityTab.Memory && memoryEntries.isNotEmpty()) ||
+                                   (activeTab == ActivityTab.Labels && allLabels.isNotEmpty())
+                if (showClearBtn) {
                     IconButton(
-                        onClick = { showClearConfirm = true },
+                        onClick = {
+                            if (activeTab == ActivityTab.Memory) showClearConfirm = true
+                            else showClearLabelsConfirm = true
+                        },
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
                             .background(ARIAColors.Destructive.copy(alpha = 0.13f))
@@ -137,7 +176,7 @@ fun ActivityScreen(vm: AgentViewModel = viewModel()) {
                     ) {
                         Icon(
                             Icons.Default.DeleteSweep,
-                            contentDescription = "Clear memory",
+                            contentDescription = "Clear",
                             tint     = ARIAColors.Destructive,
                             modifier = Modifier.size(18.dp)
                         )
@@ -157,8 +196,11 @@ fun ActivityScreen(vm: AgentViewModel = viewModel()) {
             ) {
                 ActivityTab.entries.forEach { tab ->
                     val selected = activeTab == tab
-                    val count    = if (tab == ActivityTab.Actions) actionLogs.size
-                                   else memoryEntries.size
+                    val count    = when (tab) {
+                        ActivityTab.Actions -> actionLogs.size
+                        ActivityTab.Memory  -> memoryEntries.size
+                        ActivityTab.Labels  -> allLabels.size
+                    }
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -247,7 +289,8 @@ fun ActivityScreen(vm: AgentViewModel = viewModel()) {
         // ── Content per tab ───────────────────────────────────────────────────
         when (activeTab) {
             ActivityTab.Actions -> ActionsList(logs = actionLogs)
-            ActivityTab.Memory  -> MemoryList(entries = memoryEntries)
+            ActivityTab.Memory  -> MemoryList(entries = memoryEntries, stats = memoryStats)
+            ActivityTab.Labels  -> LabelsList(labels = allLabels)
         }
     }
 }
@@ -360,7 +403,7 @@ private fun ActionLogRow(entry: ActionLogEntry) {
 // ─── Memory tab ───────────────────────────────────────────────────────────────
 
 @Composable
-private fun MemoryList(entries: List<MemoryEntry>) {
+private fun MemoryList(entries: List<MemoryEntry>, stats: MemoryStatsUi) {
     if (entries.isEmpty()) {
         EmptyState(
             icon    = Icons.Default.Book,
@@ -373,10 +416,50 @@ private fun MemoryList(entries: List<MemoryEntry>) {
             contentPadding  = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // ── Gap 8: Stats bar ──────────────────────────────────────────────
+            if (stats.total > 0) {
+                item {
+                    Card(
+                        modifier  = Modifier.fillMaxWidth(),
+                        shape     = RoundedCornerShape(10.dp),
+                        colors    = CardDefaults.cardColors(containerColor = ARIAColors.Surface),
+                        elevation = CardDefaults.cardElevation(0.dp)
+                    ) {
+                        Row(
+                            modifier              = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            MemStatChip("Total",    "${stats.total}",    ARIAColors.Accent)
+                            MemStatChip("Success",  "${stats.success}",  ARIAColors.Success)
+                            MemStatChip("Fail",     "${stats.failure}",  ARIAColors.Destructive)
+                            MemStatChip("Edge",     "${stats.edgeCase}", ARIAColors.Warning)
+                            MemStatChip("Untrained","${stats.untrained}",ARIAColors.Muted)
+                        }
+                    }
+                }
+            }
             items(entries, key = { it.id }) { entry ->
                 MemoryRow(entry = entry)
             }
         }
+    }
+}
+
+@Composable
+private fun MemStatChip(label: String, value: String, color: Color) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall.copy(
+                color = color, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace
+            )
+        )
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted, fontSize = 10.sp)
+        )
     }
 }
 
@@ -464,6 +547,112 @@ private fun MemoryRow(entry: MemoryEntry) {
     }
 }
 
+// ─── Labels tab ───────────────────────────────────────────────────────────────
+
+@Composable
+private fun LabelsList(labels: List<com.ariaagent.mobile.core.memory.ObjectLabelStore.ObjectLabel>) {
+    if (labels.isEmpty()) {
+        EmptyState(
+            icon    = Icons.Default.Label,
+            title   = "No labels yet",
+            message = "Use the Labeler tool to annotate UI elements. Labels teach the agent about specific screens."
+        )
+    } else {
+        LazyColumn(
+            modifier        = Modifier.fillMaxSize(),
+            contentPadding  = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(labels, key = { it.id }) { label ->
+                LabelRow(label = label)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LabelRow(label: com.ariaagent.mobile.core.memory.ObjectLabelStore.ObjectLabel) {
+    val enrichedColor = if (label.isEnriched) ARIAColors.Success else ARIAColors.Muted
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(ARIAColors.Surface)
+            .drawLeftBorder(color = enrichedColor, width = 3.dp)
+            .padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment     = Alignment.Top
+    ) {
+        Box(
+            Modifier
+                .size(32.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(enrichedColor.copy(alpha = 0.15f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.Label,
+                contentDescription = null,
+                tint     = enrichedColor,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                label.name.ifBlank { "(unnamed)" },
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = ARIAColors.OnSurface, fontWeight = FontWeight.SemiBold
+                )
+            )
+            if (label.context.isNotBlank()) {
+                Text(
+                    label.context.take(80),
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = ARIAColors.Muted, lineHeight = 16.sp
+                    )
+                )
+            }
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment     = Alignment.CenterVertically
+            ) {
+                Text(
+                    label.appPackage.substringAfterLast('.'),
+                    style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Primary)
+                )
+                Text(
+                    label.elementType.name.lowercase(),
+                    style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Accent)
+                )
+                if (label.importanceScore > 0) {
+                    Text(
+                        "imp=${label.importanceScore}",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = ARIAColors.Muted, fontFamily = FontFamily.Monospace
+                        )
+                    )
+                }
+                if (label.isEnriched) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(ARIAColors.Success.copy(alpha = 0.15f))
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            "ENRICHED",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = ARIAColors.Success, fontWeight = FontWeight.Bold, fontSize = 9.sp
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 // ─── Shared composables ───────────────────────────────────────────────────────
 
 @Composable
@@ -499,6 +688,7 @@ private fun EmptyState(icon: ImageVector, title: String, message: String) {
 private enum class ActivityTab(val label: String) {
     Actions("Actions"),
     Memory("Memory"),
+    Labels("Labels"),
 }
 
 private fun toolIcon(tool: String): ImageVector = when (tool.lowercase()) {

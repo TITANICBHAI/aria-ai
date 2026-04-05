@@ -390,6 +390,76 @@ fun SettingsScreen(vm: AgentViewModel = viewModel()) {
             )
         }
 
+        // ── Web Dashboard / Local Monitoring Server (Gap 6) ──────────────────
+        SectionLabel("Web Dashboard")
+
+        SettingsCard {
+            Row(
+                modifier              = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment     = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    FieldLabel("Local Monitoring Server")
+                    Text(
+                        if (moduleState.localServerRunning)
+                            "HTTP server active — push live agent state to browser"
+                        else
+                            "Start an HTTP server to monitor ARIA from your browser",
+                        style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)
+                    )
+                }
+                Switch(
+                    checked         = moduleState.localServerRunning,
+                    onCheckedChange = { vm.toggleLocalServer() },
+                    colors          = SwitchDefaults.colors(
+                        checkedThumbColor   = ARIAColors.Background,
+                        checkedTrackColor   = ARIAColors.Primary,
+                        uncheckedThumbColor = ARIAColors.Muted,
+                        uncheckedTrackColor = ARIAColors.Divider,
+                    )
+                )
+            }
+
+            if (moduleState.localServerRunning && moduleState.localServerUrl.isNotEmpty()) {
+                CardDivider()
+                Row(
+                    modifier              = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment     = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        FieldLabel("Server URL")
+                        Text(
+                            moduleState.localServerUrl,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color      = ARIAColors.Accent,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                            )
+                        )
+                    }
+                    IconButton(onClick = {
+                        clipboardMgr.setText(AnnotatedString(moduleState.localServerUrl))
+                    }) {
+                        Icon(
+                            Icons.Default.ContentCopy,
+                            contentDescription = "Copy URL",
+                            tint     = ARIAColors.Muted,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Open this URL in a browser on the same Wi-Fi network to monitor ARIA in real time.",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color      = ARIAColors.Muted,
+                        lineHeight = 18.sp
+                    )
+                )
+            }
+        }
+
         // ── System Info (new — beyond RN) ─────────────────────────────────────
         SectionLabel("System Info")
 

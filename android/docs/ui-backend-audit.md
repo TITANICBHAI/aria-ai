@@ -204,15 +204,15 @@ These services and functions exist in Kotlin and work correctly, but the user ha
 
 ---
 
-# Part C — Gaps to build (priority ordered)
+# Part C — Gaps (all closed)
 
-| # | Gap | Direction | Screens to change | Backend to wire |
-|---|-----|-----------|------------------|-----------------|
-| 1 | LLM download: real progress bar + error handling | backend→UI | `ModulesScreen` | `AgentEventBus` events → `ModuleUiState` |
-| 2 | Accessibility Service: GRANT button | UI gap | `ModulesScreen`, `ARIAComposeApp` | `Settings.ACTION_ACCESSIBILITY_SETTINGS` deep-link |
-| 3 | OCR: real readiness check | both | `AgentViewModel` | `OcrEngine.isAvailable()` (added this session) |
-| 4 | Embedding model: status card + download button | backend→UI | `ModulesScreen`, `AgentViewModel` | `EmbeddingModelManager.download()` |
-| 5 | Unload LLM button | backend→UI | `ModulesScreen` | `LlamaEngine.unload()` |
-| 6 | Local web server toggle + URL display | backend→UI | `SettingsScreen`, `AgentViewModel` | `LocalDeviceServer.start/stop`, `MonitoringPusher` |
-| 7 | Object Label browser + clear-all | backend→UI | new `LabelsScreen` or `ActivityScreen` tab | `ObjectLabelStore.getAllEnriched()`, `clearAll()` |
-| 8 | ExperienceStore breakdown (success/fail/edge) | backend→UI | `ActivityScreen` | `ExperienceStore.countByResult()`, `edgeCaseCount()` |
+| # | Gap | Status | Where fixed |
+|---|-----|--------|-------------|
+| 1 | LLM download: real progress bar + error handling | ✅ Done | `AgentViewModel.handleLlmDownloadProgress()` + `ModulesScreen` progress bar |
+| 2 | Accessibility Service: GRANT button | ✅ Done | `ModulesScreen` `onGrantAccessibility` + `ARIAComposeApp` wires `ACTION_ACCESSIBILITY_SETTINGS` |
+| 3 | OCR: real readiness check | ✅ Done | `AgentViewModel.refreshModuleState()` calls `OcrEngine.isAvailable()` |
+| 4 | Embedding model: status card + download button | ✅ Done | `ModulesScreen` MiniLM card + `AgentViewModel.downloadEmbeddingModel()` |
+| 5 | Unload LLM button | ✅ Done | `ModulesScreen` "Free RAM (Unload)" button + `AgentViewModel.unloadLlmModel()` |
+| 6 | Local web server toggle + URL display | ✅ Done | `SettingsScreen` "Web Dashboard" section + toggle + copy-URL button |
+| 7 | Object Label browser + clear-all | ✅ Done | `ActivityScreen` Labels tab + `LabelsList` + `LabelRow` + clear dialog |
+| 8 | ExperienceStore breakdown (success/fail/edge) | ✅ Done | `ActivityScreen` Memory tab stats bar (Total / Success / Fail / Edge / Untrained) |
