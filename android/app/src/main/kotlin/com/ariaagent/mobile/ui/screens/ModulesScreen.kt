@@ -50,6 +50,7 @@ fun ModulesScreen(
     val detectorDownloading  by vm.detectorDownloading.collectAsStateWithLifecycle()
     val embeddingDownloading by vm.embeddingDownloading.collectAsStateWithLifecycle()
     val visionDownloading    by vm.visionDownloading.collectAsStateWithLifecycle()
+    val visionLoading        by vm.visionLoading.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -155,6 +156,9 @@ fun ModulesScreen(
             onDownload = if (visionStatus == ModuleStatus.MISSING && !visionDownloading)
                 {{ vm.downloadVisionModel() }} else null,
             downloading = visionDownloading,
+            onLoad = if (modules.visionReady && !modules.visionLoaded && !visionLoading && !visionDownloading)
+                {{ vm.loadVisionModel() }} else null,
+            loading = visionLoading,
             onUnload = if (modules.visionLoaded) {{ vm.unloadVisionModel() }} else null,
         )
 
@@ -348,6 +352,8 @@ private fun ModuleCard(
     downloading: Boolean = false,
     downloadProgress: Float? = null,
     downloadError: String? = null,
+    onLoad: (() -> Unit)? = null,
+    loading: Boolean = false,
     onUnload: (() -> Unit)? = null,
 ) {
     val (statusColor, statusLabel) = when (status) {

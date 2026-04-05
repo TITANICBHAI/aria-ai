@@ -418,6 +418,9 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     private val _visionDownloading = MutableStateFlow(false)
     val visionDownloading: StateFlow<Boolean> = _visionDownloading.asStateFlow()
 
+    private val _visionLoading = MutableStateFlow(false)
+    val visionLoading: StateFlow<Boolean> = _visionLoading.asStateFlow()
+
     private val _memoryStats = MutableStateFlow(MemoryStatsUi())
     val memoryStats: StateFlow<MemoryStatsUi> = _memoryStats.asStateFlow()
 
@@ -454,6 +457,20 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
             _safetyConfig.value = SafetyConfigStore.load(context)
         }
         refreshLoraHistory()
+
+        // Auto-load vision model on startup if files are already on disk.
+        // This pre-warms the ~200 MB model so the first agent step does not
+        // pay the cold-start latency cost (~2–4 s on Exynos 9611).
+        viewModelScope.launch(Dispatchers.IO) {
+            val visionEngine = com.ariaagent.mobile.core.ai.VisionEngine
+            if (visionEngine.isVisionModelReady(context) && !LlamaEngine.isVisionLoaded()) {
+                android.util.Log.i("AgentViewModel", "Auto-loading vision model (files present on disk)…")
+                _visionLoading.value = true
+                runCatching { visionEngine.ensureLoaded(context) }
+                _visionLoading.value = false
+                refreshModuleState()
+            }
+        }
 
         viewModelScope.launch {
             AgentEventBus.flow.collect { (name, data) ->
@@ -808,6 +825,24 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     fun unloadVisionModel() {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { com.ariaagent.mobile.core.ai.VisionEngine.unload() }
+            refreshModuleState()
+        }
+    }
+
+    /**
+     * Explicitly load the vision model files into RAM.
+     * Called when the user taps "Load Vision" on the Modules screen.
+     * The model is also loaded lazily by VisionEngine.describe() during the
+     * agent loop, but this lets users pre-warm it before starting a task.
+     */
+    fun loadVisionModel() {
+        if (_visionLoading.value || LlamaEngine.isVisionLoaded()) return
+        val visionEngine = com.ariaagent.mobile.core.ai.VisionEngine
+        if (!visionEngine.isVisionModelReady(context)) return
+        _visionLoading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { visionEngine.ensureLoaded(context) }
+            _visionLoading.value = false
             refreshModuleState()
         }
     }
