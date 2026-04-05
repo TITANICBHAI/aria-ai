@@ -10,6 +10,7 @@ import android.util.Log
 import com.ariaagent.mobile.core.ai.LlamaEngine
 import com.ariaagent.mobile.core.ai.ModelManager
 import com.ariaagent.mobile.core.config.ConfigStore
+import com.ariaagent.mobile.core.events.AgentEventBus
 import com.ariaagent.mobile.core.memory.ExperienceStore
 import com.ariaagent.mobile.core.memory.ObjectLabelStore
 import com.ariaagent.mobile.core.system.ThermalGuard
@@ -106,6 +107,8 @@ class LearningScheduler(private val context: Context) {
 
         scope.launch {
             try {
+                AgentEventBus.emit("scheduler_training_started", mapOf("source" to "LearningScheduler"))
+
                 val store = ExperienceStore.getInstance(context)
 
                 // ── Step 1: Policy network REINFORCE update ────────────────────
@@ -189,6 +192,7 @@ class LearningScheduler(private val context: Context) {
                 wakeLock?.let { if (it.isHeld) it.release() }
                 wakeLock = null
                 Log.d(TAG, "WakeLock released after training cycle")
+                AgentEventBus.emit("scheduler_training_stopped", mapOf("source" to "LearningScheduler"))
             }
         }
     }

@@ -67,9 +67,10 @@ private val GOAL_TEMPLATES = listOf(
 )
 
 private enum class GoalsTab(val label: String, val icon: ImageVector) {
-    Queue("Queue",     Icons.Default.Queue),
+    Queue("Queue",       Icons.Default.Queue),
     Templates("Templates", Icons.Default.GridView),
     Triggers("Triggers",   Icons.Default.Schedule),
+    Skills("Skills",       Icons.Default.School),
 }
 
 @Composable
@@ -204,6 +205,7 @@ fun GoalsScreen(
                 }
             )
             GoalsTab.Triggers -> TriggersTab(vm = vm)
+            GoalsTab.Skills   -> SkillsTab(vm = vm)
         }
     }
 }
@@ -881,6 +883,162 @@ private fun TriggerRow(
                 Icon(Icons.Default.Delete, contentDescription = "Delete",
                     tint = ARIAColors.Destructive, modifier = Modifier.size(14.dp))
             }
+        }
+    }
+}
+
+// ─── Skills tab ───────────────────────────────────────────────────────────────
+
+@Composable
+private fun SkillsTab(vm: AgentViewModel) {
+    val skills by vm.appSkills.collectAsStateWithLifecycle()
+    var clearConfirm    by remember { mutableStateOf(false) }
+    var deleteConfirm   by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) { vm.refreshAppSkills() }
+
+    if (clearConfirm) {
+        AlertDialog(
+            onDismissRequest = { clearConfirm = false },
+            containerColor   = ARIAColors.Surface,
+            title = { Text("Clear all skills?", style = MaterialTheme.typography.titleMedium.copy(color = ARIAColors.OnSurface, fontWeight = FontWeight.Bold)) },
+            text  = { Text("All ${skills.size} learned app skills will be permanently removed. ARIA will start fresh for every app.", style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)) },
+            confirmButton = {
+                Button(onClick = { vm.clearAppSkills(); clearConfirm = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = ARIAColors.Destructive),
+                    shape  = RoundedCornerShape(8.dp)) {
+                    Text("Clear All", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = { TextButton(onClick = { clearConfirm = false }) { Text("Cancel", color = ARIAColors.Muted) } }
+        )
+    }
+
+    if (deleteConfirm != null) {
+        AlertDialog(
+            onDismissRequest = { deleteConfirm = null },
+            containerColor   = ARIAColors.Surface,
+            title = { Text("Remove skill?", style = MaterialTheme.typography.titleMedium.copy(color = ARIAColors.OnSurface, fontWeight = FontWeight.Bold)) },
+            text  = { Text("ARIA's learned knowledge for ${deleteConfirm!!.substringAfterLast('.')} will be removed.", style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)) },
+            confirmButton = {
+                Button(onClick = { vm.deleteAppSkill(deleteConfirm!!); deleteConfirm = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = ARIAColors.Destructive),
+                    shape  = RoundedCornerShape(8.dp)) {
+                    Text("Remove", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = { TextButton(onClick = { deleteConfirm = null }) { Text("Cancel", color = ARIAColors.Muted) } }
+        )
+    }
+
+    LazyColumn(
+        modifier        = Modifier.fillMaxSize(),
+        contentPadding  = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("LEARNED SKILLS", style = MaterialTheme.typography.labelSmall.copy(
+                        color = ARIAColors.Muted, fontFamily = FontFamily.Monospace, letterSpacing = 1.sp))
+                    Text("${skills.size} app${if (skills.size != 1) "s" else ""} in registry",
+                        style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted))
+                }
+                if (skills.isNotEmpty()) {
+                    IconButton(onClick = { clearConfirm = true }) {
+                        Icon(Icons.Default.DeleteSweep, contentDescription = "Clear all skills", tint = ARIAColors.Destructive)
+                    }
+                }
+            }
+        }
+
+        if (skills.isEmpty()) {
+            item {
+                Box(modifier = Modifier.fillMaxWidth().padding(top = 40.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.School, contentDescription = null, tint = ARIAColors.Muted, modifier = Modifier.size(48.dp))
+                        Text("No skills yet", style = MaterialTheme.typography.bodyLarge.copy(color = ARIAColors.OnSurface, fontWeight = FontWeight.SemiBold))
+                        Text("Run ARIA on any app to start learning", style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted), textAlign = TextAlign.Center)
+                    }
+                }
+            }
+        } else {
+            items(skills, key = { it.appPackage }) { skill ->
+                AppSkillRow(skill = skill, onDelete = { deleteConfirm = skill.appPackage })
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppSkillRow(
+    skill: com.ariaagent.mobile.ui.viewmodel.AppSkillItem,
+    onDelete: () -> Unit,
+) {
+    val successPct = (skill.successRate * 100).toInt()
+    val rateColor  = when {
+        successPct >= 80 -> ARIAColors.Success
+        successPct >= 50 -> ARIAColors.Warning
+        else             -> ARIAColors.Destructive
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(ARIAColors.Surface)
+            .border(1.dp, ARIAColors.Divider, RoundedCornerShape(10.dp))
+            .padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(ARIAColors.Primary.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                skill.appName.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                style = MaterialTheme.typography.titleMedium.copy(color = ARIAColors.Primary, fontWeight = FontWeight.Bold)
+            )
+        }
+
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(skill.appName, style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.OnSurface, fontWeight = FontWeight.SemiBold))
+            Text(skill.appPackage.substringAfterLast('.'), style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted, fontSize = 10.sp))
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(rateColor.copy(alpha = 0.15f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text("$successPct% success", style = MaterialTheme.typography.labelSmall.copy(color = rateColor, fontWeight = FontWeight.Bold, fontSize = 9.sp))
+                }
+                Text("${skill.taskSuccess}✓ / ${skill.taskFailure}✗", style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted, fontSize = 10.sp))
+                if (skill.avgSteps > 0f) {
+                    Text("~${"%.1f".format(skill.avgSteps)} steps", style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted, fontSize = 10.sp))
+                }
+            }
+
+            if (skill.learnedElements.isNotEmpty()) {
+                Text(
+                    skill.learnedElements.take(5).joinToString(", "),
+                    style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Primary.copy(alpha = 0.8f), fontSize = 10.sp),
+                    maxLines = 1,
+                )
+            }
+        }
+
+        IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
+            Icon(Icons.Default.RemoveCircleOutline, contentDescription = "Remove skill", tint = ARIAColors.Destructive, modifier = Modifier.size(16.dp))
         }
     }
 }

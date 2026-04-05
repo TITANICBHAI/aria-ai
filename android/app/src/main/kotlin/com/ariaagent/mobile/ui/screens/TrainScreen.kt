@@ -51,6 +51,7 @@ fun TrainScreen(
     val irlRunning       by vm.irlRunning.collectAsState()
     val irlResult        by vm.irlResult.collectAsState()
     val autoSchedule     by vm.autoScheduleRl.collectAsState()
+    val schedulerActive  by vm.schedulerActive.collectAsState()
     val loraHistory      by vm.loraHistory.collectAsState()
     val loraProgress     by vm.loraTrainingProgress.collectAsState()
 
@@ -90,12 +91,13 @@ fun TrainScreen(
         Spacer(Modifier.height(8.dp))
 
         RlStatusCard(
-            status       = statusUi,
-            rlRunning    = rlRunning,
-            rlResult     = rlResult,
-            autoSchedule = autoSchedule,
-            onRunRl      = { vm.runRlCycle() },
-            onAutoSchedule = { vm.setAutoScheduleRl(it) },
+            status          = statusUi,
+            rlRunning       = rlRunning,
+            rlResult        = rlResult,
+            autoSchedule    = autoSchedule,
+            schedulerActive = schedulerActive,
+            onRunRl         = { vm.runRlCycle() },
+            onAutoSchedule  = { vm.setAutoScheduleRl(it) },
         )
 
         Spacer(Modifier.height(24.dp))
@@ -202,6 +204,7 @@ private fun RlStatusCard(
     rlRunning: Boolean,
     rlResult: com.ariaagent.mobile.ui.viewmodel.RlResultUi?,
     autoSchedule: Boolean,
+    schedulerActive: Boolean,
     onRunRl: () -> Unit,
     onAutoSchedule: (Boolean) -> Unit,
 ) {
@@ -313,6 +316,60 @@ private fun RlStatusCard(
                     uncheckedTrackColor     = ARIAColors.Surface3,
                 ),
             )
+        }
+
+        // ── Auto-schedule status pill ─────────────────────────────────────────
+        // Shows whether LearningScheduler is currently running a training cycle.
+        // Driven by scheduler_training_started / scheduler_training_stopped events.
+        Row(
+            modifier              = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(
+                    if (schedulerActive) ARIAColors.Accent.copy(alpha = 0.10f)
+                    else if (autoSchedule) ARIAColors.Primary.copy(alpha = 0.07f)
+                    else ARIAColors.Surface2
+                )
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment     = Alignment.CenterVertically,
+        ) {
+            if (schedulerActive) {
+                CircularProgressIndicator(
+                    modifier    = Modifier.size(12.dp),
+                    color       = ARIAColors.Accent,
+                    strokeWidth = 2.dp,
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(if (autoSchedule) ARIAColors.Primary else ARIAColors.Surface3)
+                )
+            }
+            Column {
+                Text(
+                    text = when {
+                        schedulerActive -> "Auto-training in progress…"
+                        autoSchedule    -> "Waiting — will train when charging + idle + samples > 50"
+                        else            -> "Auto-training disabled"
+                    },
+                    color    = when {
+                        schedulerActive -> ARIAColors.Accent
+                        autoSchedule    -> ARIAColors.TextPrimary
+                        else            -> ARIAColors.TextMuted
+                    },
+                    fontSize = 12.sp,
+                )
+                if (autoSchedule && !schedulerActive) {
+                    Text(
+                        "LearningScheduler is monitoring battery state",
+                        color    = ARIAColors.TextMuted,
+                        fontSize = 10.sp,
+                    )
+                }
+            }
         }
     }
 }

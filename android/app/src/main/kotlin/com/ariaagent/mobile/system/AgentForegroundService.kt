@@ -12,6 +12,8 @@ import androidx.core.app.NotificationCompat
 import com.ariaagent.mobile.MainActivity
 import com.ariaagent.mobile.core.agent.AgentLoop
 import com.ariaagent.mobile.core.events.AgentEventBus
+import com.ariaagent.mobile.core.rl.LearningScheduler
+import com.ariaagent.mobile.core.system.ThermalGuard
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -107,6 +109,10 @@ class AgentForegroundService : Service() {
     private var currentAppPackage = ""
     private var currentStep       = 0
 
+    // LearningScheduler: drives on-device RL during charging/idle windows.
+    // Started in onCreate(), stopped in onDestroy().
+    private var learningScheduler: LearningScheduler? = null
+
     // ── Auto-recovery watchdog ────────────────────────────────────────────────
     // When the agent loop crashes (status = "error"), automatically retry up to
     // MAX_AUTO_RETRIES times with a 5-second cool-down between attempts.
@@ -120,6 +126,20 @@ class AgentForegroundService : Service() {
         createNotificationChannel()
         startForeground(NOTIF_ID, buildNotification("Initialising…"))
         Log.i(TAG, "AgentForegroundService created")
+
+        // ── ThermalGuard: register listener so thermal events reach the notification ─
+        ThermalGuard.register(this, object : ThermalGuard.ThermalListener {
+            override fun onThermalLevelChanged(level: ThermalGuard.ThermalLevel) {
+                Log.i(TAG, "Thermal level changed → $level")
+                if (level >= ThermalGuard.ThermalLevel.SEVERE) {
+                    updateNotification("⚠ Thermal: $level — inference paused")
+                }
+            }
+        })
+
+        // ── LearningScheduler: start battery-change listener for auto-RL during charging ─
+        learningScheduler = LearningScheduler(this).also { it.start() }
+        Log.i(TAG, "LearningScheduler started — auto-training active during charging")
 
         // Subscribe to AgentEventBus to keep the notification current AND
         // to drive the auto-recovery watchdog on error status.
@@ -214,6 +234,9 @@ class AgentForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        learningScheduler?.stop()
+        learningScheduler = null
+        ThermalGuard.unregister(this)
         serviceScope.cancel()
         Log.i(TAG, "AgentForegroundService destroyed")
     }

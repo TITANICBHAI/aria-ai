@@ -103,12 +103,15 @@ object ChatContextBuilder {
             Log.w(TAG, "Task queue unavailable: ${e.message}")
         }
 
-        // ── Learned app skills ───────────────────────────────────────────────
+        // ── Learned app skills (full registry — all apps) ────────────────────
+        // The chat LLM receives the complete skill registry so it can answer
+        // questions about any app ARIA has ever interacted with, not just the 4
+        // most-recent. Sorted by last-seen so freshest knowledge comes first.
         try {
             val skills = AppSkillRegistry.getInstance(context).getAll()
             if (skills.isNotEmpty()) {
-                lines += "[LEARNED APP SKILLS]"
-                skills.take(4).forEach { s ->
+                lines += "[LEARNED APP SKILLS] (${skills.size} apps — full registry)"
+                skills.forEach { s ->
                     val name = s.appName.ifBlank {
                         s.appPackage.substringAfterLast('.').ifBlank { s.appPackage }
                     }
@@ -117,7 +120,7 @@ object ChatContextBuilder {
                     } else "no runs yet"
                     lines += "• $name: ${s.taskSuccess}✓ / ${s.taskFailure}✗, $rate"
                     if (s.promptHint.isNotBlank()) {
-                        lines += "  Hint: ${s.promptHint.take(80)}"
+                        lines += "  Hint: ${s.promptHint.take(120)}"
                     }
                 }
                 lines += ""

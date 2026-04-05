@@ -398,6 +398,15 @@ class AppSkillRegistry private constructor(context: Context) {
         Log.i(TAG, "AppSkillRegistry cleared")
     }
 
+    /**
+     * Delete the skill record for a single app package.
+     * Used by GoalsScreen Skills tab "prune" action.
+     */
+    fun deleteForPackage(appPackage: String) {
+        db.execSQL("DELETE FROM $TABLE WHERE app_package = ?", arrayOf(appPackage))
+        Log.i(TAG, "Deleted skill record for $appPackage")
+    }
+
     // ─── Prompt hint ──────────────────────────────────────────────────────────
 
     private fun buildPromptHint(

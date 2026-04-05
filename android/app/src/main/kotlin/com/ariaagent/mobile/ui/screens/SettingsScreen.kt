@@ -62,9 +62,6 @@ import com.ariaagent.mobile.ui.theme.ARIAColors
  *   - System info row (device model + Android API level)
  *   - Clear Memory button (ExperienceStore.clearAll) with confirmation dialog
  *   - Reset Agent button (ProgressPersistence.clearProgress) with confirmation dialog
- *
- * TODO (Phase 10): Web Dashboard / Local Monitoring Server section.
- *   LocalDeviceServer.kt already exists — add a toggle here to start/stop it.
  */
 @Composable
 fun SettingsScreen(

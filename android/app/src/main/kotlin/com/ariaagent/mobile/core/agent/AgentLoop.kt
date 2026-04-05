@@ -389,6 +389,18 @@ object AgentLoop {
                         AppSkillRegistry.getInstance(context).getPromptHint(snapshot.appPackage)
                     }.getOrDefault("")
 
+                    // Cross-app knowledge: compact hints for the top-3 other apps
+                    // the agent has learned, excluding the current foreground app.
+                    // Lets the agent make informed decisions when switching apps
+                    // mid-goal (e.g. share from Photos → WhatsApp).
+                    val crossAppKnowledge = runCatching {
+                        val registry = AppSkillRegistry.getInstance(context)
+                        registry.getAll()
+                            .filter { it.appPackage != snapshot.appPackage && it.promptHint.isNotBlank() }
+                            .take(3)
+                            .joinToString("\n") { "• ${it.appName.ifBlank { it.appPackage.substringAfterLast('.') }}: ${it.promptHint.take(80)}" }
+                    }.getOrDefault("")
+
                     // ── 2e. VISION DESCRIPTION — SmolVLM-256M (Phase 17, always-on) ──
                     // Vision runs on EVERY step now that VisionEngine caches by screenHash.
                     // A cache-hit (screen unchanged) costs <1 ms and returns the same
@@ -449,6 +461,7 @@ object AgentLoop {
                         objectLabels      = screenLabels,
                         detectedObjects   = detectedObjects,
                         appKnowledge      = appKnowledge,
+                        crossAppKnowledge = crossAppKnowledge,
                         visionDescription = visionDescription,
                         samRegions        = samRegions,
                         stuckHint         = stuckHint,

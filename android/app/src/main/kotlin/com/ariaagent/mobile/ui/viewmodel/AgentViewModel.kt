@@ -383,6 +383,11 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     private val _autoScheduleRl = MutableStateFlow(false)
     val autoScheduleRl: StateFlow<Boolean> = _autoScheduleRl.asStateFlow()
 
+    // True while LearningScheduler is actively running a training cycle.
+    // Set by "scheduler_training_started" / "scheduler_training_stopped" events.
+    private val _schedulerActive = MutableStateFlow(false)
+    val schedulerActive: StateFlow<Boolean> = _schedulerActive.asStateFlow()
+
     // ── Migration Phase 7: Labeler ────────────────────────────────────────────
 
     private val _labelerCapture = MutableStateFlow<ScreenCaptureUi?>(null)
@@ -500,8 +505,10 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                     "token_generated"         -> handleTokenGenerated(data)
                     "step_started"            -> handleStepStarted(data)
                     "thermal_status_changed"  -> handleThermalChanged(data)
-                    "learning_cycle_complete"  -> handleLearningComplete(data)
-                    "model_download_progress"  -> handleLlmDownloadProgress(data)
+                    "learning_cycle_complete"      -> handleLearningComplete(data)
+                    "scheduler_training_started"  -> _schedulerActive.value = true
+                    "scheduler_training_stopped"  -> _schedulerActive.value = false
+                    "model_download_progress"      -> handleLlmDownloadProgress(data)
                     "model_download_complete"  -> {
                         _llmDownloading.value = false
                         _moduleState.update { it.copy(llmDownloadPercent = 100, llmDownloadError = null) }
@@ -1095,6 +1102,14 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             AppSkillRegistry.getInstance(context).clear()
             _appSkills.value = emptyList()
+        }
+    }
+
+    /** Delete the skill record for a single app — called from GoalsScreen Skills tab. */
+    fun deleteAppSkill(appPackage: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            AppSkillRegistry.getInstance(context).deleteForPackage(appPackage)
+            _appSkills.update { prev -> prev.filter { it.appPackage != appPackage } }
         }
     }
 

@@ -119,6 +119,7 @@ RULES:
         objectLabels: List<ObjectLabelStore.ObjectLabel> = emptyList(),
         detectedObjects: List<ObjectDetectorEngine.DetectedObject> = emptyList(),
         appKnowledge: String = "",
+        crossAppKnowledge: String = "",
         visionDescription: String = "",
         samRegions: List<String> = emptyList(),
         stuckHint: String = "",
@@ -139,6 +140,14 @@ RULES:
         if (appKnowledge.isNotEmpty()) {
             sb.append("\n\n[APP KNOWLEDGE] (ARIA's prior experience with this app)\n")
             sb.appendLine(appKnowledge)
+        }
+
+        // ── Cross-app knowledge (compact hints for other known apps) ──────────
+        // Allows the agent to plan app-switching steps informed by prior experience
+        // on apps it may navigate to during a multi-step goal.
+        if (crossAppKnowledge.isNotEmpty()) {
+            sb.append("\n\n[OTHER KNOWN APPS] (compact hints — available if you need to switch apps)\n")
+            sb.appendLine(crossAppKnowledge)
         }
 
         // ── Stuck hint (injected by AgentLoop stuck detector) ─────────────────
