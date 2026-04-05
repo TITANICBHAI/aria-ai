@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.util.Log
 import com.ariaagent.mobile.core.ai.LlamaEngine
+import com.ariaagent.mobile.core.ai.Sam2Engine
+import com.ariaagent.mobile.core.ai.VisionEngine
 import com.ariaagent.mobile.core.memory.ExperienceStore
 import com.ariaagent.mobile.core.memory.ObjectLabelStore
 import com.ariaagent.mobile.core.ocr.OcrEngine
@@ -79,6 +81,12 @@ object IrlModule {
         val errorMessage: String = ""
     )
 
+    private data class FrameData(
+        val ocrText: String,
+        val visionDesc: String,
+        val samRegions: List<String>
+    )
+
     /**
      * Process a screen recording and extract expert experience tuples.
      *
@@ -118,19 +126,51 @@ object IrlModule {
             val frames = extractFrames(retriever, durationMs)
             Log.i(TAG, "Extracted ${frames.size} frames from ${durationMs / 1000}s video")
 
-            // Stage 2: OCR each frame
-            val ocrResults = frames.map { bitmap ->
-                runCatching { OcrEngine.run(bitmap) }.getOrDefault("")
+            val visionReady = VisionEngine.isVisionModelReady(context)
+            val sam2Ready   = Sam2Engine.isLoaded()
+
+            // Stage 2: Per-frame perception fusion — OCR + VisionEngine + Sam2Engine
+            // Use a for loop so suspend functions (OcrEngine, VisionEngine) can be awaited.
+            val frameDataList = mutableListOf<FrameData>()
+            for ((idx, bitmap) in frames.withIndex()) {
+                val ocr = runCatching { OcrEngine.run(bitmap) }.getOrDefault("")
+
+                val visionDesc = if (visionReady) {
+                    runCatching {
+                        VisionEngine.describe(
+                            context    = context,
+                            bitmap     = bitmap,
+                            goal       = taskGoal,
+                            screenHash = "",
+                            maxTokens  = 80
+                        )
+                    }.getOrDefault("")
+                } else ""
+
+                val samRegions = if (sam2Ready) {
+                    runCatching {
+                        Sam2Engine.segment(context, bitmap, topK = 6)
+                            .mapIndexed { i, r ->
+                                "[tap-${i + 1}] x=%.2f y=%.2f score=%.2f".format(r.normX, r.normY, r.score)
+                            }
+                    }.getOrDefault(emptyList())
+                } else emptyList()
+
+                if (visionDesc.isNotBlank()) Log.d(TAG, "Frame $idx vision: ${visionDesc.take(80)}")
+                if (samRegions.isNotEmpty()) Log.d(TAG, "Frame $idx SAM: ${samRegions.size} regions")
+
+                bitmap.recycle()
+                frameDataList.add(FrameData(ocrText = ocr, visionDesc = visionDesc, samRegions = samRegions))
             }
 
             // Stage 3: Build experience tuples from consecutive frame pairs
             val tuples = buildExperienceTuples(
-                context      = context,
-                ocrResults   = ocrResults,
-                labelStore   = labelStore,
-                allAppLabels = allAppLabels,
-                taskGoal     = taskGoal,
-                appPackage   = appPackage
+                context       = context,
+                frameDataList = frameDataList,
+                labelStore    = labelStore,
+                allAppLabels  = allAppLabels,
+                taskGoal      = taskGoal,
+                appPackage    = appPackage
             )
 
             tuples.forEach { store.save(it.first) }
@@ -323,16 +363,16 @@ object IrlModule {
     // ─── Tuple building ───────────────────────────────────────────────────────
 
     /**
-     * Compare consecutive OCR snapshots.
+     * Compare consecutive frame data (OCR + vision + SAM regions).
      * For each significant change, resolve per-frame labels, then:
-     *   1. Try LLM inference with frame-specific OCR + matched labels
+     *   1. Try LLM inference with frame-specific context (OCR + vision + labels + SAM regions)
      *   2. Fall back to heuristic word-diff
      *
      * Returns pairs of (ExperienceTuple, wasLlmInferred).
      */
     private suspend fun buildExperienceTuples(
         context: Context,
-        ocrResults: List<String>,
+        frameDataList: List<FrameData>,
         labelStore: ObjectLabelStore,
         allAppLabels: List<ObjectLabelStore.ObjectLabel>,
         taskGoal: String,
@@ -343,41 +383,43 @@ object IrlModule {
         val sessionId = UUID.randomUUID().toString()
         val llmAvailable = LlamaEngine.isLoaded()
 
-        for (i in 0 until ocrResults.size - 1) {
-            val prevOcr = ocrResults[i]
-            val nextOcr = ocrResults[i + 1]
-            val changeRatio = textChangeRatio(prevOcr, nextOcr)
+        for (i in 0 until frameDataList.size - 1) {
+            val prev = frameDataList[i]
+            val next = frameDataList[i + 1]
+            val changeRatio = textChangeRatio(prev.ocrText, next.ocrText)
 
             if (changeRatio < MIN_OCR_CHANGE_THRESHOLD) continue
 
             // Per-frame label resolution — what elements are visible on frame i?
-            val prevLabels = resolveFrameLabels(labelStore, allAppLabels, appPackage, prevOcr)
-            val nextLabels = resolveFrameLabels(labelStore, allAppLabels, appPackage, nextOcr)
+            val prevLabels = resolveFrameLabels(labelStore, allAppLabels, appPackage, prev.ocrText)
+            val nextLabels = resolveFrameLabels(labelStore, allAppLabels, appPackage, next.ocrText)
 
             val prevLabelBlock = buildLabelBlock(prevLabels)
             val nextLabelBlock = buildLabelBlock(nextLabels)
 
             val (actionJson, usedLlm) = if (llmAvailable) {
                 inferActionWithLlm(
-                    prevOcr      = prevOcr,
-                    nextOcr      = nextOcr,
+                    prevOcr      = prev.ocrText,
+                    nextOcr      = next.ocrText,
                     prevLabels   = prevLabelBlock,
                     nextLabels   = nextLabelBlock,
+                    prevVision   = prev.visionDesc,
+                    prevSam      = prev.samRegions,
                     taskGoal     = taskGoal,
                     appPackage   = appPackage,
                     frameIdx     = i
                 )
             } else {
-                Pair(inferActionHeuristic(prevOcr, nextOcr, i), false)
+                Pair(inferActionHeuristic(prev.ocrText, next.ocrText, i), false)
             }
 
-            // screenSummary includes the matched labels for full traceability
+            // screenSummary includes labels, vision, and SAM regions for full traceability
             val screenSummary = buildString {
                 append("[IRL frame $i] ")
-                if (prevLabelBlock.isNotEmpty()) {
-                    append("Labels: $prevLabelBlock | ")
-                }
-                append("OCR: ${prevOcr.take(200)}")
+                if (prevLabelBlock.isNotEmpty()) append("Labels: $prevLabelBlock | ")
+                if (prev.visionDesc.isNotBlank()) append("Vision: ${prev.visionDesc.take(120)} | ")
+                if (prev.samRegions.isNotEmpty()) append("SAM: ${prev.samRegions.take(3).joinToString(",")} | ")
+                append("OCR: ${prev.ocrText.take(150)}")
             }
 
             tuples.add(Pair(
@@ -413,11 +455,11 @@ object IrlModule {
     /**
      * Use the on-device LLM to reason about what changed between two frames.
      *
-     * Each frame now has its own per-frame label block (OCR-matched elements)
-     * so the LLM knows exactly which UI elements were visible on each screen.
+     * Now includes per-frame SmolVLM description and MobileSAM tap-candidate regions
+     * alongside OCR text and matched object labels, giving the LLM richer context.
      *
-     * Prompt is compact (< 600 chars) to minimise inference time on Exynos 9611.
-     * If the LLM output cannot be parsed as valid JSON, falls back to heuristic.
+     * Prompt budget: ~700 chars to stay fast on Exynos 9611.
+     * If output cannot be parsed as valid JSON, falls back to heuristic.
      *
      * @return (actionJson, usedLlm=true)
      */
@@ -426,20 +468,25 @@ object IrlModule {
         nextOcr: String,
         prevLabels: String,
         nextLabels: String,
+        prevVision: String,
+        prevSam: List<String>,
         taskGoal: String,
         appPackage: String,
         frameIdx: Int
     ): Pair<String, Boolean> {
-        val prevLabelLine = if (prevLabels.isNotEmpty()) "Screen A elements: $prevLabels\n" else ""
-        val nextLabelLine = if (nextLabels.isNotEmpty()) "Screen B elements: $nextLabels\n" else ""
+        val prevLabelLine  = if (prevLabels.isNotEmpty())  "Elements A: $prevLabels\n" else ""
+        val nextLabelLine  = if (nextLabels.isNotEmpty())  "Elements B: $nextLabels\n" else ""
+        val visionLine     = if (prevVision.isNotBlank())  "Vision A: ${prevVision.take(120)}\n" else ""
+        val samLine        = if (prevSam.isNotEmpty())     "Tap candidates A: ${prevSam.take(4).joinToString(", ")}\n" else ""
 
         val prompt = """<|system|>
-You are an Android UI action classifier. Reply with a single JSON object only — no explanation.
+You are an Android UI action classifier. Reply with a single JSON object only.
 JSON format: {"tool":"Click|Swipe|Type|Back|Scroll","node_id":"#N","reason":"brief"}
+If a tap candidate coordinate best explains the action, use TapXY: {"tool":"TapXY","x":0.55,"y":0.32,"reason":"brief"}
 <|user|>
 App: $appPackage  Goal: $taskGoal
-${prevLabelLine}Screen A OCR: ${prevOcr.take(250)}
-${nextLabelLine}Screen B OCR: ${nextOcr.take(250)}
+${visionLine}${samLine}${prevLabelLine}OCR A: ${prevOcr.take(200)}
+${nextLabelLine}OCR B: ${nextOcr.take(200)}
 What single UI action caused screen A → screen B?
 <|assistant|>
 """.trimIndent()

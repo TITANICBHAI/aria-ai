@@ -11,6 +11,8 @@ import com.ariaagent.mobile.core.ai.ChatContextBuilder
 import com.ariaagent.mobile.core.ai.LlamaEngine
 import com.ariaagent.mobile.core.ai.ModelDownloadService
 import com.ariaagent.mobile.core.ai.ModelManager
+import com.ariaagent.mobile.core.ai.Sam2Engine
+import com.ariaagent.mobile.core.ai.VisionEngine
 import com.ariaagent.mobile.core.config.AriaConfig
 import com.ariaagent.mobile.core.config.ConfigStore
 import com.ariaagent.mobile.core.config.SafetyConfigStore
@@ -1453,13 +1455,13 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         _labelerError.value     = null
         viewModelScope.launch(Dispatchers.Default) {
             try {
-                val detections = ObjectDetectorEngine.detectFromPath(context, cap.imagePath)
-                if (detections.isEmpty()) {
-                    _labelerError.value = "No objects detected above 40% confidence. Try adding pins manually."
-                    return@launch
-                }
-                val newLabels = detections.map { det ->
-                    ObjectLabelStore.ObjectLabel(
+                val newLabels = mutableListOf<ObjectLabelStore.ObjectLabel>()
+
+                val detections = runCatching {
+                    ObjectDetectorEngine.detectFromPath(context, cap.imagePath)
+                }.getOrDefault(emptyList())
+                detections.forEach { det ->
+                    newLabels.add(ObjectLabelStore.ObjectLabel(
                         id             = "${System.currentTimeMillis()}_${(Math.random() * 1000).toInt()}",
                         appPackage     = cap.appPackage,
                         screenHash     = cap.screenHash,
@@ -1467,10 +1469,47 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                         y              = det.normY,
                         name           = det.label.replace("_", " ")
                             .split(" ").joinToString(" ") { w -> w.replaceFirstChar { it.uppercaseChar() } },
-                        context        = "",
+                        context        = "EfficientDet detection",
                         elementType    = inferElementType(det.label),
                         importanceScore = maxOf(1, minOf(10, (det.confidence * 10).toInt())),
-                    )
+                    ))
+                }
+
+                val bitmap = runCatching {
+                    android.graphics.BitmapFactory.decodeFile(cap.imagePath)
+                }.getOrNull()
+                if (bitmap != null) {
+                    if (Sam2Engine.isLoaded()) {
+                        val samRegions = runCatching {
+                            Sam2Engine.segment(context, bitmap, topK = 8)
+                        }.getOrDefault(emptyList())
+                        val existingCoords = newLabels.map { it.x to it.y }
+                        samRegions.forEach { region ->
+                            val isDuplicate = existingCoords.any { (ex, ey) ->
+                                Math.abs(ex - region.normX) < 0.05f && Math.abs(ey - region.normY) < 0.05f
+                            }
+                            if (!isDuplicate) {
+                                val importance = maxOf(1, minOf(10, (region.score / 100f * 10f).toInt()))
+                                newLabels.add(ObjectLabelStore.ObjectLabel(
+                                    id             = "${System.currentTimeMillis()}_sam_${(Math.random() * 1000).toInt()}",
+                                    appPackage     = cap.appPackage,
+                                    screenHash     = cap.screenHash,
+                                    x              = region.normX,
+                                    y              = region.normY,
+                                    name           = "",
+                                    context        = "MobileSAM salient region",
+                                    elementType    = ObjectLabelStore.ElementType.UNKNOWN,
+                                    importanceScore = importance,
+                                ))
+                            }
+                        }
+                    }
+                    bitmap.recycle()
+                }
+
+                if (newLabels.isEmpty()) {
+                    _labelerError.value = "No objects detected. Try adding pins manually, or load SAM2/detector models."
+                    return@launch
                 }
                 _labelerLabels.update { prev -> prev + newLabels }
             } catch (e: Exception) {
@@ -1492,7 +1531,25 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         _labelerError.value     = null
         viewModelScope.launch(Dispatchers.Default) {
             try {
-                val screenContext = "${cap.ocrText}\n${cap.a11yTree}"
+                val visionDesc = runCatching {
+                    val bmp = android.graphics.BitmapFactory.decodeFile(cap.imagePath)
+                    if (bmp != null && VisionEngine.isVisionModelReady(context)) {
+                        VisionEngine.describe(
+                            context    = context,
+                            bitmap     = bmp,
+                            goal       = "Describe this Android UI for element annotation",
+                            screenHash = cap.screenHash,
+                            maxTokens  = 128
+                        ).also { bmp.recycle() }
+                    } else ""
+                }.getOrDefault("")
+
+                val screenContext = buildString {
+                    append(cap.ocrText.take(400))
+                    if (cap.a11yTree.isNotBlank()) append("\n${cap.a11yTree.take(300)}")
+                    if (visionDesc.isNotBlank()) append("\n[VISION] $visionDesc")
+                }
+
                 val enriched = _labelerLabels.value.map { label ->
                     val prompt = buildLabelEnrichPrompt(label, screenContext)
                     val raw    = LlamaEngine.infer(prompt, maxTokens = 150)

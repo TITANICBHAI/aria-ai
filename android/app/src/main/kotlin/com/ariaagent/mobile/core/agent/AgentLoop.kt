@@ -324,7 +324,7 @@ object AgentLoop {
                             Sam2Engine.segment(context, snapshot.bitmap!!)
                                 .take(8)
                                 .mapIndexed { i, r ->
-                                    "[sam-${i + 1}] x=%.2f y=%.2f saliency=%.2f".format(r.normX, r.normY, r.saliency)
+                                    "[sam-${i + 1}] x=%.2f y=%.2f saliency=%.2f".format(r.normX, r.normY, r.score)
                                 }
                         }.getOrDefault(emptyList())
                     } else emptyList()
