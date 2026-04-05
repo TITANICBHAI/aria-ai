@@ -37,9 +37,11 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ariaagent.mobile.core.ai.ModelManager
 import com.ariaagent.mobile.core.config.AriaConfig
 import com.ariaagent.mobile.ui.viewmodel.AgentViewModel
 import com.ariaagent.mobile.ui.theme.ARIAColors
+import java.io.File
 
 /**
  * SettingsScreen — full feature-parity with settings.tsx (852 lines).
@@ -90,10 +92,22 @@ fun SettingsScreen(
     val screenCaptureGranted = moduleState.screenCaptureGranted
     var notificationsGranted by remember { mutableStateOf(false) }
 
+    // ── Auto-detected .gguf files in the ARIA models directory ────────────────
+    var detectedGgufs by remember { mutableStateOf<List<File>>(emptyList()) }
+
     // Refresh notification permission state each time screen composes
     LaunchedEffect(Unit) {
         notificationsGranted = NotificationManagerCompat.from(context).areNotificationsEnabled()
         vm.refreshModuleState()
+        // Scan models directory for any .gguf files
+        detectedGgufs = ModelManager.modelDir(context)
+            .listFiles { f -> f.isFile && f.name.endsWith(".gguf") }
+            ?.sortedByDescending { it.length() }
+            ?: emptyList()
+        // If model path is blank and ARIA's own model is present, auto-fill
+        if (modelPath.isBlank() && ModelManager.isModelReady(context)) {
+            modelPath = ModelManager.modelPath(context).absolutePath
+        }
     }
 
     // ── Save feedback ─────────────────────────────────────────────────────────
@@ -233,30 +247,111 @@ fun SettingsScreen(
         SectionLabel("Model Configuration")
 
         SettingsCard {
-            // Model path — editable (matches RN)
-            FieldLabel("GGUF Model Path")
+            // Model path — editable with auto-detect
+            Row(
+                modifier              = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment     = Alignment.CenterVertically
+            ) {
+                FieldLabel("GGUF Model Path")
+                IconButton(
+                    onClick = {
+                        detectedGgufs = ModelManager.modelDir(context)
+                            .listFiles { f -> f.isFile && f.name.endsWith(".gguf") }
+                            ?.sortedByDescending { it.length() }
+                            ?: emptyList()
+                        if (detectedGgufs.isNotEmpty() && modelPath.isBlank()) {
+                            modelPath = detectedGgufs.first().absolutePath
+                        }
+                    },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = "Scan for models",
+                        tint     = ARIAColors.Primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
             Text(
-                "Internal storage path to your .gguf file",
+                "Internal storage path to your .gguf file  •  tap search to scan",
                 style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted),
                 modifier = Modifier.padding(bottom = 6.dp)
             )
+
+            // Detected models chips — tap to quick-fill the path
+            if (detectedGgufs.isNotEmpty()) {
+                Text(
+                    "DETECTED MODELS",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color    = ARIAColors.Muted,
+                        fontSize = 10.sp,
+                        letterSpacing = 0.5.sp
+                    ),
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+                detectedGgufs.forEach { f ->
+                    val isSelected = modelPath == f.absolutePath
+                    val sizeMb     = f.length() / 1_048_576
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (isSelected) ARIAColors.Primary.copy(alpha = 0.12f)
+                                else ARIAColors.Divider.copy(alpha = 0.08f)
+                            )
+                            .clickable { modelPath = f.absolutePath }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment     = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                f.name,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color      = if (isSelected) ARIAColors.Primary else ARIAColors.OnSurface,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            )
+                            Text(
+                                "${sizeMb} MB",
+                                style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted)
+                            )
+                        }
+                        if (isSelected) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = null,
+                                tint     = ARIAColors.Primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                }
+                Spacer(Modifier.height(4.dp))
+            }
+
             OutlinedTextField(
                 value         = modelPath,
                 onValueChange = { modelPath = it },
                 modifier      = Modifier.fillMaxWidth(),
+                label         = { Text("Custom path", fontSize = 11.sp) },
                 placeholder   = {
                     Text(
-                        "/data/user/0/com.ariaagent.mobile/files/models/your-model.gguf",
+                        "Paste a full .gguf path here",
                         style = MaterialTheme.typography.bodySmall.copy(
                             color    = ARIAColors.Divider,
                             fontSize = 11.sp
                         )
                     )
                 },
-                colors        = ariaTextFieldColors(),
+                colors          = ariaTextFieldColors(),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                singleLine    = false,
-                maxLines      = 3
+                singleLine      = false,
+                maxLines        = 3
             )
 
             CardDivider()
