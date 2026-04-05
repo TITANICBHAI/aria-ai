@@ -136,7 +136,10 @@ class ObjectLabelStore private constructor(context: Context) :
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_labels_app ON object_labels(app_package)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        db.execSQL("DROP TABLE IF EXISTS object_labels")
+        onCreate(db)
+    }
 
     // ─── Write operations ─────────────────────────────────────────────────────
 

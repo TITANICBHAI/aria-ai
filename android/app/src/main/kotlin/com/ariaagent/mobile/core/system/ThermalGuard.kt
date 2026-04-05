@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.util.Log
 import androidx.annotation.RequiresApi
+import com.ariaagent.mobile.core.events.AgentEventBus
 
 /**
  * ThermalGuard — protects the Exynos 9611 from thermal throttling and damage.
@@ -157,5 +158,11 @@ object ThermalGuard {
         currentLevel = newLevel
         Log.i(TAG, "Thermal level: $prev → $newLevel")
         listener?.onThermalLevelChanged(newLevel)
+        AgentEventBus.emit("thermal_status_changed", mapOf(
+            "level"         to newLevel.name.lowercase(),
+            "inferenceSafe" to isInferenceSafe(),
+            "trainingSafe"  to isTrainingSafe(),
+            "emergency"     to isEmergency(),
+        ))
     }
 }

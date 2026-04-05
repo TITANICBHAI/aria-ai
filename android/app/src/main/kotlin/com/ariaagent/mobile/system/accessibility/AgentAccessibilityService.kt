@@ -77,7 +77,10 @@ class AgentAccessibilityService : AccessibilityService() {
         isActive = true
     }
 
-    override fun onInterrupt() {}
+    override fun onInterrupt() {
+        isActive = false
+        instance = null
+    }
 
     override fun onDestroy() {
         super.onDestroy()

@@ -60,7 +60,7 @@ Specific ways the Observe → Think → Act cycle breaks, loops forever, or fail
 
 | | Location | What Happens | Why It's a Problem |
 |--|----------|-------------|-------------------|
-| `[ ]` | `GestureEngine.kt` `onCancelled` callback | **Empty body.** When the OS cancels a gesture (due to a popup, screen transition, or permission dialog), the agent receives no reason — it just sees a non-success and moves on. | Agent can't distinguish "gesture worked but missed the target" from "OS blocked the gesture entirely." Action history is misleading. |
+| `[x]` | `GestureEngine.kt` `onCancelled` callback | All 5 callbacks (tap, swipe, longPress, tapXY, swipeXY) now log a `Log.w` with the cancelled node/coordinates so failures are visible in logcat. **Fixed.** | Agent can't distinguish "gesture worked but missed the target" from "OS blocked the gesture entirely." Action history is misleading. |
 | `[ ]` | `GestureEngine.kt` `executeFromJson` | Malformed or unknown JSON from LLM → `executeFromJson` returns `false`, recorded as "failure," loop continues. | If the LLM consistently produces bad JSON, the agent silently fails every single step until it hits the 50-step limit, with no UI explanation of why. |
 | `[ ]` | `AgentAccessibilityService.kt` → `instance` is `null` | When the OS kills the Accessibility Service (common on low-RAM devices like the M31), `getSemanticTree()` returns the string `"(accessibility service not active)"`. The loop is **not aborted** — it continues, feeds this string to the LLM, and tries to act on it. | Agent runs until `MAX_STEPS` burning battery and producing garbage. No hard-stop or user alert when the service dies mid-task. |
 
@@ -95,9 +95,9 @@ All 11 navigation routes exist. No missing screen files. But several screens hav
 
 | | File | Gap | Risk |
 |--|------|-----|------|
-| `[ ]` | `AgentAccessibilityService.kt` | `onInterrupt()` has an **empty body**. Android calls this when the service is interrupted — the agent does not clean up, reset state, or attempt to re-arm itself. | Medium — may leave the agent in a bad state after interruption |
-| `[ ]` | `core/ocr/ObjectLabelStore.kt` | `onUpgrade()` database method is **empty**. Any schema migration on app update will silently fail or corrupt the label store. | High — data corruption on update |
-| `[ ]` | `core/memory/ExperienceStore.kt` | Same issue — `onUpgrade()` is empty. Schema changes wipe or corrupt the entire experience memory without warning. | High — data corruption on update |
+| `[x]` | `AgentAccessibilityService.kt` | `onInterrupt()` now sets `isActive = false` and clears `instance`. **Fixed.** | Medium — may leave the agent in a bad state after interruption |
+| `[x]` | `core/ocr/ObjectLabelStore.kt` | `onUpgrade()` now drops and recreates the table. **Fixed.** | High — data corruption on update |
+| `[x]` | `core/memory/ExperienceStore.kt` | `onUpgrade()` now drops both tables and recreates. **Fixed.** | High — data corruption on update |
 | `[ ]` | `AgentLoop.kt` Phase 14–19 markers | Stuck Detection, Task Plan Decomposition, Sustained Performance Mode, and Vision integration are all partially stubbed with phase markers but not fully integrated into the live loop. | High — agent is incomplete by design |
 | `[ ]` | `ThermalGuard.kt` | Guard logic exists but is **not hooked into `AgentLoop`** as a hard stop (Phase 14 target per `ComposeMainActivity`). The agent can overheat the device mid-task. | High — device safety |
 
@@ -111,9 +111,9 @@ All 11 navigation routes exist. No missing screen files. But several screens hav
 | `[ ]` | Vision C++ code ↔ Kotlin side | Complete C++ multimodal inference code exists in `llama_jni.cpp`. But `LlamaEngine.kt` has **no public methods** to call it, and no UI feature uses it. It is dead code. | Vision feature entirely inaccessible |
 | `[ ]` | `LoraTrainer` ↔ `ExperienceStore` | Training should pull from stored experiences. The stub bypasses the store entirely — experiences accumulate but are never used for learning. | Learning loop is an illusion |
 | `[ ]` | `LoraTrainer` ↔ `AgentViewModel` | Training progress events are never published through `AgentEventBus`. The ViewModel has the state; the UI has the widget; the engine never sends the signal. | Training progress bar always blank |
-| `[ ]` | `ThermalGuard` ↔ `AgentEventBus` | `ThermalGuard` never emits `"thermal_status_changed"` to the bus. The ViewModel listener is set up for nothing. | Thermal warnings never appear in UI |
+| `[x]` | `ThermalGuard` ↔ `AgentEventBus` | `ThermalGuard.updateLevel()` now emits `"thermal_status_changed"` with `level`, `inferenceSafe`, `trainingSafe`, `emergency`. **Fixed.** | Thermal warnings never appear in UI |
 | `[ ]` | `AgentLoop` ↔ `TaskDecomposer` | `TaskDecomposer.kt` exists and is wired, but Phase 14 markers in `AgentLoop` show the decomposed sub-task execution loop is not yet integrated. | Agent cannot break complex goals into steps |
-| `[ ]` | `LocalDeviceServer` ↔ `aria-dashboard` frontend | The backend server (`LocalDeviceServer.kt`, port 8765) is fully implemented with 8 REST endpoints and CORS headers. The `Dashboard.tsx` frontend uses **hardcoded static data** and never calls `fetch()` against these endpoints. (See Section 8.) | Dashboard shows fake data |
+| `[x]` | `LocalDeviceServer` ↔ `aria-dashboard` frontend | Dashboard now has a **Live tab** that polls all 8 endpoints every 2 seconds. Device IP/port are configurable and persisted to localStorage. **Fixed.** | Dashboard shows fake data |
 
 ---
 
@@ -137,9 +137,9 @@ This is a self-contained gap worth calling out specifically.
 **What's missing:**
 | | Item | Status |
 |--|------|--------|
-| `[ ]` | `artifacts/aria-dashboard/src/pages/Dashboard.tsx` | Uses **hardcoded static data** (lines 5–141). Never calls `fetch()`. Shows fake numbers. |
-| `[ ]` | No environment config for device IP/port | Dashboard has no way to know what IP address to call — device IP changes. Needs a config input or auto-discovery. |
-| `[ ]` | No entry point in `SettingsScreen` to start/view the server | User cannot start or connect to the monitoring server from within the app. |
+| `[x]` | `artifacts/aria-dashboard/src/pages/Dashboard.tsx` | New **Live tab** added. Polls all 8 endpoints every 2 seconds. Shows status, thermal, RL metrics, modules, and activity log. **Fixed.** |
+| `[x]` | No environment config for device IP/port | Live tab has an IP/port input field that persists to `localStorage`. **Fixed.** |
+| `[ ]` | No entry point in `SettingsScreen` to start/view the server | User cannot start or connect to the monitoring server from within the app. Still open. |
 
 ---
 
@@ -198,24 +198,25 @@ The project's own honesty doc admits these. They are tracked here so they don't 
 
 Items are ranked by impact and safety risk.
 
-| # | Item | Why First |
-|---|------|-----------|
-| 1 | **Build the NDK / JNI library** | Nothing real works until `libllama-jni.so` compiles. All AI gaps depend on this. |
-| 2 | **Fix both `onUpgrade()` stubs** (`ObjectLabelStore`, `ExperienceStore`) | Silent data corruption on every app update. |
-| 3 | **Hook `ThermalGuard` into `AgentLoop`** | Device safety — can overheat the M31. |
-| 4 | **Add hard-abort when Accessibility Service is null** | Prevents zombie loops burning battery with no user feedback. |
-| 5 | **Fix empty `onCancelled` in GestureEngine** | Gestures fail silently; agent can't respond to OS-level cancellations. |
-| 6 | **Wire `ThermalGuard` → `AgentEventBus`** | Thermal warnings in the UI currently never fire from real data. |
-| 7 | **Wire `LoraTrainer` → `reportLoraTrainingProgress()`** | Training progress bar always blank; `adamStep` and `lastPolicyLoss` always zero. |
-| 8 | **Wire `Dashboard.tsx` to `LocalDeviceServer`** | Dashboard shows fake hardcoded data. Server is live and ready. |
-| 9 | **Wire `LoraTrainer` → `ExperienceStore`** | Learning loop accumulates data that is never used for training. |
-| 10 | **Expose vision C++ code to Kotlin** | Vision inference C++ exists and matches JNI, but is completely inaccessible from Kotlin. |
-| 11 | **Fix `WAKE_LOCK` orphan** | Either acquire it in code or remove the permission. |
-| 12 | **Replace ONNX reflection calls with direct imports** | Silent `ClassNotFoundException` risk on version changes or ProGuard. |
-| 13 | **Verify Phases 5, 6, 7 on emulator** | Three screens are "written but not verified." Gate Phase 8 on this. |
-| 14 | **Reconcile `migration.md` vs `ARIA_REALITY_CHECK.md`** | The two documents contradict each other on what is "done." |
-| 15 | **Complete `AgentLoop` Phase 14 integration** | Stuck detection + task decomposition + sustained performance mode. |
-| 16 | **Add Web Dashboard entry point in SettingsScreen** | Phase 10 TODO — the monitoring UI section is completely absent. |
-| 17 | **Build Triggers feature in GoalsScreen** | Tab is a placeholder with "coming soon" text and no backend. |
-| 18 | **Phase 8 cleanup** — delete `MainActivity`, `ExpoModulesPackageList`, `artifacts/mobile/` | Remove dead weight once verification gates pass. |
-| 19 | **Add CI, NDK build step, and test gates** | Prevent gaps from reopening silently. |
+| # | Item | Status | Why First |
+|---|------|--------|-----------|
+| 1 | **Build the NDK / JNI library** | `[ ]` | Nothing real works until `libllama-jni.so` compiles. All AI gaps depend on this. |
+| 2 | **Fix both `onUpgrade()` stubs** (`ObjectLabelStore`, `ExperienceStore`) | `[x]` **Done** | Silent data corruption on every app update. |
+| 3 | **Hook `ThermalGuard` into `AgentLoop`** as hard abort | `[ ]` | Device safety — can overheat the M31. EventBus connection is now fixed; AgentLoop abort on null service still needed. |
+| 4 | **Add hard-abort when Accessibility Service is null** | `[ ]` | Prevents zombie loops burning battery with no user feedback. |
+| 5 | **Fix empty `onCancelled` in GestureEngine** | `[x]` **Done** | All 5 gesture callbacks now log OS cancellations. |
+| 6 | **Wire `ThermalGuard` → `AgentEventBus`** | `[x]` **Done** | Thermal warnings in the UI now fire from real data. |
+| 7 | **Wire `LoraTrainer` → `reportLoraTrainingProgress()`** | `[ ]` | Training progress bar always blank; `adamStep` and `lastPolicyLoss` always zero. |
+| 8 | **Wire `Dashboard.tsx` to `LocalDeviceServer`** | `[x]` **Done** | Live tab added with real polling, IP config, and all 8 endpoints wired. |
+| 9 | **Wire `LoraTrainer` → `ExperienceStore`** | `[ ]` | Learning loop accumulates data that is never used for training. |
+| 10 | **Expose vision C++ code to Kotlin** | `[ ]` | Vision inference C++ exists and matches JNI, but is completely inaccessible from Kotlin. |
+| 11 | **Fix `onInterrupt()` in `AgentAccessibilityService`** | `[x]` **Done** | Service now clears state properly when interrupted. |
+| 12 | **Fix `WAKE_LOCK` orphan** | `[ ]` | Either acquire it in code or remove the permission declaration. |
+| 13 | **Replace ONNX reflection calls with direct imports** | `[ ]` | Silent `ClassNotFoundException` risk on version changes or ProGuard. |
+| 14 | **Verify Phases 5, 6, 7 on emulator** | `[ ]` | Three screens are "written but not verified." Gate Phase 8 on this. |
+| 15 | **Reconcile `migration.md` vs `ARIA_REALITY_CHECK.md`** | `[ ]` | The two documents contradict each other on what is "done." |
+| 16 | **Complete `AgentLoop` Phase 14 integration** | `[ ]` | Stuck detection + task decomposition + sustained performance mode. |
+| 17 | **Add Web Dashboard entry point in SettingsScreen** | `[ ]` | Phase 10 TODO — the monitoring UI section is completely absent. |
+| 18 | **Build Triggers feature in GoalsScreen** | `[ ]` | Tab is a placeholder with "coming soon" text and no backend. |
+| 19 | **Phase 8 cleanup** — delete `MainActivity`, `ExpoModulesPackageList`, `artifacts/mobile/` | `[ ]` | Remove dead weight once verification gates pass. |
+| 20 | **Add CI, NDK build step, and test gates** | `[ ]` | Prevent gaps from reopening silently. |

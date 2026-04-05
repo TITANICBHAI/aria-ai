@@ -67,7 +67,11 @@ class ExperienceStore private constructor(context: Context) :
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_timestamp ON experience(timestamp DESC)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        db.execSQL("DROP TABLE IF EXISTS edge_cases")
+        db.execSQL("DROP TABLE IF EXISTS experience")
+        onCreate(db)
+    }
 
     data class ExperienceTuple(
         val id: String = UUID.randomUUID().toString(),

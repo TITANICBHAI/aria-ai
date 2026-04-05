@@ -2,6 +2,7 @@ package com.ariaagent.mobile.system.actions
 
 import android.accessibilityservice.AccessibilityService.GestureResultCallback
 import android.graphics.Rect
+import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import com.ariaagent.mobile.system.accessibility.AgentAccessibilityService
 import org.json.JSONObject
@@ -94,7 +95,9 @@ object GestureEngine {
             override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription) {
                 dispatched = true
             }
-            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription) {}
+            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription) {
+                Log.w("GestureEngine", "tap cancelled by OS for node $nodeId — possible popup or screen transition")
+            }
         })
         return dispatched
     }
@@ -124,7 +127,9 @@ object GestureEngine {
             override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription) {
                 dispatched = true
             }
-            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription) {}
+            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription) {
+                Log.w("GestureEngine", "swipe cancelled by OS for node $nodeId direction=$direction")
+            }
         })
         return dispatched
     }
@@ -166,7 +171,9 @@ object GestureEngine {
             rect.centerX().toFloat(), rect.centerY().toFloat(),
             object : GestureResultCallback() {
                 override fun onCompleted(g: android.accessibilityservice.GestureDescription) { dispatched = true }
-                override fun onCancelled(g: android.accessibilityservice.GestureDescription) {}
+                override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
+                    Log.w("GestureEngine", "longPress cancelled by OS for node $nodeId")
+                }
             }
         )
         return dispatched
@@ -190,7 +197,9 @@ object GestureEngine {
         var dispatched = false
         AgentAccessibilityService.dispatchTap(px, py, object : GestureResultCallback() {
             override fun onCompleted(g: android.accessibilityservice.GestureDescription) { dispatched = true }
-            override fun onCancelled(g: android.accessibilityservice.GestureDescription) {}
+            override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
+                Log.w("GestureEngine", "tapXY cancelled by OS at norm(%.2f, %.2f)".format(normX, normY))
+            }
         })
         return dispatched
     }
@@ -210,7 +219,9 @@ object GestureEngine {
         var dispatched = false
         AgentAccessibilityService.dispatchSwipe(x1, y1, x2, y2, object : GestureResultCallback() {
             override fun onCompleted(g: android.accessibilityservice.GestureDescription) { dispatched = true }
-            override fun onCancelled(g: android.accessibilityservice.GestureDescription) {}
+            override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
+                Log.w("GestureEngine", "swipeXY cancelled by OS from norm(%.2f,%.2f) to norm(%.2f,%.2f)".format(normX1, normY1, normX2, normY2))
+            }
         })
         return dispatched
     }
