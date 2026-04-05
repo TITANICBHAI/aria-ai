@@ -176,12 +176,12 @@ Performance gains for an inference-heavy app like ARIA make this unambiguously w
 > pnpm / EAS (node_modules present) → hybrid mode. RN bridge + Expo modules included.
 
 - [x] **Firebase Studio setup** — `settings.gradle`, `build.gradle`, and `app/build.gradle` updated for dual-mode (native-only vs hybrid). `local.properties` and `local.properties.template` created. `.gitignore` updated.
-- [ ] Open `artifacts/mobile/android/` in Firebase Studio / Android Studio
+- [ ] Open `android/` in Firebase Studio / Android Studio
 - [ ] Copy `local.properties.template` → `local.properties`, set correct `sdk.dir`
 - [ ] Gradle sync — expect "NATIVE-ONLY mode" in Build output if no `node_modules`
 - [ ] Create branch: `migration/full-native`
 - [ ] Confirm emulator boots (API 34, arm64-v8a or x86_64)
-- [ ] Run `./gradlew assembleDebug` from `artifacts/mobile/android/` — confirm it compiles
+- [ ] Run `./gradlew assembleDebug` from `android/` — confirm it compiles
 - [ ] Launch `ComposeMainActivity` via adb:
   ```bash
   adb shell am start -n com.ariaagent.mobile/.ui.ComposeMainActivity

@@ -3,7 +3,7 @@
 ## Quick Start
 
 1. Open Firebase Studio (or Android Studio)
-2. **File → Open** → select the `artifacts/mobile/android/` folder
+2. **File → Open** → select the `android/` folder
 3. When prompted, let Gradle sync — it will detect **native-only mode** automatically
    (no `node_modules` = no React Native plugins loaded, only pure Kotlin + Compose + NDK)
 4. Set the Android SDK path if Studio asks (see SDK setup below)
@@ -16,7 +16,7 @@
 If Gradle sync fails with "SDK location not found", create or edit:
 
 ```
-artifacts/mobile/android/local.properties
+android/local.properties
 ```
 
 Set the path to your Android SDK:
@@ -93,7 +93,7 @@ $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;27.1.12297006"
 ## Build Commands (terminal)
 
 ```bash
-# From artifacts/mobile/android/
+# From android/
 
 # Debug build (native-only, no node required)
 ./gradlew :app:assembleDebug

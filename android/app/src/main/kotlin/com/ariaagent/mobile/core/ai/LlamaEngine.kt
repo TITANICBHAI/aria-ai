@@ -6,7 +6,7 @@ package com.ariaagent.mobile.core.ai
  * Phase 1 status: Full JNI declarations wired. CMakeLists.txt written.
  * To activate: add llama.cpp as a submodule in android/app/src/main/cpp/
  *
- *   cd artifacts/mobile/android/app/src/main/cpp
+ *   cd android/app/src/main/cpp
  *   git submodule add https://github.com/ggerganov/llama.cpp llama.cpp
  *   git submodule update --init --recursive
  *   Then run: eas build --profile development

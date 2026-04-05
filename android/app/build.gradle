@@ -25,7 +25,8 @@ if (rnEnabled) {
         // Locate react-native and @react-native/codegen robustly.
         // Strategy 1: Node.js resolution (works locally and most CI).
         // Strategy 2: walk candidate paths (fallback when node not in Gradle's PATH).
-        // rootDir = android/  rootDir.parentFile = artifacts/mobile/ (JS project root)
+        // rootDir = /workspace/android/  rootDir.parentFile = /workspace/ (monorepo root)
+        // JS project root (Expo/RN) = /workspace/artifacts/mobile/
 
         def findPkg = { String pkg ->
             def dir = null
@@ -55,8 +56,10 @@ if (rnEnabled) {
         def rnDir        = findPkg("react-native")
         def rnCodegenDir = findPkg("@react-native/codegen")
 
-        root           = file("../../")
-        jsRootDir      = file("../../")
+        // file() in app/build.gradle resolves relative to android/app/
+        // ../../artifacts/mobile/ → /workspace/artifacts/mobile/ (Expo JS root)
+        root           = file("../../artifacts/mobile/")
+        jsRootDir      = file("../../artifacts/mobile/")
         reactNativeDir = rnDir
         codegenDir     = rnCodegenDir
         cliFile        = new File(rnDir, "cli.js")

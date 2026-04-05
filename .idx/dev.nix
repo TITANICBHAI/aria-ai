@@ -87,7 +87,7 @@
         write-local-properties = ''
           printf 'sdk.dir=%s\nndk.dir=%s/ndk/27.1.12297006\n' \
             "$ANDROID_HOME" "$ANDROID_HOME" \
-            > artifacts/mobile/android/local.properties
+            > android/local.properties
           echo "[IDX] local.properties written → $ANDROID_HOME"
         '';
 
@@ -103,7 +103,7 @@
         # Pre-download Gradle dependencies so first build is fast
         # --no-daemon keeps it lightweight during setup
         gradle-prefetch = ''
-          cd artifacts/mobile/android
+          cd android
           ./gradlew dependencies --no-daemon -q 2>/dev/null \
             && echo "[IDX] Gradle deps prefetched" \
             || echo "[IDX] Gradle prefetch skipped (will resolve on first build)"
@@ -117,7 +117,7 @@
         sync-local-properties = ''
           printf 'sdk.dir=%s\nndk.dir=%s/ndk/27.1.12297006\n' \
             "$ANDROID_HOME" "$ANDROID_HOME" \
-            > artifacts/mobile/android/local.properties
+            > android/local.properties
         '';
       };
     };

@@ -82,12 +82,12 @@ No manual flag required. The mode is logged at Gradle configuration time.
 1. Open the workspace — `.idx/dev.nix` runs automatically
 2. SDK, NDK, and emulator are provisioned by the Nix environment
 3. `local.properties` is written automatically with correct SDK/NDK paths
-4. Open `artifacts/mobile/android/` as the project root in the Android panel
+4. Open `android/` (workspace root) as the project root in the Android panel
 5. Gradle syncs in native-only mode (no node_modules needed)
 6. Run ▶ launches on the arm64-v8a emulator
 
 ### To open in Android Studio
-1. File → Open → select `artifacts/mobile/android/`
+1. File → Open → select the `android/` folder at workspace root
 2. Gradle syncs in native-only mode automatically
 3. If `local.properties` is missing, Android Studio writes it with your local SDK path
 
@@ -110,25 +110,25 @@ No manual flag required. The mode is logged at Gradle configuration time.
 root/
 ├── .idx/dev.nix                # Firebase Studio environment config
 ├── migration.md                # Migration plan and phase tracker
+├── android/                    # ← Open this in Android Studio / Firebase Studio
+│   ├── app/src/main/
+│   │   ├── kotlin/com/ariaagent/mobile/
+│   │   │   ├── MainActivity.kt         # stub — no launcher intent (Phase 8: delete)
+│   │   │   ├── MainApplication.kt      # clean Application (SoLoader removed)
+│   │   │   ├── core/                   # AI brain (permanent)
+│   │   │   ├── system/                 # system services (permanent)
+│   │   │   └── ui/                     # Compose UI (permanent)
+│   │   ├── kotlin/expo/modules/
+│   │   │   └── ExpoModulesPackageList.kt # empty stub (Phase 8: delete)
+│   │   ├── cpp/                        # llama.cpp NDK sources
+│   │   ├── res/                        # drawables, strings, styles
+│   │   └── AndroidManifest.xml
+│   ├── build.gradle    # dual-mode app build
+│   ├── settings.gradle # auto-detects native-only vs hybrid
+│   ├── gradle.properties
+│   └── local.properties # SDK/NDK paths — never commit
 ├── artifacts/
 │   ├── mobile/
-│   │   ├── android/            # ← Open this in Android Studio / Firebase Studio
-│   │   │   ├── app/src/main/
-│   │   │   │   ├── kotlin/com/ariaagent/mobile/
-│   │   │   │   │   ├── MainActivity.kt         # stub — no launcher intent (Phase 8: delete)
-│   │   │   │   │   ├── MainApplication.kt      # clean Application (SoLoader removed)
-│   │   │   │   │   ├── core/                   # AI brain (permanent)
-│   │   │   │   │   ├── system/                 # system services (permanent)
-│   │   │   │   │   └── ui/                     # Compose UI (permanent)
-│   │   │   │   ├── kotlin/expo/modules/
-│   │   │   │   │   └── ExpoModulesPackageList.kt # empty stub (Phase 8: delete)
-│   │   │   │   ├── cpp/                        # llama.cpp NDK sources
-│   │   │   │   ├── res/                        # drawables, strings, styles
-│   │   │   │   └── AndroidManifest.xml
-│   │   │   ├── build.gradle    # dual-mode app build
-│   │   │   ├── settings.gradle # auto-detects native-only vs hybrid
-│   │   │   ├── gradle.properties
-│   │   │   └── local.properties # SDK/NDK paths — never commit
 │   │   └── app/(tabs)/         # RN screens — spec source for Kotlin (do not delete yet)
 │   └── web-dashboard/          # Local Vite+React monitoring UI
 ├── shared/
@@ -156,6 +156,12 @@ and converts to StateFlow for Compose UI. No direct service → UI calls.
 
 ## Agent Preferences
 
-- **GitHub push**: Run `git push github HEAD:main` manually in the Shell after each session.
+- **GitHub — monorepo (aria-ai)**: Run `git push github HEAD:main` manually in the Shell after each session.
   The `github` remote already has credentials embedded.
-- **Auto-push**: Not possible — GitHub OAuth was dismissed and the platform blocks direct git push.
+- **GitHub — Android-only (Ai-android)**: https://github.com/TITANICBHAI/Ai-android
+  To push the `android/` folder as a standalone repo, run from the Shell:
+  ```bash
+  git subtree push --prefix=android ai-android main
+  ```
+  Or add the remote first: `git remote add ai-android https://<TOKEN>@github.com/TITANICBHAI/Ai-android.git`
+- **Auto-push**: Not possible from the agent — the platform blocks direct git writes. Push manually.

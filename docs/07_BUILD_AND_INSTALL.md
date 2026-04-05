@@ -24,13 +24,13 @@
 ARIA has three build layers:
 
 ### 1. Native C++ Layer (llama.cpp via NDK)
-- **Source:** `artifacts/mobile/android/app/src/main/cpp/`
+- **Source:** `android/app/src/main/cpp/`
 - **Output:** `libllama-jni.so` (~30–50 MB stripped, arm64-v8a)
 - **What it does:** Runs the Llama 3.2-1B model for on-device AI inference.
 - **llama.cpp** is cloned automatically during the EAS build via the pre-install hook.
 
 ### 2. Kotlin Layer
-- **Source:** `artifacts/mobile/android/app/src/main/kotlin/`
+- **Source:** `android/app/src/main/kotlin/`
 - **What it does:** All agent logic — screen capture, OCR, RL, memory, the agent loop.
 
 ### 3. React Native / JS Layer
@@ -109,7 +109,7 @@ If this line is missing, the NDK build failed. Check the Gradle log for CMake er
 
 ```bash
 # 1. Clone llama.cpp manually
-cd artifacts/mobile/android/app/src/main/cpp
+cd android/app/src/main/cpp
 git clone --depth=1 --branch b4870 https://github.com/ggerganov/llama.cpp.git llama.cpp
 
 # 2. Install JS dependencies
