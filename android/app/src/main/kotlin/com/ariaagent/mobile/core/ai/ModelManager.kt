@@ -28,9 +28,11 @@ object ModelManager {
     // Update this if HuggingFace re-uploads the file
     const val EXPECTED_SHA256 = "VERIFY_AFTER_FIRST_DOWNLOAD"
 
-    fun modelDir(context: Context): File =
-        (context.getExternalFilesDir("models") ?: File(context.filesDir, "models"))
-            .also { it.mkdirs() }
+    fun modelDir(context: Context): File {
+        val internal = File(context.filesDir, "models").also { it.mkdirs() }
+        if (internal.canWrite()) return internal
+        return (context.getExternalFilesDir("models") ?: internal).also { it.mkdirs() }
+    }
 
     fun modelPath(context: Context): File =
         File(modelDir(context), MODEL_FILENAME)

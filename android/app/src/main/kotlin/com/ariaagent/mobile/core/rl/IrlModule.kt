@@ -176,31 +176,46 @@ object IrlModule {
 
             // Stage 2: Per-frame perception fusion — OCR + VisionEngine + Sam2Engine
             // Use a for loop so suspend functions (OcrEngine, VisionEngine) can be awaited.
+            //
+            // Annotation enrichment: if the user has annotated frame [idx], that annotation
+            // is passed to BOTH VisionEngine and Sam2Engine so all three models reason with
+            // the user's logic — not just pixel patterns.
+            //   • VisionEngine: annotation injected into SmolVLM prompt → annotation-aware description
+            //   • Sam2Engine:   annotation used to spatially re-rank SAM peaks toward described area
             val frameDataList = mutableListOf<FrameData>()
             for ((idx, bitmap) in frames.withIndex()) {
                 val ocr = runCatching { OcrEngine.run(bitmap) }.getOrDefault("")
 
+                // Per-frame annotation from IRL labeling UI (empty string if user skipped this frame)
+                val frameAnnotation = frameAnnotations[idx]?.trim() ?: ""
+
                 val visionDesc = if (visionReady) {
                     runCatching {
                         VisionEngine.describe(
-                            context    = context,
-                            bitmap     = bitmap,
-                            goal       = taskGoal,
-                            screenHash = "",
-                            maxTokens  = 80
+                            context     = context,
+                            bitmap      = bitmap,
+                            goal        = taskGoal,
+                            screenHash  = "",
+                            annotation  = frameAnnotation,
+                            maxTokens   = 80
                         )
                     }.getOrDefault("")
                 } else ""
 
                 val samRegions = if (sam2Ready) {
                     runCatching {
-                        Sam2Engine.segment(context, bitmap, topK = 6)
-                            .mapIndexed { i, r ->
-                                "[tap-${i + 1}] x=%.2f y=%.2f score=%.2f".format(r.normX, r.normY, r.score)
-                            }
+                        Sam2Engine.segment(
+                            context        = context,
+                            bitmap         = bitmap,
+                            topK           = 6,
+                            annotationHint = frameAnnotation
+                        ).mapIndexed { i, r ->
+                            "[tap-${i + 1}] x=%.2f y=%.2f score=%.2f".format(r.normX, r.normY, r.score)
+                        }
                     }.getOrDefault(emptyList())
                 } else emptyList()
 
+                if (frameAnnotation.isNotEmpty()) Log.d(TAG, "Frame $idx annotation: ${frameAnnotation.take(60)}")
                 if (visionDesc.isNotBlank()) Log.d(TAG, "Frame $idx vision: ${visionDesc.take(80)}")
                 if (samRegions.isNotEmpty()) Log.d(TAG, "Frame $idx SAM: ${samRegions.size} regions")
 
@@ -460,6 +475,11 @@ object IrlModule {
                     frameIdx     = i,
                     annotation   = annotation
                 )
+            } else if (annotation.isNotEmpty()) {
+                // Heuristic mode: user has explained this frame — use their logic directly
+                // instead of a blind word-diff. Parse the annotation for action keywords
+                // so the user's frame description drives the action, not just text delta.
+                Pair(inferActionFromAnnotation(annotation, i), false)
             } else {
                 Pair(inferActionHeuristic(prev.ocrText, next.ocrText, i), false)
             }
@@ -567,10 +587,56 @@ What single UI action caused screen A → screen B?
         return if (candidate.contains("\"tool\"")) candidate else null
     }
 
+    // ─── Annotation-driven action inference (heuristic mode + user context) ──
+
+    /**
+     * Produce a JSON action from a user-provided frame annotation.
+     *
+     * This is used when the LLM is not available but the user HAS annotated the frame.
+     * Instead of a blind word-diff, we parse the annotation text for action keywords
+     * and emit the best-matching action JSON. Falls back to a "UserAction" custom
+     * reason if no keyword is recognised, so at least the annotation is recorded.
+     *
+     * Keyword mapping (case-insensitive):
+     *   tap / click / press / button / icon / link    → Click
+     *   type / typed / entered / wrote / input / text → Type
+     *   swipe / swiped / scroll / scrolled            → Swipe (up default)
+     *   back / went back / returned / navigate back   → Back
+     *   long press / hold / held                      → LongPress
+     *   otherwise                                     → Click (safest default)
+     */
+    private fun inferActionFromAnnotation(annotation: String, frameIdx: Int): String {
+        val a = annotation.lowercase()
+        val reason = annotation.take(120).replace("\"", "'")
+        return when {
+            a.containsAny("type", "typed", "entered", "wrote", "input", "keyboard", "text field") ->
+                """{"tool":"Type","node_id":"#1","text":"","reason":"IRL annotation frame $frameIdx: $reason"}"""
+            a.containsAny("swipe left", "swiped left") ->
+                """{"tool":"Swipe","direction":"left","reason":"IRL annotation frame $frameIdx: $reason"}"""
+            a.containsAny("swipe right", "swiped right") ->
+                """{"tool":"Swipe","direction":"right","reason":"IRL annotation frame $frameIdx: $reason"}"""
+            a.containsAny("swipe up", "swiped up", "scroll up", "scrolled up") ->
+                """{"tool":"Swipe","direction":"up","reason":"IRL annotation frame $frameIdx: $reason"}"""
+            a.containsAny("swipe down", "swiped down", "scroll down", "scrolled down") ->
+                """{"tool":"Swipe","direction":"down","reason":"IRL annotation frame $frameIdx: $reason"}"""
+            a.containsAny("swipe", "scroll") ->
+                """{"tool":"Swipe","direction":"up","reason":"IRL annotation frame $frameIdx: $reason"}"""
+            a.containsAny("back", "went back", "returned", "navigate back", "press back") ->
+                """{"tool":"Back","reason":"IRL annotation frame $frameIdx: $reason"}"""
+            a.containsAny("long press", "long-press", "hold", "held", "press and hold") ->
+                """{"tool":"LongPress","node_id":"#1","reason":"IRL annotation frame $frameIdx: $reason"}"""
+            else ->
+                """{"tool":"Click","node_id":"#1","reason":"IRL annotation frame $frameIdx: $reason"}"""
+        }
+    }
+
+    private fun String.containsAny(vararg keywords: String): Boolean =
+        keywords.any { this.contains(it) }
+
     // ─── Heuristic action inference ───────────────────────────────────────────
 
     /**
-     * Word-level Jaccard diff heuristic. Used when LLM is not loaded.
+     * Word-level Jaccard diff heuristic. Used when LLM is not loaded AND no annotation.
      *
      *   Both new AND lost words large → full screen transition → tap
      *   More new words than lost      → content appeared → tap

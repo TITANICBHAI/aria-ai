@@ -78,9 +78,11 @@ object VisionEngine {
 
     // ── File paths ────────────────────────────────────────────────────────────
 
-    fun modelDir(context: Context): File =
-        (context.getExternalFilesDir("models") ?: File(context.filesDir, "models"))
-            .also { it.mkdirs() }
+    fun modelDir(context: Context): File {
+        val internal = File(context.filesDir, "models").also { it.mkdirs() }
+        if (internal.canWrite()) return internal
+        return (context.getExternalFilesDir("models") ?: internal).also { it.mkdirs() }
+    }
 
     fun visionModelPath(context: Context): File =
         File(modelDir(context), VISION_MODEL_FILENAME)
@@ -158,19 +160,23 @@ object VisionEngine {
     // ── Inference ─────────────────────────────────────────────────────────────
 
     /**
-     * Describe the current screen frame, optionally grounded in [goal].
+     * Describe the current screen frame, optionally grounded in [goal] and [annotation].
      *
-     * Caching: if [screenHash] matches the previous call, the cached description is
-     * returned without running inference (~0 ms vs ~400 ms). Pass an empty string
-     * to bypass the cache.
+     * Caching: if [screenHash] matches the previous call AND [annotation] is unchanged,
+     * the cached description is returned without running inference. Annotations bypass the
+     * cache (different annotation = different understanding needed, even for the same frame).
      *
      * Goal-aware prompting: when [goal] is non-empty, the vision prompt becomes a
-     * targeted question ("What elements on screen relate to: [goal]?") rather than
-     * a generic description. This produces more relevant context for the LLM.
+     * targeted question rather than a generic description.
+     *
+     * Annotation enrichment: when [annotation] is non-empty (user has explained what is
+     * happening in this frame), it is injected directly into the SmolVLM prompt so the
+     * vision model reasons with the user's logic, not just pixel patterns.
      *
      * @param bitmap      Current screen frame from ScreenObserver
      * @param goal        Agent's current task goal (empty = generic description)
-     * @param screenHash  Screen identity key for frame deduplication (from ScreenSnapshot.screenHash())
+     * @param screenHash  Screen identity key for frame deduplication
+     * @param annotation  User explanation for this frame (IRL labeling / training context)
      * @param maxTokens   Token cap — 96 tokens ≈ 2–3 sentences, enough for screen context
      * @return            Vision description, or "" on failure/unavailability
      */
@@ -179,10 +185,14 @@ object VisionEngine {
         bitmap: Bitmap,
         goal: String = "",
         screenHash: String = "",
+        annotation: String = "",
         maxTokens: Int = 96
     ): String {
-        // ── Cache hit — screen hasn't changed ─────────────────────────────────
-        if (screenHash.isNotEmpty() && screenHash == lastCacheKey && lastCacheDesc.isNotEmpty()) {
+        // ── Cache hit — screen hasn't changed and no annotation override ───────
+        // Annotations always bypass cache: the same frame described differently by the
+        // user must produce a fresh, annotation-aware vision output.
+        val cacheKey = if (annotation.isBlank()) screenHash else ""
+        if (cacheKey.isNotEmpty() && cacheKey == lastCacheKey && lastCacheDesc.isNotEmpty()) {
             Log.d(TAG, "Vision cache hit: $screenHash")
             return lastCacheDesc
         }
@@ -190,13 +200,13 @@ object VisionEngine {
         if (!ensureLoaded(context)) return ""
 
         return try {
-            val prompt = buildVisionPrompt(goal)
+            val prompt = buildVisionPrompt(goal, annotation)
             val imageBytes = compressFrame(bitmap)
             val desc = LlamaEngine.inferWithVision(imageBytes, prompt, maxTokens)
 
-            // Store in cache
-            if (screenHash.isNotEmpty() && desc.isNotBlank()) {
-                lastCacheKey  = screenHash
+            // Store in cache only when no annotation (annotation-enriched results are frame-specific)
+            if (cacheKey.isNotEmpty() && desc.isNotBlank()) {
+                lastCacheKey  = cacheKey
                 lastCacheDesc = desc
             }
             desc
@@ -209,22 +219,45 @@ object VisionEngine {
     // ── Prompt construction ───────────────────────────────────────────────────
 
     /**
-     * Build a goal-aware vision prompt.
+     * Build a goal-aware, annotation-enriched vision prompt.
      *
-     * With goal:    "Goal: Open Bluetooth settings. Which UI elements on this Android screen
-     *                relate to Bluetooth or Settings? Be concise."
-     * Without goal: "Describe the Android UI on screen. List visible interactive elements
-     *                (buttons, menus, text fields) and any important text. 2–3 sentences max."
+     * Annotation-enriched (IRL training):
+     *   The user has explained what this frame shows and what action is happening.
+     *   SmolVLM is asked to confirm and expand on that reasoning visually.
+     *   Example: "User context: I tapped the Share button here. Which visual element
+     *             on screen matches this, and what does the screen state tell you?"
+     *
+     * Goal-aware (live agent):
+     *   "Goal: Open Bluetooth settings. Which UI elements on this Android screen
+     *    relate to Bluetooth or Settings? Be concise."
+     *
+     * Generic fallback:
+     *   "Describe the Android UI on screen. List visible interactive elements. 2–3 sentences."
      */
-    private fun buildVisionPrompt(goal: String): String {
-        return if (goal.isNotBlank()) {
-            "Goal: $goal. " +
-            "Which UI elements on this Android screen are relevant to achieving this goal? " +
-            "Describe only what matters. Be concise — 2 sentences max."
-        } else {
-            "Describe the Android UI visible on this screen. " +
-            "List key interactive elements (buttons, menus, text fields) and any visible text. " +
-            "Be concise — 2–3 sentences max."
+    private fun buildVisionPrompt(goal: String, annotation: String = ""): String {
+        return when {
+            annotation.isNotBlank() && goal.isNotBlank() -> {
+                "Goal: $goal. " +
+                "User context for this frame: ${annotation.take(200)}. " +
+                "Looking at this Android screen, confirm what UI element or state matches the user's " +
+                "context and describe what is visually happening. Be concise — 2 sentences max."
+            }
+            annotation.isNotBlank() -> {
+                "User context for this frame: ${annotation.take(200)}. " +
+                "Looking at this Android screen, identify the UI elements and state that match " +
+                "the user's description. What do you see that confirms or adds to their reasoning? " +
+                "Be concise — 2 sentences max."
+            }
+            goal.isNotBlank() -> {
+                "Goal: $goal. " +
+                "Which UI elements on this Android screen are relevant to achieving this goal? " +
+                "Describe only what matters. Be concise — 2 sentences max."
+            }
+            else -> {
+                "Describe the Android UI visible on this screen. " +
+                "List key interactive elements (buttons, menus, text fields) and any visible text. " +
+                "Be concise — 2–3 sentences max."
+            }
         }
     }
 

@@ -93,9 +93,11 @@ object Sam2Engine {
 
     // ── File paths ────────────────────────────────────────────────────────────
 
-    fun modelDir(context: Context): File =
-        (context.getExternalFilesDir("models") ?: File(context.filesDir, "models"))
-            .also { it.mkdirs() }
+    fun modelDir(context: Context): File {
+        val internal = File(context.filesDir, "models").also { it.mkdirs() }
+        if (internal.canWrite()) return internal
+        return (context.getExternalFilesDir("models") ?: internal).also { it.mkdirs() }
+    }
 
     fun encoderPath(context: Context): File =
         File(modelDir(context), ENCODER_FILENAME)
@@ -168,23 +170,75 @@ object Sam2Engine {
      *   4. Collapse channels → 64×64 saliency map
      *   5. Non-maximum suppression with radius 5 → top-K peaks
      *   6. Map 64×64 peaks → original bitmap aspect → normalised screen coords
+     *   7. If [annotationHint] is provided, re-rank regions toward the area described
+     *      (e.g. "top button" → boost regions with normY < 0.4; "bottom" → normY > 0.6).
+     *      This lets user IRL annotations guide which SAM regions ARIA focuses on.
      *
-     * @param bitmap  Screen frame from ScreenObserver (any resolution)
-     * @param topK    Maximum number of regions to return (default 8)
-     * @return        List of SalientRegion sorted descending by score, or empty on failure
+     * @param bitmap          Screen frame from ScreenObserver (any resolution)
+     * @param topK            Maximum number of regions to return (default 8)
+     * @param annotationHint  User annotation text for this frame — used to spatially re-rank
+     *                        peaks so that the most annotation-relevant areas rank highest.
+     * @return                List of SalientRegion sorted descending by score, or empty on failure
      */
-    fun segment(context: Context, bitmap: Bitmap, topK: Int = 8): List<SalientRegion> {
+    fun segment(
+        context: Context,
+        bitmap: Bitmap,
+        topK: Int = 8,
+        annotationHint: String = ""
+    ): List<SalientRegion> {
         if (!ensureLoaded(context)) return emptyList()
         return try {
             val tensor = preprocess(bitmap)
             val embeddings = runEncoder(tensor) ?: return emptyList()
             val saliency = collapseChannels(embeddings)
-            extractPeaks(saliency, topK, bitmap.width.toFloat(), bitmap.height.toFloat())
+            val peaks = extractPeaks(saliency, topK, bitmap.width.toFloat(), bitmap.height.toFloat())
+            if (annotationHint.isBlank()) peaks else reRankByAnnotation(peaks, annotationHint)
         } catch (e: Exception) {
             Log.w(TAG, "Segmentation failed: ${e.message}")
             emptyList()
         }
     }
+
+    /**
+     * Re-rank SAM regions toward the spatial area implied by the user's annotation text.
+     *
+     * Annotation keywords → preferred screen zone:
+     *   "top" / "header" / "title" / "status"  → prefer normY < 0.35
+     *   "bottom" / "footer" / "nav" / "bar"     → prefer normY > 0.65
+     *   "left"                                  → prefer normX < 0.35
+     *   "right"                                 → prefer normX > 0.65
+     *   "center" / "middle"                     → prefer normX 0.35–0.65, normY 0.35–0.65
+     *
+     * If no spatial keyword is found, the original saliency order is returned unchanged.
+     * Regions that match the spatial zone receive a +50% score boost for sorting.
+     */
+    private fun reRankByAnnotation(
+        regions: List<SalientRegion>,
+        hint: String
+    ): List<SalientRegion> {
+        val h = hint.lowercase()
+
+        val inZone: (SalientRegion) -> Boolean = when {
+            h.containsAny("top", "header", "title", "status bar", "notification") ->
+                { r -> r.normY < 0.35f }
+            h.containsAny("bottom", "footer", "nav", "navigation bar", "toolbar") ->
+                { r -> r.normY > 0.65f }
+            h.containsAny("left", "sidebar") ->
+                { r -> r.normX < 0.35f }
+            h.containsAny("right") ->
+                { r -> r.normX > 0.65f }
+            h.containsAny("center", "middle", "center screen") ->
+                { r -> r.normX in 0.35f..0.65f && r.normY in 0.35f..0.65f }
+            else -> return regions   // no recognisable spatial keyword — keep original order
+        }
+
+        return regions
+            .map { r -> if (inZone(r)) r.copy(score = r.score * 1.5f) else r }
+            .sortedByDescending { it.score }
+    }
+
+    private fun String.containsAny(vararg keywords: String): Boolean =
+        keywords.any { this.contains(it) }
 
     // ── Image preprocessing ───────────────────────────────────────────────────
 
