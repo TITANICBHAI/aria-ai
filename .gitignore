@@ -56,3 +56,9 @@ packages/
 shared/
 pnpm-workspace.yaml
 package.json
+pnpm-lock.yaml
+tsconfig.json
+tsconfig.base.json
+.npmrc
+.replit
+.replitignore
