@@ -14,8 +14,11 @@ import com.ariaagent.mobile.core.ai.ModelManager
 import com.ariaagent.mobile.core.config.AriaConfig
 import com.ariaagent.mobile.core.config.ConfigStore
 import com.ariaagent.mobile.core.events.AgentEventBus
+import com.ariaagent.mobile.core.memory.EmbeddingModelManager
 import com.ariaagent.mobile.core.memory.ExperienceStore
 import com.ariaagent.mobile.core.memory.ObjectLabelStore
+import com.ariaagent.mobile.core.monitoring.LocalDeviceServer
+import com.ariaagent.mobile.core.monitoring.MonitoringPusher
 import com.ariaagent.mobile.core.ocr.OcrEngine
 import com.ariaagent.mobile.core.perception.ObjectDetectorEngine
 import com.ariaagent.mobile.core.perception.ScreenObserver
@@ -107,6 +110,24 @@ data class ModuleUiState(
     val llmDownloadTotalMb: Double    = 0.0,
     val llmDownloadSpeedMbps: Double  = 0.0,
     val llmDownloadError: String?     = null,
+    // Embedding model (MiniLM ONNX ~23 MB)
+    val embeddingReady: Boolean       = false,
+    val embeddingVocabReady: Boolean  = false,
+    val embeddingDownloadedMb: Float  = 0f,
+    // Local monitoring server
+    val localServerRunning: Boolean   = false,
+    val localServerUrl: String        = "",
+)
+
+/** ExperienceStore breakdown for ActivityScreen. */
+data class MemoryStatsUi(
+    val total: Int       = 0,
+    val success: Int     = 0,
+    val failure: Int     = 0,
+    val edgeCase: Int    = 0,
+    val untrained: Int   = 0,
+    val enrichedLabels: Int = 0,
+    val totalLabels: Int    = 0,
 )
 
 /** Phase 15: mirrors TaskQueueManager.QueuedTask for Compose UI. */
@@ -357,6 +378,15 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     private val _detectorDownloading = MutableStateFlow(false)
     val detectorDownloading: StateFlow<Boolean> = _detectorDownloading.asStateFlow()
 
+    private val _embeddingDownloading = MutableStateFlow(false)
+    val embeddingDownloading: StateFlow<Boolean> = _embeddingDownloading.asStateFlow()
+
+    private val _memoryStats = MutableStateFlow(MemoryStatsUi())
+    val memoryStats: StateFlow<MemoryStatsUi> = _memoryStats.asStateFlow()
+
+    private val _allLabels = MutableStateFlow<List<ObjectLabelStore.ObjectLabel>>(emptyList())
+    val allLabels: StateFlow<List<ObjectLabelStore.ObjectLabel>> = _allLabels.asStateFlow()
+
     /** Config — reactive DataStore flow, auto-updates on any config change. */
     val config: StateFlow<AriaConfig> = ConfigStore.flow(context)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), AriaConfig())
@@ -376,9 +406,18 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                     "token_generated"         -> handleTokenGenerated(data)
                     "step_started"            -> handleStepStarted(data)
                     "thermal_status_changed"  -> handleThermalChanged(data)
-                    "learning_cycle_complete" -> handleLearningComplete(data)
-                    "model_download_complete" -> refreshModuleState()
-                    "game_loop_status"        -> handleGameLoopStatus(data)
+                    "learning_cycle_complete"  -> handleLearningComplete(data)
+                    "model_download_progress"  -> handleLlmDownloadProgress(data)
+                    "model_download_complete"  -> {
+                        _llmDownloading.value = false
+                        _moduleState.update { it.copy(llmDownloadPercent = 100, llmDownloadError = null) }
+                        refreshModuleState()
+                    }
+                    "model_download_error"     -> {
+                        _llmDownloading.value = false
+                        _moduleState.update { it.copy(llmDownloadError = data["error"] as? String ?: "Download failed") }
+                    }
+                    "game_loop_status"         -> handleGameLoopStatus(data)
                     "skill_updated"           -> handleSkillUpdated(data)
                     "task_chain_advanced"     -> handleTaskChainAdvanced(data)
                     "config_updated"          -> { /* handled by ConfigStore.flow() above */ }
@@ -504,12 +543,30 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
 
     // ─── Module state refresh ─────────────────────────────────────────────────
 
+    private fun handleLlmDownloadProgress(data: Map<String, Any>) {
+        val pct     = (data["percent"]      as? Int)    ?: 0
+        val dlMb    = (data["downloadedMb"] as? Double) ?: 0.0
+        val totalMb = (data["totalMb"]      as? Double) ?: 0.0
+        val speed   = (data["speedMbps"]    as? Double) ?: 0.0
+        _moduleState.update { it.copy(
+            llmDownloadPercent   = pct,
+            llmDownloadMb        = dlMb,
+            llmDownloadTotalMb   = totalMb,
+            llmDownloadSpeedMbps = speed,
+            llmDownloadError     = null,
+        )}
+        _llmDownloading.value = true
+    }
+
     fun refreshModuleState() {
         viewModelScope.launch(Dispatchers.IO) {
             val store = ExperienceStore.getInstance(context)
             val loraVer = LoraTrainer.currentVersion(context)
             val ocrAvailable = runCatching { OcrEngine.isAvailable(context) }.getOrDefault(true)
-            _moduleState.value = ModuleUiState(
+            val embReady     = EmbeddingModelManager.isModelReady(context)
+            val embVocab     = EmbeddingModelManager.isVocabReady(context)
+            val embMb        = EmbeddingModelManager.downloadedBytes(context).toFloat() / 1_048_576f
+            _moduleState.update { prev -> prev.copy(
                 modelReady           = ModelManager.isModelReady(context),
                 modelLoaded          = LlamaEngine.isLoaded(),
                 tokensPerSecond      = LlamaEngine.lastToksPerSec,
@@ -523,7 +580,12 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                 episodesRun          = store.countByResult("success") + store.countByResult("failure"),
                 adapterLoaded        = LoraTrainer.latestAdapterPath(context) != null,
                 loraVersion          = loraVer,
-            )
+                embeddingReady       = embReady,
+                embeddingVocabReady  = embVocab,
+                embeddingDownloadedMb = embMb,
+                localServerRunning   = LocalDeviceServer.running,
+                localServerUrl       = if (LocalDeviceServer.running) LocalDeviceServer.serverUrl() else "",
+            )}
             _agentState.update { it.copy(
                 modelReady          = ModelManager.isModelReady(context),
                 modelLoaded         = LlamaEngine.isLoaded(),
@@ -572,12 +634,11 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         _llmDownloading.value = true
+        _moduleState.update { it.copy(llmDownloadPercent = 0, llmDownloadError = null) }
         val intent = Intent(context, ModelDownloadService::class.java)
         context.startForegroundService(intent)
-        viewModelScope.launch(Dispatchers.IO) {
-            kotlinx.coroutines.delay(2000)
-            _llmDownloading.value = false
-        }
+        // State is now driven entirely by model_download_progress / model_download_complete /
+        // model_download_error events from ModelDownloadService via AgentEventBus.
     }
 
     /** Download the EfficientDet-Lite0 INT8 model (~4.4 MB) in the background. */
@@ -595,6 +656,89 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
             } finally {
                 _detectorDownloading.value = false
             }
+        }
+    }
+
+    // ─── Gap 4: Embedding model download ─────────────────────────────────────
+
+    /** Download the MiniLM ONNX embedding model + vocab (~23 MB total). */
+    fun downloadEmbeddingModel() {
+        if (_embeddingDownloading.value) return
+        if (EmbeddingModelManager.isModelReady(context) && EmbeddingModelManager.isVocabReady(context)) {
+            refreshModuleState()
+            return
+        }
+        _embeddingDownloading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                EmbeddingModelManager.download(context)
+                refreshModuleState()
+            } finally {
+                _embeddingDownloading.value = false
+            }
+        }
+    }
+
+    // ─── Gap 5: Unload LLM from RAM ──────────────────────────────────────────
+
+    /** Free the ~800 MB of RAM used by the loaded LLM when ARIA is not in use. */
+    fun unloadLlmModel() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { LlamaEngine.unload() }
+            refreshModuleState()
+        }
+    }
+
+    // ─── Gap 6: Local monitoring server ──────────────────────────────────────
+
+    /** Start or stop the embedded HTTP monitoring server + live pusher. */
+    fun toggleLocalServer() {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (LocalDeviceServer.running) {
+                MonitoringPusher.stop()
+                LocalDeviceServer.stop()
+            } else {
+                LocalDeviceServer.start()
+                MonitoringPusher.start(context)
+            }
+            refreshModuleState()
+        }
+    }
+
+    // ─── Gap 7: Object label management ──────────────────────────────────────
+
+    /** Load all enriched labels for the ActivityScreen labels tab. */
+    fun refreshAllLabels() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _allLabels.value = ObjectLabelStore.getInstance(context).getAllEnriched()
+        }
+    }
+
+    /** Wipe every stored UI element label across all apps. */
+    fun clearAllLabels() {
+        viewModelScope.launch(Dispatchers.IO) {
+            ObjectLabelStore.getInstance(context).clearAll()
+            _allLabels.value = emptyList()
+            refreshModuleState()
+        }
+    }
+
+    // ─── Gap 8: ExperienceStore breakdown stats ───────────────────────────────
+
+    /** Compute success / failure / edge-case counts for the ActivityScreen stats bar. */
+    fun refreshMemoryStats() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val store = ExperienceStore.getInstance(context)
+            val labelStore = ObjectLabelStore.getInstance(context)
+            _memoryStats.value = MemoryStatsUi(
+                total       = store.count(),
+                success     = store.countByResult("success"),
+                failure     = store.countByResult("failure"),
+                edgeCase    = store.edgeCaseCount(),
+                untrained   = store.getUntrainedSuccesses(1000).size,
+                enrichedLabels = labelStore.countEnriched(),
+                totalLabels    = labelStore.count(),
+            )
         }
     }
 

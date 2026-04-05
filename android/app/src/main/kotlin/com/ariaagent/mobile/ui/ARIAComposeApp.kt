@@ -1,7 +1,9 @@
 package com.ariaagent.mobile.ui
 
 import android.app.Activity
+import android.content.Intent
 import android.media.projection.MediaProjectionManager
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -98,6 +100,13 @@ fun ARIAComposeApp() {
         }
 
         val onRequestScreenCapture: () -> Unit = { vm.requestScreenCapturePermission() }
+
+        val onGrantAccessibility: () -> Unit = {
+            context.startActivity(
+                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }
 
         val navBackStackEntry by navController.currentBackStackEntryAsState()
         val currentRoute = navBackStackEntry?.destination?.route
@@ -196,8 +205,9 @@ fun ARIAComposeApp() {
 
                     composable(Screen.Modules.route) {
                         ModulesScreen(
-                            vm                    = vm,
+                            vm                     = vm,
                             onRequestScreenCapture = onRequestScreenCapture,
+                            onGrantAccessibility   = onGrantAccessibility,
                         )
                     }
                     composable(Screen.Settings.route)  { SettingsScreen(vm) }

@@ -41,12 +41,14 @@ import com.ariaagent.mobile.ui.theme.ARIAColors
 fun ModulesScreen(
     vm: AgentViewModel = viewModel(),
     onRequestScreenCapture: () -> Unit = {},
+    onGrantAccessibility: () -> Unit = {},
 ) {
-    val modules            by vm.moduleState.collectAsStateWithLifecycle()
-    val learning           by vm.learningState.collectAsStateWithLifecycle()
-    val appSkills          by vm.appSkills.collectAsStateWithLifecycle()
-    val llmDownloading     by vm.llmDownloading.collectAsStateWithLifecycle()
-    val detectorDownloading by vm.detectorDownloading.collectAsStateWithLifecycle()
+    val modules              by vm.moduleState.collectAsStateWithLifecycle()
+    val learning             by vm.learningState.collectAsStateWithLifecycle()
+    val appSkills            by vm.appSkills.collectAsStateWithLifecycle()
+    val llmDownloading       by vm.llmDownloading.collectAsStateWithLifecycle()
+    val detectorDownloading  by vm.detectorDownloading.collectAsStateWithLifecycle()
+    val embeddingDownloading by vm.embeddingDownloading.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -91,10 +93,17 @@ fun ModulesScreen(
             title = "Llama 3.2-1B Q4_K_M",
             subtitle = "Primary reasoning engine  •  ~800 MB",
             status = llmStatus,
-            detail = if (modules.tokensPerSecond > 0)
-                "${String.format("%.1f", modules.tokensPerSecond)} tok/s  •  LoRA v${modules.loraVersion}" else null,
-            onDownload = if (llmStatus == ModuleStatus.MISSING) {{ vm.downloadLlmModel() }} else null,
+            detail = when {
+                modules.tokensPerSecond > 0 -> "${String.format("%.1f", modules.tokensPerSecond)} tok/s  •  LoRA v${modules.loraVersion}"
+                llmDownloading && modules.llmDownloadPercent > 0 ->
+                    "${modules.llmDownloadPercent}%  •  ${String.format("%.0f", modules.llmDownloadMb)} / ${String.format("%.0f", modules.llmDownloadTotalMb)} MB  •  ${String.format("%.1f", modules.llmDownloadSpeedMbps)} MB/s"
+                else -> null
+            },
+            downloadProgress = if (llmDownloading && modules.llmDownloadPercent > 0) modules.llmDownloadPercent / 100f else null,
+            downloadError = modules.llmDownloadError,
+            onDownload = if (llmStatus == ModuleStatus.MISSING && !llmDownloading) {{ vm.downloadLlmModel() }} else null,
             downloading = llmDownloading,
+            onUnload = if (modules.modelLoaded) {{ vm.unloadLlmModel() }} else null,
         )
 
         // ── OCR ───────────────────────────────────────────────────────────────
@@ -118,13 +127,25 @@ fun ModulesScreen(
             downloading = detectorDownloading,
         )
 
-        // ── Vector Memory ─────────────────────────────────────────────────────
+        // ── Vector Memory / Embedding model ──────────────────────────────────
+        val embStatus = when {
+            modules.embeddingReady && modules.embeddingVocabReady -> ModuleStatus.READY
+            else                                                   -> ModuleStatus.MISSING
+        }
         ModuleCard(
             icon = Icons.Default.DataObject,
             title = "MiniLM Embedding (ONNX)",
-            subtitle = "Experience memory retrieval  •  ~22 MB",
-            status = ModuleStatus.READY,
-            detail = "${modules.embeddingCount} experiences  •  ${modules.episodesRun} episodes run"
+            subtitle = "Semantic memory search  •  ~23 MB",
+            status = embStatus,
+            detail = when {
+                embStatus == ModuleStatus.READY ->
+                    "${modules.embeddingCount} experiences  •  ${modules.episodesRun} episodes run"
+                modules.embeddingDownloadedMb > 0 ->
+                    "${String.format("%.1f", modules.embeddingDownloadedMb)} MB downloaded"
+                else -> "Model not downloaded — memory search disabled"
+            },
+            onDownload = if (embStatus == ModuleStatus.MISSING && !embeddingDownloading) {{ vm.downloadEmbeddingModel() }} else null,
+            downloading = embeddingDownloading,
         )
 
         // ── Object Label Store ────────────────────────────────────────────────
@@ -141,9 +162,10 @@ fun ModulesScreen(
             Text("PERMISSIONS", style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted))
             Spacer(Modifier.height(8.dp))
             PermissionRow(
-                icon = Icons.Default.Accessibility,
-                label = "Accessibility Service",
-                granted = modules.accessibilityGranted
+                icon    = Icons.Default.Accessibility,
+                label   = "Accessibility Service",
+                granted = modules.accessibilityGranted,
+                onGrant = if (!modules.accessibilityGranted) onGrantAccessibility else null,
             )
             Spacer(Modifier.height(6.dp))
             PermissionRow(
@@ -293,6 +315,9 @@ private fun ModuleCard(
     detail: String? = null,
     onDownload: (() -> Unit)? = null,
     downloading: Boolean = false,
+    downloadProgress: Float? = null,
+    downloadError: String? = null,
+    onUnload: (() -> Unit)? = null,
 ) {
     val (statusColor, statusLabel) = when (status) {
         ModuleStatus.ACTIVE  -> ARIAColors.Primary to "ACTIVE"
@@ -334,6 +359,27 @@ private fun ModuleCard(
                     )
                 )
             }
+            // Download progress bar (real % from ModelDownloadService)
+            if (downloadProgress != null) {
+                Spacer(Modifier.height(8.dp))
+                LinearProgressIndicator(
+                    progress          = { downloadProgress },
+                    modifier          = Modifier.fillMaxWidth(),
+                    color             = ARIAColors.Primary,
+                    trackColor        = ARIAColors.Divider,
+                )
+            }
+            // Download error
+            if (downloadError != null) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    downloadError,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = ARIAColors.Error, fontSize = 11.sp
+                    )
+                )
+            }
+            // Download button (shown only when MISSING)
             if (onDownload != null) {
                 Spacer(Modifier.height(10.dp))
                 Button(
@@ -354,7 +400,7 @@ private fun ModuleCard(
                             color       = Color.White,
                         )
                         Spacer(Modifier.width(6.dp))
-                        Text("Starting download…", fontSize = 12.sp, color = Color.White)
+                        Text("Downloading…", fontSize = 12.sp, color = Color.White)
                     } else {
                         Icon(
                             Icons.Default.Download,
@@ -365,6 +411,22 @@ private fun ModuleCard(
                         Spacer(Modifier.width(6.dp))
                         Text("Download", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
+                }
+            }
+            // Unload button (shown only when ACTIVE/READY and model is loaded)
+            if (onUnload != null) {
+                Spacer(Modifier.height(6.dp))
+                OutlinedButton(
+                    onClick        = onUnload,
+                    modifier       = Modifier.fillMaxWidth(),
+                    shape          = RoundedCornerShape(8.dp),
+                    colors         = ButtonDefaults.outlinedButtonColors(contentColor = ARIAColors.Warning),
+                    border         = androidx.compose.foundation.BorderStroke(1.dp, ARIAColors.Warning.copy(alpha = 0.5f)),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Icon(Icons.Default.MemoryAlt, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Free RAM (Unload)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }

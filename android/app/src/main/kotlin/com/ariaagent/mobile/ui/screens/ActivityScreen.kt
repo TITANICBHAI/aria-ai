@@ -30,6 +30,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ariaagent.mobile.ui.viewmodel.ActionLogEntry
 import com.ariaagent.mobile.ui.viewmodel.AgentViewModel
 import com.ariaagent.mobile.ui.viewmodel.MemoryEntry
+import com.ariaagent.mobile.ui.viewmodel.MemoryStatsUi
 import com.ariaagent.mobile.ui.theme.ARIAColors
 import java.text.SimpleDateFormat
 import java.util.*
@@ -58,12 +59,19 @@ fun ActivityScreen(vm: AgentViewModel = viewModel()) {
     val memoryEntries by vm.memoryEntries.collectAsStateWithLifecycle()
     val agentState    by vm.agentState.collectAsStateWithLifecycle()
     val streamBuffer  by vm.streamBuffer.collectAsStateWithLifecycle()
+    val memoryStats   by vm.memoryStats.collectAsStateWithLifecycle()
+    val allLabels     by vm.allLabels.collectAsStateWithLifecycle()
 
     var activeTab by remember { mutableStateOf(ActivityTab.Actions) }
-    var showClearConfirm by remember { mutableStateOf(false) }
+    var showClearConfirm      by remember { mutableStateOf(false) }
+    var showClearLabelsConfirm by remember { mutableStateOf(false) }
 
-    // Refresh memory entries whenever screen becomes active
-    LaunchedEffect(Unit) { vm.refreshMemoryEntries() }
+    // Refresh memory entries + stats + labels whenever screen becomes active
+    LaunchedEffect(Unit) {
+        vm.refreshMemoryEntries()
+        vm.refreshMemoryStats()
+        vm.refreshAllLabels()
+    }
 
     // Clear memory confirmation dialog
     if (showClearConfirm) {

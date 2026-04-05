@@ -25,8 +25,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -69,8 +71,9 @@ fun SettingsScreen(vm: AgentViewModel = viewModel()) {
     val context      = LocalContext.current
     val focusManager = LocalFocusManager.current
 
-    val config      by vm.config.collectAsStateWithLifecycle()
-    val moduleState by vm.moduleState.collectAsStateWithLifecycle()
+    val config       by vm.config.collectAsStateWithLifecycle()
+    val moduleState  by vm.moduleState.collectAsStateWithLifecycle()
+    val clipboardMgr = LocalClipboardManager.current
 
     // ── Local draft — applied only when Save is tapped ────────────────────────
     var modelPath       by remember(config.modelPath)        { mutableStateOf(config.modelPath) }
