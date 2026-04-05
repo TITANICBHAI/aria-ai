@@ -906,7 +906,7 @@ object AgentLoop {
                             runCatching {
                                 LlamaEngine.infer(
                                     "In one sentence, suggest to the user that they should automate this Android task. Task: ${goal.take(80)}. Be friendly and specific. No more than 15 words.",
-                                    maxTokens = 30, temperature = 0.5f
+                                    maxTokens = 30
                                 ).trim().take(200)
                             }.getOrDefault("You've done this ${hit.repeatCount}× — want me to automate it?")
                         } else {
@@ -921,9 +921,9 @@ object AgentLoop {
                             )
                         )
                         AgentEventBus.emit("suggestion_available", mapOf(
-                            "goal"       to goal,
-                            "repeatCount"to hit.repeatCount,
-                            "text"       to suggText
+                            "goal"        to goal,
+                            "repeatCount" to hit.repeatCount,
+                            "text"        to suggText
                         ))
                         Log.i("AgentLoop", "Suggestion stored: $suggText")
                     }

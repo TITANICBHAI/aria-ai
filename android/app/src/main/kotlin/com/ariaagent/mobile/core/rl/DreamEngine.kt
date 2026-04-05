@@ -78,10 +78,10 @@ object DreamEngine {
      *   - is_synthetic = true
      *   - edgeCaseNotes = "dream:v1" for traceability
      */
-    private fun generateDream(seed: ExperienceStore.ExperienceTuple): ExperienceStore.ExperienceTuple? {
+    private suspend fun generateDream(seed: ExperienceStore.ExperienceTuple): ExperienceStore.ExperienceTuple? {
         val prompt = buildDreamPrompt(seed)
         val raw = runCatching {
-            LlamaEngine.infer(prompt, maxTokens = 80, temperature = 0.7f)
+            LlamaEngine.infer(prompt, maxTokens = 80)
         }.getOrNull() ?: return null
 
         val actionJson = extractJson(raw) ?: return null
