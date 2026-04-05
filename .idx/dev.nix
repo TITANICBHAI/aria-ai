@@ -16,7 +16,11 @@
 #   -march=armv8-a
 # and the NDK abiFilter is "arm64-v8a" only.  An x86_64 emulator cannot run
 # these libraries.  Firebase Studio cloud instances run on Google Axion (ARM64)
-# so the arm64-v8a emulator gets full hardware acceleration.
+# so the arm64-v8a emulator gets full hardware acceleration — no QEMU overhead.
+# ─────────────────────────────────────────────────────────────────────────────
+# No Firebase backend services are used.
+# "Firebase Studio" is the IDE name only. ARIA is 100% on-device — no Auth,
+# no Firestore, no Realtime Database, no Storage, no Functions.
 # ─────────────────────────────────────────────────────────────────────────────
 
 { pkgs, ... }: {
@@ -32,7 +36,7 @@
     pkgs.cmake        # for llama.cpp NDK build (CMake 3.22+)
     pkgs.ninja        # cmake build system backend
     pkgs.git          # version control in workspace
-    pkgs.nodejs_20    # pnpm / metro (still needed while RN layer compiles)
+    # nodejs_20 removed — pure Kotlin build, no JS/Metro/pnpm needed
   ];
 
   # ── Android SDK ───────────────────────────────────────────────────────────
@@ -91,17 +95,8 @@
           echo "[IDX] local.properties written → $ANDROID_HOME"
         '';
 
-        # Install JS dependencies (Expo / Metro / RN still compile in Phase 1-7)
-        # Uses pnpm workspaces; --ignore-scripts skips postinstall native builds
-        install-node-deps = ''
-          command -v pnpm >/dev/null 2>&1 || npm install -g pnpm@latest
-          pnpm install --ignore-scripts 2>/dev/null \
-            && echo "[IDX] pnpm install complete" \
-            || echo "[IDX] pnpm install skipped (no package.json or already done)"
-        '';
-
         # Pre-download Gradle dependencies so first build is fast
-        # --no-daemon keeps it lightweight during setup
+        # --no-daemon keeps it lightweight during workspace setup
         gradle-prefetch = ''
           cd android
           ./gradlew dependencies --no-daemon -q 2>/dev/null \
