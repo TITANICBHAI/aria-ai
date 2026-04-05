@@ -33,6 +33,7 @@ import com.ariaagent.mobile.core.rl.LoraTrainer
 import com.ariaagent.mobile.core.rl.PolicyNetwork
 import com.ariaagent.mobile.system.AgentForegroundService
 import com.ariaagent.mobile.system.accessibility.AgentAccessibilityService
+import com.ariaagent.mobile.system.overlay.FloatingChatService
 import com.ariaagent.mobile.system.screen.ScreenCaptureService
 import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
@@ -602,6 +603,7 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         if (status == "idle" || status == "done" || status == "error") {
             _streamBuffer.value = ""
             _stepState.value = StepUiState()
+            stopFloatingChat()
         }
     }
 
@@ -1326,6 +1328,7 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun startAgent(goal: String, appPackage: String = "") {
+        startFloatingChat()
         viewModelScope.launch(Dispatchers.IO) {
             AgentLoop.start(context, goal, appPackage)
         }
@@ -1336,6 +1339,7 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
      * Matches `startLearnOnly()` in control.tsx / AgentForegroundService.
      */
     fun startLearnOnly(goal: String, appPackage: String = "") {
+        startFloatingChat()
         viewModelScope.launch(Dispatchers.IO) {
             AgentForegroundService.startLearnOnly(context, goal, appPackage)
         }
@@ -1345,6 +1349,27 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         AgentLoop.stop()
         _streamBuffer.value = ""
         _stepState.value = StepUiState()
+        stopFloatingChat()
+    }
+
+    /** Start the floating chat overlay if SYSTEM_ALERT_WINDOW permission is granted. */
+    private fun startFloatingChat() {
+        if (android.provider.Settings.canDrawOverlays(context)) {
+            runCatching {
+                context.startService(Intent(context, FloatingChatService::class.java))
+            }
+        }
+    }
+
+    /** Stop the floating chat overlay service. */
+    private fun stopFloatingChat() {
+        runCatching {
+            context.startService(
+                Intent(context, FloatingChatService::class.java).apply {
+                    action = FloatingChatService.ACTION_STOP
+                }
+            )
+        }
     }
 
     fun pauseAgent() {
