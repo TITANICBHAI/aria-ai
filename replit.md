@@ -12,12 +12,12 @@ Kotlin owns all logic permanently. All RN/bridge code is deleted in Phase 8.
 |-------|--------|-------------|
 | 0 | `[x]` | Environment + baseline build |
 | 1 | `[x]` | ComposeMainActivity promoted as launcher; RN host stripped |
-| 2 | `[ ]` | Fill SettingsScreen.kt gaps |
-| 3 | `[ ]` | Fill ActivityScreen.kt gaps |
-| 4 | `[ ]` | Fill ControlScreen.kt gaps |
-| 5 | `[~]` | ChatScreen.kt — written, needs emulator verify |
-| 6 | `[~]` | TrainScreen.kt — written, needs emulator verify |
-| 7 | `[~]` | LabelerScreen.kt — written, needs emulator verify |
+| 2 | `[~]` | SettingsScreen.kt — 794L written, needs emulator verify |
+| 3 | `[~]` | ActivityScreen.kt — 530L written, needs emulator verify |
+| 4 | `[~]` | ControlScreen.kt — 824L written, needs emulator verify |
+| 5 | `[~]` | ChatScreen.kt — 491L written, needs emulator verify |
+| 6 | `[~]` | TrainScreen.kt — 545L written, needs emulator verify |
+| 7 | `[~]` | LabelerScreen.kt — 641L written, needs emulator verify |
 | 8 | `[ ]` | Delete RN layer — all gates must be green first |
 | 9 | `[ ]` | Strip build system |
 

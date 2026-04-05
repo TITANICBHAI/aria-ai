@@ -81,10 +81,10 @@ The Compose layer is already 70% built. This is not a rewrite — it is a gap fi
 | What exists in Kotlin/Compose already | Lines | Status |
 |---|---|---|
 | DashboardScreen.kt | 476 | `[x]` exists |
-| ControlScreen.kt | 469 | `[~]` exists, has gaps |
-| ModulesScreen.kt | 456 | `[~]` exists, has gaps |
-| ActivityScreen.kt | 225 | `[~]` exists, has gaps |
-| SettingsScreen.kt | 265 | `[~]` exists, has gaps |
+| ControlScreen.kt | 824 | `[~]` written — needs emulator verify |
+| ModulesScreen.kt | 456 | `[~]` written — needs emulator verify |
+| ActivityScreen.kt | 530 | `[~]` written — needs emulator verify |
+| SettingsScreen.kt | 794 | `[~]` written — needs emulator verify |
 | ARIAComposeApp.kt (nav shell) | 186 | `[~]` updated — 7 tabs + labeler route added |
 | ComposeMainActivity.kt | 54 | `[x]` exists |
 | AgentViewModel.kt | 1095 | `[~]` updated — Chat/Train/Labeler methods added |
