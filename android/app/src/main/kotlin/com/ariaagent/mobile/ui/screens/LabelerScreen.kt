@@ -1,5 +1,7 @@
 package com.ariaagent.mobile.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -26,6 +28,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,6 +67,7 @@ import com.ariaagent.mobile.ui.viewmodel.AgentViewModel
 fun LabelerScreen(
     vm: AgentViewModel,
     onBack: () -> Unit,
+    onRequestScreenCapture: () -> Unit = {},
 ) {
     val capture       by vm.labelerCapture.collectAsState()
     val labels        by vm.labelerLabels.collectAsState()
@@ -73,6 +77,15 @@ fun LabelerScreen(
     val saving        by vm.labelerSaving.collectAsState()
     val error         by vm.labelerError.collectAsState()
     val saveSuccess   by vm.labelerSaveSuccess.collectAsState()
+    val agentState    by vm.agentState.collectAsState()
+    val captureActive = agentState.screenCaptureActive
+
+    // Gallery image picker (Fix 3)
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let { vm.loadImageFromGallery(it) }
+    }
 
     var selectedId       by remember { mutableStateOf<String?>(null) }
     var showDeleteDialog by remember { mutableStateOf<String?>(null) }
@@ -177,7 +190,13 @@ fun LabelerScreen(
 
                 StatsBar(labels = labels, ocrText = capture!!.ocrText)
             } else {
-                LabelerEmptyState(capturing = capturing, onCapture = { vm.captureScreenForLabeling() })
+                LabelerEmptyState(
+                    capturing              = capturing,
+                    captureActive          = captureActive,
+                    onCapture              = { vm.captureScreenForLabeling() },
+                    onRequestScreenCapture = onRequestScreenCapture,
+                    onGallery              = { galleryLauncher.launch("image/*") },
+                )
             }
 
             selectedLabel?.let { lbl ->
@@ -404,7 +423,13 @@ private fun StatsBar(labels: List<ObjectLabelStore.ObjectLabel>, ocrText: String
 // ─── Empty state ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun LabelerEmptyState(capturing: Boolean, onCapture: () -> Unit) {
+private fun LabelerEmptyState(
+    capturing: Boolean,
+    captureActive: Boolean,
+    onCapture: () -> Unit,
+    onRequestScreenCapture: () -> Unit,
+    onGallery: () -> Unit,
+) {
     Column(
         modifier            = Modifier
             .fillMaxWidth()
@@ -412,29 +437,71 @@ private fun LabelerEmptyState(capturing: Boolean, onCapture: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Icon(Icons.Default.PhotoCamera, contentDescription = null, tint = ARIAColors.TextMuted, modifier = Modifier.size(56.dp))
-        Text("No screen captured yet", color = ARIAColors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-        Text(
-            text      = "Press Capture to grab the current foreground app screen,\nthen tap anywhere to place annotation pins.",
-            color     = ARIAColors.TextMuted,
-            fontSize  = 13.sp,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            lineHeight = 19.sp,
+        Icon(
+            Icons.Default.PhotoCamera,
+            contentDescription = null,
+            tint     = ARIAColors.TextMuted,
+            modifier = Modifier.size(56.dp),
         )
-        Button(
-            onClick = onCapture,
-            enabled = !capturing,
-            shape   = RoundedCornerShape(12.dp),
-            colors  = ButtonDefaults.buttonColors(containerColor = ARIAColors.Primary),
-        ) {
-            if (capturing) {
-                CircularProgressIndicator(Modifier.size(16.dp), color = ARIAColors.Background, strokeWidth = 2.dp)
+        Text(
+            "No screen captured yet",
+            color      = ARIAColors.TextPrimary,
+            fontSize   = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+
+        if (captureActive) {
+            // Service is running — let them capture normally
+            Text(
+                text       = "Press Capture to grab the current foreground app screen,\nthen tap anywhere to place annotation pins.",
+                color      = ARIAColors.TextMuted,
+                fontSize   = 13.sp,
+                textAlign  = TextAlign.Center,
+                lineHeight = 19.sp,
+            )
+            Button(
+                onClick = onCapture,
+                enabled = !capturing,
+                shape   = RoundedCornerShape(12.dp),
+                colors  = ButtonDefaults.buttonColors(containerColor = ARIAColors.Primary),
+            ) {
+                if (capturing) {
+                    CircularProgressIndicator(Modifier.size(16.dp), color = ARIAColors.Background, strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Capturing…", color = ARIAColors.Background)
+                } else {
+                    Icon(Icons.Default.Camera, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Capture Screen", color = ARIAColors.Background, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        } else {
+            // Service not active — offer to grant permission or use gallery
+            Text(
+                text       = "Screen capture permission is required to annotate live screens.\nYou can also import an image from your gallery.",
+                color      = ARIAColors.TextMuted,
+                fontSize   = 13.sp,
+                textAlign  = TextAlign.Center,
+                lineHeight = 19.sp,
+            )
+            Button(
+                onClick = onRequestScreenCapture,
+                shape   = RoundedCornerShape(12.dp),
+                colors  = ButtonDefaults.buttonColors(containerColor = ARIAColors.Primary),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Default.ScreenShare, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Capturing…", color = ARIAColors.Background)
-            } else {
-                Icon(Icons.Default.Camera, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text("Grant Screen Capture", color = ARIAColors.Background, fontWeight = FontWeight.SemiBold)
+            }
+            OutlinedButton(
+                onClick  = onGallery,
+                shape    = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Default.Photo, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Capture Screen", color = ARIAColors.Background, fontWeight = FontWeight.SemiBold)
+                Text("Import from Gallery", fontWeight = FontWeight.SemiBold)
             }
         }
     }

@@ -38,10 +38,15 @@ import com.ariaagent.mobile.ui.theme.ARIAColors
  * Phase 11 — pure Compose. Phase 15 update: app skills + RL metrics.
  */
 @Composable
-fun ModulesScreen(vm: AgentViewModel = viewModel()) {
-    val modules   by vm.moduleState.collectAsStateWithLifecycle()
-    val learning  by vm.learningState.collectAsStateWithLifecycle()
-    val appSkills by vm.appSkills.collectAsStateWithLifecycle()
+fun ModulesScreen(
+    vm: AgentViewModel = viewModel(),
+    onRequestScreenCapture: () -> Unit = {},
+) {
+    val modules            by vm.moduleState.collectAsStateWithLifecycle()
+    val learning           by vm.learningState.collectAsStateWithLifecycle()
+    val appSkills          by vm.appSkills.collectAsStateWithLifecycle()
+    val llmDownloading     by vm.llmDownloading.collectAsStateWithLifecycle()
+    val detectorDownloading by vm.detectorDownloading.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -76,17 +81,20 @@ fun ModulesScreen(vm: AgentViewModel = viewModel()) {
         }
 
         // ── LLM ──────────────────────────────────────────────────────────────
+        val llmStatus = when {
+            modules.modelLoaded -> ModuleStatus.ACTIVE
+            modules.modelReady  -> ModuleStatus.READY
+            else                -> ModuleStatus.MISSING
+        }
         ModuleCard(
             icon = Icons.Default.Psychology,
             title = "Llama 3.2-1B Q4_K_M",
             subtitle = "Primary reasoning engine  •  ~800 MB",
-            status = when {
-                modules.modelLoaded -> ModuleStatus.ACTIVE
-                modules.modelReady  -> ModuleStatus.READY
-                else                -> ModuleStatus.MISSING
-            },
+            status = llmStatus,
             detail = if (modules.tokensPerSecond > 0)
-                "${String.format("%.1f", modules.tokensPerSecond)} tok/s  •  LoRA v${modules.loraVersion}" else null
+                "${String.format("%.1f", modules.tokensPerSecond)} tok/s  •  LoRA v${modules.loraVersion}" else null,
+            onDownload = if (llmStatus == ModuleStatus.MISSING) {{ vm.downloadLlmModel() }} else null,
+            downloading = llmDownloading,
         )
 
         // ── OCR ───────────────────────────────────────────────────────────────
@@ -98,13 +106,16 @@ fun ModulesScreen(vm: AgentViewModel = viewModel()) {
         )
 
         // ── Object Detector ───────────────────────────────────────────────────
+        val detectorStatus = if (modules.detectorReady) ModuleStatus.READY else ModuleStatus.MISSING
         ModuleCard(
             icon = Icons.Default.Visibility,
             title = "EfficientDet-Lite0 INT8",
             subtitle = "Screen object detection  •  ~4.4 MB",
-            status = if (modules.detectorReady) ModuleStatus.READY else ModuleStatus.MISSING,
+            status = detectorStatus,
             detail = if (modules.detectorSizeMb > 0)
-                "${String.format("%.1f", modules.detectorSizeMb)} MB downloaded" else "Not downloaded"
+                "${String.format("%.1f", modules.detectorSizeMb)} MB downloaded" else "Not downloaded",
+            onDownload = if (detectorStatus == ModuleStatus.MISSING) {{ vm.downloadDetectorModel() }} else null,
+            downloading = detectorDownloading,
         )
 
         // ── Vector Memory ─────────────────────────────────────────────────────
@@ -138,7 +149,8 @@ fun ModulesScreen(vm: AgentViewModel = viewModel()) {
             PermissionRow(
                 icon = Icons.Default.Screenshot,
                 label = "Screen Capture",
-                granted = modules.screenCaptureGranted
+                granted = modules.screenCaptureGranted,
+                onGrant = if (!modules.screenCaptureGranted) onRequestScreenCapture else null,
             )
         }
 
@@ -278,7 +290,9 @@ private fun ModuleCard(
     title: String,
     subtitle: String,
     status: ModuleStatus,
-    detail: String? = null
+    detail: String? = null,
+    onDownload: (() -> Unit)? = null,
+    downloading: Boolean = false,
 ) {
     val (statusColor, statusLabel) = when (status) {
         ModuleStatus.ACTIVE  -> ARIAColors.Primary to "ACTIVE"
@@ -291,40 +305,79 @@ private fun ModuleCard(
         colors = CardDefaults.cardColors(containerColor = ARIAColors.Surface),
         elevation = CardDefaults.cardElevation(0.dp)
     ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                Modifier
-                    .size(40.dp)
-                    .background(statusColor.copy(alpha = 0.12f), RoundedCornerShape(10.dp)),
-                contentAlignment = Alignment.Center
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(icon, contentDescription = null, tint = statusColor, modifier = Modifier.size(22.dp))
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .background(statusColor.copy(alpha = 0.12f), RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(icon, contentDescription = null, tint = statusColor, modifier = Modifier.size(22.dp))
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.bodyMedium.copy(
+                        color = ARIAColors.OnSurface, fontWeight = FontWeight.SemiBold))
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted))
+                    if (detail != null) {
+                        Text(detail, style = MaterialTheme.typography.bodySmall.copy(
+                            color = statusColor, fontSize = 11.sp))
+                    }
+                }
+                Text(
+                    statusLabel,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color = statusColor, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp
+                    )
+                )
             }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.bodyMedium.copy(
-                    color = ARIAColors.OnSurface, fontWeight = FontWeight.SemiBold))
-                Text(subtitle, style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted))
-                if (detail != null) {
-                    Text(detail, style = MaterialTheme.typography.bodySmall.copy(
-                        color = statusColor, fontSize = 11.sp))
+            if (onDownload != null) {
+                Spacer(Modifier.height(10.dp))
+                Button(
+                    onClick   = onDownload,
+                    enabled   = !downloading,
+                    modifier  = Modifier.fillMaxWidth(),
+                    shape     = RoundedCornerShape(8.dp),
+                    colors    = ButtonDefaults.buttonColors(
+                        containerColor         = ARIAColors.Error,
+                        disabledContainerColor = ARIAColors.Error.copy(alpha = 0.4f),
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    if (downloading) {
+                        CircularProgressIndicator(
+                            modifier    = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                            color       = Color.White,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Starting download…", fontSize = 12.sp, color = Color.White)
+                    } else {
+                        Icon(
+                            Icons.Default.Download,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint     = Color.White,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Download", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
-            Text(
-                statusLabel,
-                style = MaterialTheme.typography.labelSmall.copy(
-                    color = statusColor, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp
-                )
-            )
         }
     }
 }
 
 @Composable
-private fun PermissionRow(icon: ImageVector, label: String, granted: Boolean) {
+private fun PermissionRow(
+    icon: ImageVector,
+    label: String,
+    granted: Boolean,
+    onGrant: (() -> Unit)? = null,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -332,7 +385,8 @@ private fun PermissionRow(icon: ImageVector, label: String, granted: Boolean) {
     ) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f),
         ) {
             Icon(
                 icon,
@@ -342,13 +396,27 @@ private fun PermissionRow(icon: ImageVector, label: String, granted: Boolean) {
             )
             Text(label, style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.OnSurface))
         }
-        Text(
-            if (granted) "GRANTED" else "DENIED",
-            style = MaterialTheme.typography.labelSmall.copy(
-                color = if (granted) ARIAColors.Success else ARIAColors.Error,
-                fontWeight = FontWeight.Bold
+        if (!granted && onGrant != null) {
+            TextButton(
+                onClick        = onGrant,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+            ) {
+                Text(
+                    "GRANT",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color = ARIAColors.Primary, fontWeight = FontWeight.Bold
+                    )
+                )
+            }
+        } else {
+            Text(
+                if (granted) "GRANTED" else "DENIED",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    color = if (granted) ARIAColors.Success else ARIAColors.Error,
+                    fontWeight = FontWeight.Bold
+                )
             )
-        )
+        }
     }
 }
 

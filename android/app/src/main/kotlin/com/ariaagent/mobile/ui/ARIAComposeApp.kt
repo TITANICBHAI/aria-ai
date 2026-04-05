@@ -1,5 +1,9 @@
 package com.ariaagent.mobile.ui
 
+import android.app.Activity
+import android.media.projection.MediaProjectionManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -74,6 +79,25 @@ fun ARIAComposeApp() {
         val navController = rememberNavController()
         val vm: AgentViewModel = viewModel()
         val agentState by vm.agentState.collectAsState()
+        val context = LocalContext.current
+
+        // ── Screen capture permission (Fix 1) ─────────────────────────────────
+        val screenCaptureLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+                vm.onScreenCaptureResult(result.resultCode, result.data!!)
+            }
+        }
+
+        LaunchedEffect(Unit) {
+            vm.screenCaptureRequestFlow.collect {
+                val manager = context.getSystemService(MediaProjectionManager::class.java)
+                screenCaptureLauncher.launch(manager.createScreenCaptureIntent())
+            }
+        }
+
+        val onRequestScreenCapture: () -> Unit = { vm.requestScreenCapturePermission() }
 
         val navBackStackEntry by navController.currentBackStackEntryAsState()
         val currentRoute = navBackStackEntry?.destination?.route
@@ -170,13 +194,19 @@ fun ARIAComposeApp() {
                         )
                     }
 
-                    composable(Screen.Modules.route)   { ModulesScreen(vm) }
+                    composable(Screen.Modules.route) {
+                        ModulesScreen(
+                            vm                    = vm,
+                            onRequestScreenCapture = onRequestScreenCapture,
+                        )
+                    }
                     composable(Screen.Settings.route)  { SettingsScreen(vm) }
 
                     composable(ROUTE_LABELER) {
                         LabelerScreen(
-                            vm     = vm,
-                            onBack = { navController.popBackStack() },
+                            vm                    = vm,
+                            onBack                = { navController.popBackStack() },
+                            onRequestScreenCapture = onRequestScreenCapture,
                         )
                     }
                 }

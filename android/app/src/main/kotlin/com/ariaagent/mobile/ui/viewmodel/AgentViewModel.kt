@@ -1,6 +1,7 @@
 package com.ariaagent.mobile.ui.viewmodel
 
 import android.app.Application
+import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ariaagent.mobile.core.agent.AgentLoop
@@ -8,6 +9,7 @@ import com.ariaagent.mobile.core.agent.AppSkillRegistry
 import com.ariaagent.mobile.core.agent.TaskQueueManager
 import com.ariaagent.mobile.core.ai.ChatContextBuilder
 import com.ariaagent.mobile.core.ai.LlamaEngine
+import com.ariaagent.mobile.core.ai.ModelDownloadService
 import com.ariaagent.mobile.core.ai.ModelManager
 import com.ariaagent.mobile.core.config.AriaConfig
 import com.ariaagent.mobile.core.config.ConfigStore
@@ -26,9 +28,12 @@ import com.ariaagent.mobile.system.accessibility.AgentAccessibilityService
 import com.ariaagent.mobile.system.screen.ScreenCaptureService
 import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -333,6 +338,19 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     private val _labelerSaveSuccess = MutableStateFlow(false)
     val labelerSaveSuccess: StateFlow<Boolean> = _labelerSaveSuccess.asStateFlow()
 
+    // ── Screen capture permission request (Fix 1) ─────────────────────────────
+
+    private val _screenCaptureRequestFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val screenCaptureRequestFlow: SharedFlow<Unit> = _screenCaptureRequestFlow.asSharedFlow()
+
+    // ── Model download state (Fix 2) ──────────────────────────────────────────
+
+    private val _llmDownloading = MutableStateFlow(false)
+    val llmDownloading: StateFlow<Boolean> = _llmDownloading.asStateFlow()
+
+    private val _detectorDownloading = MutableStateFlow(false)
+    val detectorDownloading: StateFlow<Boolean> = _detectorDownloading.asStateFlow()
+
     /** Config — reactive DataStore flow, auto-updates on any config change. */
     val config: StateFlow<AriaConfig> = ConfigStore.flow(context)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), AriaConfig())
@@ -511,6 +529,106 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                 untrainedSamples = store.getUntrainedSuccesses(1000).size,
                 loraVersion    = loraVer,
             )}
+        }
+    }
+
+    // ─── Fix 1: Screen capture permission ────────────────────────────────────
+
+    /** Signal the Activity-level composable to launch the MediaProjection chooser. */
+    fun requestScreenCapturePermission() {
+        _screenCaptureRequestFlow.tryEmit(Unit)
+    }
+
+    /**
+     * Called by the Activity after the user grants the MediaProjection permission.
+     * Starts ScreenCaptureService with the resultCode + projection Intent.
+     */
+    fun onScreenCaptureResult(resultCode: Int, projectionData: Intent) {
+        val serviceIntent = Intent(context, ScreenCaptureService::class.java).apply {
+            putExtra("resultCode", resultCode)
+            putExtra("projectionData", projectionData)
+        }
+        context.startForegroundService(serviceIntent)
+        viewModelScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.delay(500)
+            refreshModuleState()
+        }
+    }
+
+    // ─── Fix 2: Model downloads ───────────────────────────────────────────────
+
+    /** Start the LLM foreground download service. Safe to call when already downloaded. */
+    fun downloadLlmModel() {
+        if (_llmDownloading.value) return
+        if (ModelManager.isModelReady(context)) {
+            refreshModuleState()
+            return
+        }
+        _llmDownloading.value = true
+        val intent = Intent(context, ModelDownloadService::class.java)
+        context.startForegroundService(intent)
+        viewModelScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.delay(2000)
+            _llmDownloading.value = false
+        }
+    }
+
+    /** Download the EfficientDet-Lite0 INT8 model (~4.4 MB) in the background. */
+    fun downloadDetectorModel() {
+        if (_detectorDownloading.value) return
+        if (ObjectDetectorEngine.isModelReady(context)) {
+            refreshModuleState()
+            return
+        }
+        _detectorDownloading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                ObjectDetectorEngine.ensureModel(context)
+                refreshModuleState()
+            } finally {
+                _detectorDownloading.value = false
+            }
+        }
+    }
+
+    // ─── Fix 3: Gallery fallback for Object Labeler ───────────────────────────
+
+    /**
+     * Load a gallery image URI as the labeler capture.
+     * Copies the content:// URI to cache, runs OCR, and populates labelerCapture.
+     * Called when screen capture is denied and user picks from gallery instead.
+     */
+    fun loadImageFromGallery(uri: android.net.Uri) {
+        if (_labelerCapturing.value) return
+        _labelerCapturing.value = true
+        _labelerError.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val file = java.io.File(context.cacheDir, "labeler_gallery_${System.currentTimeMillis()}.jpg")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    java.io.FileOutputStream(file).use { out -> input.copyTo(out) }
+                }
+                if (!file.exists() || file.length() == 0L) {
+                    _labelerError.value = "Failed to read image from gallery."
+                    return@launch
+                }
+                val bitmap = android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                val ocrText = if (bitmap != null) OcrEngine.run(bitmap) else ""
+                val a11yTree = AgentAccessibilityService.getSemanticTree()
+                val captureUi = ScreenCaptureUi(
+                    imagePath  = file.absolutePath,
+                    appPackage = "gallery",
+                    screenHash = file.name,
+                    ocrText    = ocrText.take(2000),
+                    a11yTree   = a11yTree.take(2000),
+                )
+                _labelerCapture.value = captureUi
+                _labelerLabels.value  = emptyList()
+            } catch (e: Exception) {
+                _labelerError.value = e.message ?: "Gallery import failed"
+            } finally {
+                _labelerCapturing.value = false
+            }
         }
     }
 
