@@ -91,7 +91,7 @@ data class ModuleUiState(
     val modelReady: Boolean           = false,
     val modelLoaded: Boolean          = false,
     val tokensPerSecond: Double       = 0.0,
-    val ocrReady: Boolean             = true,
+    val ocrReady: Boolean             = false,
     val detectorReady: Boolean        = false,
     val detectorSizeMb: Float         = 0f,
     val embeddingCount: Int           = 0,
@@ -101,6 +101,12 @@ data class ModuleUiState(
     val episodesRun: Int              = 0,
     val adapterLoaded: Boolean        = false,
     val loraVersion: Int              = 0,
+    // LLM download progress (driven by ModelDownloadService via AgentEventBus)
+    val llmDownloadPercent: Int       = 0,
+    val llmDownloadMb: Double         = 0.0,
+    val llmDownloadTotalMb: Double    = 0.0,
+    val llmDownloadSpeedMbps: Double  = 0.0,
+    val llmDownloadError: String?     = null,
 )
 
 /** Phase 15: mirrors TaskQueueManager.QueuedTask for Compose UI. */
@@ -502,11 +508,12 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             val store = ExperienceStore.getInstance(context)
             val loraVer = LoraTrainer.currentVersion(context)
+            val ocrAvailable = runCatching { OcrEngine.isAvailable(context) }.getOrDefault(true)
             _moduleState.value = ModuleUiState(
                 modelReady           = ModelManager.isModelReady(context),
                 modelLoaded          = LlamaEngine.isLoaded(),
                 tokensPerSecond      = LlamaEngine.lastToksPerSec,
-                ocrReady             = true,
+                ocrReady             = ocrAvailable,
                 detectorReady        = ObjectDetectorEngine.isModelReady(context),
                 detectorSizeMb       = ObjectDetectorEngine.downloadedBytes(context).toFloat() / 1_048_576f,
                 embeddingCount       = store.count(),

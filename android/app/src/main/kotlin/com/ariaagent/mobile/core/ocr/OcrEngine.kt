@@ -27,6 +27,15 @@ object OcrEngine {
     }
 
     /**
+     * Returns true if the ML Kit recognizer initialises without error.
+     * ML Kit Text Recognition is bundled, so this is almost always true;
+     * however the lazy initialisation can theoretically throw on severely
+     * degraded devices or during unit-test runs without the ML Kit stub.
+     */
+    fun isAvailable(@Suppress("UNUSED_PARAMETER") context: android.content.Context): Boolean =
+        runCatching { recognizer; true }.getOrDefault(false)
+
+    /**
      * Run text recognition on the provided [bitmap].
      * Returns the full detected text as a single String, or an empty String on failure.
      * Safe to call from any coroutine dispatcher — bridges the ML Kit Task callback.
