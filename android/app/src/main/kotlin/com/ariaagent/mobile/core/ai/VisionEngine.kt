@@ -79,7 +79,8 @@ object VisionEngine {
     // ── File paths ────────────────────────────────────────────────────────────
 
     fun modelDir(context: Context): File =
-        File(context.filesDir, "models").also { it.mkdirs() }
+        (context.getExternalFilesDir("models") ?: File(context.filesDir, "models"))
+            .also { it.mkdirs() }
 
     fun visionModelPath(context: Context): File =
         File(modelDir(context), VISION_MODEL_FILENAME)

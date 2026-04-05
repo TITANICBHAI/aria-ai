@@ -94,7 +94,8 @@ object Sam2Engine {
     // ── File paths ────────────────────────────────────────────────────────────
 
     fun modelDir(context: Context): File =
-        File(context.filesDir, "models").also { it.mkdirs() }
+        (context.getExternalFilesDir("models") ?: File(context.filesDir, "models"))
+            .also { it.mkdirs() }
 
     fun encoderPath(context: Context): File =
         File(modelDir(context), ENCODER_FILENAME)

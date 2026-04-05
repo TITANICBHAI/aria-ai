@@ -29,7 +29,8 @@ object ModelManager {
     const val EXPECTED_SHA256 = "VERIFY_AFTER_FIRST_DOWNLOAD"
 
     fun modelDir(context: Context): File =
-        File(context.filesDir, "models").also { it.mkdirs() }
+        (context.getExternalFilesDir("models") ?: File(context.filesDir, "models"))
+            .also { it.mkdirs() }
 
     fun modelPath(context: Context): File =
         File(modelDir(context), MODEL_FILENAME)

@@ -51,14 +51,18 @@ object EmbeddingModelManager {
     private const val VOCAB_FILENAME = "bert-vocab.txt"
     private const val VOCAB_MIN_SIZE_BYTES = 200_000L      // ~230 KB minimum valid file
 
+    private fun modelsDir(context: Context): File =
+        (context.getExternalFilesDir("models") ?: File(context.filesDir, "models"))
+            .also { it.mkdirs() }
+
     fun modelPath(context: Context): File =
-        File(context.filesDir, "models/$MODEL_FILENAME")
+        File(modelsDir(context), MODEL_FILENAME)
 
     fun partialPath(context: Context): File =
-        File(context.filesDir, "models/$MODEL_FILENAME.part")
+        File(modelsDir(context), "$MODEL_FILENAME.part")
 
     fun vocabPath(context: Context): File =
-        File(context.filesDir, "models/$VOCAB_FILENAME")
+        File(modelsDir(context), VOCAB_FILENAME)
 
     fun isModelReady(context: Context): Boolean {
         val f = modelPath(context)
