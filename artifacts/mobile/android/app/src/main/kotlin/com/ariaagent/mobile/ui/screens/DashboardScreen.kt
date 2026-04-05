@@ -320,11 +320,15 @@ fun DashboardScreen(vm: AgentViewModel = viewModel()) {
 // ─── Shared composable helpers (used across screens) ──────────────────────────
 
 @Composable
-fun ARIACard(content: @Composable ColumnScope.() -> Unit) {
+fun ARIACard(
+    modifier: Modifier = Modifier,
+    containerColor: Color = ARIAColors.Surface,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = ARIAColors.Surface),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
         elevation = CardDefaults.cardElevation(0.dp)
     ) {
         Column(modifier = Modifier.padding(14.dp), content = content)

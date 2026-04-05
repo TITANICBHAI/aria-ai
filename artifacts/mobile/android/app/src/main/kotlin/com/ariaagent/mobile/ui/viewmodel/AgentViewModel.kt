@@ -14,8 +14,10 @@ import com.ariaagent.mobile.core.events.AgentEventBus
 import com.ariaagent.mobile.core.memory.ExperienceStore
 import com.ariaagent.mobile.core.memory.ObjectLabelStore
 import com.ariaagent.mobile.core.perception.ObjectDetectorEngine
+import com.ariaagent.mobile.core.persistence.ProgressPersistence
 import com.ariaagent.mobile.core.rl.LoraTrainer
 import com.ariaagent.mobile.core.rl.PolicyNetwork
+import com.ariaagent.mobile.system.AgentForegroundService
 import com.ariaagent.mobile.system.accessibility.AgentAccessibilityService
 import com.ariaagent.mobile.system.screen.ScreenCaptureService
 import kotlinx.coroutines.Dispatchers
@@ -127,6 +129,18 @@ data class GameLoopUiState(
     val isGameOver: Boolean  = false,
 )
 
+/** Memory entry shown in ActivityScreen Memory tab. Mapped from ExperienceStore.ExperienceTuple. */
+data class MemoryEntry(
+    val id         : String,
+    val summary    : String,
+    val app        : String,
+    val taskType   : String,
+    val result     : String,   // "success" | "failure"
+    val reward     : Double,
+    val isEdgeCase : Boolean,
+    val timestamp  : Long,
+)
+
 /** Phase 15: notification shown when ARIA auto-chains to the next queued task. */
 data class ChainedTaskItem(
     val taskId: String,
@@ -199,6 +213,10 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     // Phase 15: chained task notification
     private val _chainedTask = MutableStateFlow<ChainedTaskItem?>(null)
     val chainedTask: StateFlow<ChainedTaskItem?> = _chainedTask.asStateFlow()
+
+    // Migration Phase 3: memory entries for ActivityScreen Memory tab
+    private val _memoryEntries = MutableStateFlow<List<MemoryEntry>>(emptyList())
+    val memoryEntries: StateFlow<List<MemoryEntry>> = _memoryEntries.asStateFlow()
 
     /** Config — reactive DataStore flow, auto-updates on any config change. */
     val config: StateFlow<AriaConfig> = ConfigStore.flow(context)
@@ -453,11 +471,92 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         _chainedTask.value = null
     }
 
+    // ─── Migration Phase 3: memory entries ───────────────────────────────────
+
+    /** Load recent ExperienceStore tuples for the ActivityScreen Memory tab. */
+    fun refreshMemoryEntries() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val store = ExperienceStore.getInstance(context)
+            _memoryEntries.value = store.getRecent(200).map { t ->
+                MemoryEntry(
+                    id         = t.id,
+                    summary    = t.screenSummary.ifBlank { t.taskType },
+                    app        = t.appPackage.substringAfterLast('.'),
+                    taskType   = t.taskType,
+                    result     = t.result,
+                    reward     = t.reward,
+                    isEdgeCase = t.isEdgeCase,
+                    timestamp  = t.timestamp,
+                )
+            }
+        }
+    }
+
+    // ─── Migration Phase 2/3: danger zone actions (added beyond RN) ──────────
+
+    /**
+     * Clear all experience store entries and embeddings.
+     * Triggered by "Clear Memory" button in SettingsScreen and ActivityScreen.
+     */
+    fun clearMemory() {
+        viewModelScope.launch(Dispatchers.IO) {
+            ExperienceStore.getInstance(context).clearAll()
+            _memoryEntries.value = emptyList()
+            refreshModuleState()
+        }
+    }
+
+    /**
+     * Full agent reset — clears experience store, progress persistence, task queue,
+     * and app skill registry. LoRA adapter files on disk are preserved.
+     * Triggered by "Reset Agent" button in SettingsScreen.
+     */
+    fun resetAgent() {
+        viewModelScope.launch(Dispatchers.IO) {
+            ExperienceStore.getInstance(context).clearAll()
+            ProgressPersistence.clear(context)
+            AppSkillRegistry.getInstance(context).clear()
+            TaskQueueManager.clear(context)
+            _memoryEntries.value = emptyList()
+            _appSkills.value     = emptyList()
+            _taskQueue.value     = emptyList()
+            refreshModuleState()
+        }
+    }
+
     // ─── Agent control ────────────────────────────────────────────────────────
+
+    /**
+     * Load the LLM engine into memory using the current stored config.
+     * Matches `loadModel()` in control.tsx.  Safe to call when already loaded.
+     */
+    fun loadModel() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val cfg = ConfigStore.load(context)
+            runCatching {
+                LlamaEngine.load(
+                    path         = cfg.modelPath,
+                    contextSize  = cfg.contextWindow,
+                    nGpuLayers   = cfg.nGpuLayers,
+                )
+            }
+            refreshModuleState()
+        }
+    }
 
     fun startAgent(goal: String, appPackage: String = "") {
         viewModelScope.launch(Dispatchers.IO) {
             AgentLoop.start(context, goal, appPackage)
+        }
+    }
+
+    /**
+     * Start the agent in learn-only mode: observe + reason, but dispatch NO gestures.
+     * Matches `startLearnOnly()` in control.tsx / AgentForegroundService.
+     */
+    fun startLearnOnly(goal: String, appPackage: String = "") {
+        viewModelScope.launch(Dispatchers.IO) {
+            AgentForegroundService.startLearnOnly(context, goal, appPackage)
         }
     }
 

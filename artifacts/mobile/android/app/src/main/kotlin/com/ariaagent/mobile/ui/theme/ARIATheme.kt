@@ -55,10 +55,12 @@ object ARIAColors {
     val TextMuted        = Color(0xFF64748B)   // disabled / hints
 
     // ── Short aliases used by Compose screens ──────────────────────────────
-    val Surface    = Surface1        // default card background
-    val OnSurface  = TextPrimary     // text on cards
-    val Muted      = TextMuted       // dim labels / hints
-    val Divider    = Surface3        // separator lines / input borders
+    val Surface        = Surface1        // default card background
+    val SurfaceVariant = Surface2        // chip / selectable backgrounds
+    val OnSurface      = TextPrimary     // text on cards
+    val Muted          = TextMuted       // dim labels / hints
+    val Divider        = Surface3        // separator lines / input borders
+    val Destructive    = Error           // destructive action buttons
 }
 
 // ─── Material3 dark color scheme ─────────────────────────────────────────────
