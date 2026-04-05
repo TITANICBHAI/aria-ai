@@ -7,9 +7,8 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import com.ariaagent.mobile.MainActivity
-import com.ariaagent.mobile.bridge.AgentCoreModule
-import com.facebook.react.bridge.Arguments
+import com.ariaagent.mobile.core.events.AgentEventBus
+import com.ariaagent.mobile.ui.ComposeMainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -26,7 +25,10 @@ import kotlin.math.roundToInt
  *
  * Survives app backgrounding. Shows a persistent notification with live progress.
  * Supports resuming partial downloads using HTTP Range headers.
- * Emits progress events to JS via AgentCoreModule.
+ * Emits progress events to AgentEventBus (consumed by AgentViewModel → Compose UI).
+ *
+ * Migration note: RN bridge (AgentCoreModule / facebook.react.bridge.Arguments) removed.
+ * All events are now emitted via AgentEventBus which AgentViewModel subscribes to.
  *
  * Flow:
  *   1. Check if partial download exists (partialPath) → resume from byte offset
@@ -47,9 +49,6 @@ class ModelDownloadService : Service() {
     companion object {
         private const val CHANNEL_ID = "aria_model_download"
         private const val NOTIF_ID = 1001
-        private var module: AgentCoreModule? = null
-
-        fun setModule(m: AgentCoreModule) { module = m }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -94,7 +93,7 @@ class ModelDownloadService : Service() {
 
                 var downloaded = resumeFrom
                 var lastEmitAt = resumeFrom
-                val emitEveryBytes = 2_000_000L // emit every 2MB
+                val emitEveryBytes = 2_000_000L
                 val startTime = System.currentTimeMillis()
 
                 FileOutputStream(partial, resumeFrom > 0).use { out ->
@@ -120,7 +119,6 @@ class ModelDownloadService : Service() {
                     }
                 }
 
-                // Download complete
                 val success = ModelManager.finalizeDownload(this)
                 if (success && ModelManager.isModelReady(this)) {
                     emitComplete(ModelManager.modelPath(this).absolutePath)
@@ -136,24 +134,20 @@ class ModelDownloadService : Service() {
     }
 
     private fun emitProgress(pct: Int, dlMb: Double, totalMb: Double, speedMbps: Double) {
-        module?.emitEvent("model_download_progress", Arguments.createMap().apply {
-            putInt("percent", pct)
-            putDouble("downloadedMb", dlMb)
-            putDouble("totalMb", totalMb)
-            putDouble("speedMbps", speedMbps)
-        })
+        AgentEventBus.emit("model_download_progress", mapOf(
+            "percent"     to pct,
+            "downloadedMb" to dlMb,
+            "totalMb"     to totalMb,
+            "speedMbps"   to speedMbps
+        ))
     }
 
     private fun emitComplete(path: String) {
-        module?.emitEvent("model_download_complete", Arguments.createMap().apply {
-            putString("path", path)
-        })
+        AgentEventBus.emit("model_download_complete", mapOf("path" to path))
     }
 
     private fun emitError(error: String) {
-        module?.emitEvent("model_download_error", Arguments.createMap().apply {
-            putString("error", error)
-        })
+        AgentEventBus.emit("model_download_error", mapOf("error" to error))
     }
 
     private fun createNotificationChannel() {
@@ -175,7 +169,7 @@ class ModelDownloadService : Service() {
             .setContentIntent(
                 PendingIntent.getActivity(
                     this, 0,
-                    Intent(this, MainActivity::class.java),
+                    Intent(this, ComposeMainActivity::class.java),
                     PendingIntent.FLAG_IMMUTABLE
                 )
             )

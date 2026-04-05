@@ -2,219 +2,160 @@
 
 ## Overview
 
-pnpm workspace monorepo — polyglot Android AI agent with Kotlin brain + React Native JS UI shell.
-JS is **temporary UI only**. Kotlin owns all logic permanently.
+pnpm workspace monorepo — pure Kotlin + Jetpack Compose Android AI agent.
+React Native / Expo are a **temporary UI shell** being phased out per `migration.md`.
+Kotlin owns all logic permanently. All RN/bridge code is deleted in Phase 8.
 
-## Architecture
-
-### Layer 1 — Core Brain (Kotlin, permanent)
-- `android/core/ai/` — llama.cpp JNI bindings, Llama 3.2-1B Q4_K_M runner
-- `android/core/ocr/` — ML Kit text recognition
-- `android/core/rl/` — custom reinforcement learning module
-- `android/core/memory/` — SQLite + file-based embeddings
-
-### Layer 2 — System Control (Kotlin, permanent)
-- `android/system/accessibility/` — AccessibilityService (gesture injection)
-- `android/system/screen/` — MediaProjection screen capture
-- `android/system/actions/` — tap, swipe, intent dispatch
-- JS **never** calls these directly — only via TurboModule bridge
-
-### Layer 3 — Interface (JS → temporary shell)
-- `artifacts/mobile/` — React Native (Expo) UI
-- `artifacts/mobile/native-bindings/AgentCoreBridge.ts` — TurboModule contract (stubs in Phase 1)
-- `artifacts/mobile/context/AgentContext.tsx` — all bridge calls centralized here
-- Phase 2: JS thins out. Phase 3: full Kotlin + Jetpack Compose
-
-### Bridge
-- `android/bridge/turbo/` — TurboModule JSI bindings (Kotlin)
-- `android/bridge/dto/` — data contracts
-- Uses New Architecture (JSI, not legacy bridge)
-
-## Target Device
-
-Samsung Galaxy M31 — Exynos 9611 · Mali-G72 MP3 · 6GB LPDDR4X
-- Model: Llama 3.2-1B Instruct @ Q4_K_M (~870MB, ~10-15 tok/s)
-- Context window: 4096 tokens (practical limit for M31)
-- OCR: ML Kit (512×512 downsampled captures)
-
-## Phase Plan
+## Migration Status (see migration.md for full detail)
 
 | Phase | Status | Description |
 |-------|--------|-------------|
-| 1 | Now | New Architecture · JS UI + Kotlin brain · TurboModules |
-| 2 | Future | JS becomes thin wrapper · More logic → Kotlin |
-| 3 | Future | Full Kotlin · Jetpack Compose replaces JS UI |
+| 0 | `[x]` | Environment + baseline build |
+| 1 | `[x]` | ComposeMainActivity promoted as launcher; RN host stripped |
+| 2 | `[ ]` | Fill SettingsScreen.kt gaps |
+| 3 | `[ ]` | Fill ActivityScreen.kt gaps |
+| 4 | `[ ]` | Fill ControlScreen.kt gaps |
+| 5 | `[~]` | ChatScreen.kt — written, needs emulator verify |
+| 6 | `[~]` | TrainScreen.kt — written, needs emulator verify |
+| 7 | `[~]` | LabelerScreen.kt — written, needs emulator verify |
+| 8 | `[ ]` | Delete RN layer — all gates must be green first |
+| 9 | `[ ]` | Strip build system |
 
-## Stack
+## Architecture
 
-- **Monorepo tool**: pnpm workspaces
-- **Node.js version**: 24
-- **Package manager**: pnpm
-- **TypeScript version**: 5.9
-- **Mobile**: Expo (React Native, **Old Architecture** — `newArchEnabled=false`, Hermes, Bridge)
-- **LLM**: Llama 3.2-1B via llama.cpp + JNI
-- **OCR**: Google ML Kit
-- **Object detection**: MediaPipe EfficientDet-Lite0 INT8 (Phase 13)
-- **RL**: Custom on-device module
-- **Memory**: SQLite + file-based embeddings
+### Core Brain (Kotlin, permanent)
+- `android/core/ai/` — llama.cpp JNI, Llama 3.2-1B Q4_K_M, model download
+- `android/core/ocr/` — ML Kit text recognition
+- `android/core/rl/` — on-device reinforcement learning (IRL, LoRA trainer)
+- `android/core/memory/` — embeddings, experience store, object label store
+- `android/core/events/AgentEventBus.kt` — internal SharedFlow event backbone
+- `android/core/agent/AgentLoop.kt` — main reasoning loop
+
+### System Control (Kotlin, permanent)
+- `android/system/accessibility/` — AccessibilityService (reads UI tree, dispatches gestures)
+- `android/system/screen/` — MediaProjection screen capture
+- `android/system/actions/` — GestureEngine (tap, swipe, intent)
+- `android/system/AgentForegroundService.kt` — keeps agent alive on 6GB RAM device
+
+### UI (Jetpack Compose, permanent)
+- `android/ui/ComposeMainActivity.kt` — launcher Activity (since Phase 1)
+- `android/ui/ARIAComposeApp.kt` — NavHost + bottom nav (7 tabs + labeler route)
+- `android/ui/viewmodel/AgentViewModel.kt` — single ViewModel, subscribes to AgentEventBus
+- `android/ui/screens/` — DashboardScreen, ControlScreen, ChatScreen, TrainScreen,
+                           LabelerScreen, ModulesScreen, ActivityScreen, SettingsScreen
+- `android/ui/theme/ARIATheme.kt` — ARIA color palette
+
+### RN / Expo (temporary — Phases 2–7 specification source only)
+- `artifacts/mobile/app/(tabs)/` — .tsx screens used as feature spec for Kotlin screens
+- Per migration.md: **DO NOT delete** any .tsx until its Kotlin replacement is `[x]`
+
+## Target Device
+
+Samsung Galaxy M31 — Exynos 9611 · Mali-G72 MP3 · 6 GB LPDDR4X
+- Model: Llama 3.2-1B Instruct @ Q4_K_M (~870 MB, ~10–15 tok/s)
+- Context window: 4096 tokens
+- OCR: ML Kit (512×512 downsampled captures)
+- Build target: arm64-v8a only (halves build time, required for NDK libs)
+
+## Android Project — Firebase Studio / Android Studio Build
+
+### How native-only mode works
+
+`settings.gradle` auto-detects whether `node_modules` is present:
+- **node_modules found** → hybrid mode: RN + Expo sub-projects loaded (EAS / local pnpm)
+- **node_modules NOT found** → native-only mode: pure Kotlin + NDK (Firebase Studio / Android Studio)
+
+No manual flag required. The mode is logged at Gradle configuration time.
+
+### Key config files
+
+| File | Purpose |
+|------|---------|
+| `android/settings.gradle` | Auto-detects mode, includes RN/Expo sub-projects in hybrid only |
+| `android/build.gradle` | AGP 8.8, Kotlin 2.0.21, NDK r27.1 versions |
+| `android/app/build.gradle` | CMake for llama-jni, Compose, all Kotlin deps |
+| `android/gradle.properties` | JVM args (4 GB), AndroidX flags, RN arch (ignored in native-only) |
+| `android/local.properties` | SDK + NDK paths — auto-written by .idx/dev.nix, never commit |
+| `.idx/dev.nix` | Firebase Studio: installs JDK 17, SDK 35, NDK r27.1, arm64-v8a emulator |
+
+### To open in Firebase Studio
+1. Open the workspace — `.idx/dev.nix` runs automatically
+2. SDK, NDK, and emulator are provisioned by the Nix environment
+3. `local.properties` is written automatically with correct SDK/NDK paths
+4. Open `artifacts/mobile/android/` as the project root in the Android panel
+5. Gradle syncs in native-only mode (no node_modules needed)
+6. Run ▶ launches on the arm64-v8a emulator
+
+### To open in Android Studio
+1. File → Open → select `artifacts/mobile/android/`
+2. Gradle syncs in native-only mode automatically
+3. If `local.properties` is missing, Android Studio writes it with your local SDK path
+
+## Native Build (NDK / llama.cpp)
+
+- `llama.cpp` submodule at `android/app/src/main/cpp/llama.cpp/`
+- JNI bridge: `llama_jni.cpp` + `aria_math.cpp` → shared library `llama-jni`
+- `LlamaEngine.kt` loads `llama-jni` via `System.loadLibrary("llama-jni")`
+- `LLAMA_HAS_TRAINING` is NOT defined — `nativeTrainLora()` returns false, Kotlin stubs training
+- Updated llama.cpp JNI API calls:
+  - `llama_model_load_from_file` (replaces deprecated `llama_load_model_from_file`)
+  - `llama_memory_clear(llama_get_memory(ctx), true)` (replaces `llama_kv_cache_clear`)
+  - `llama_vocab_is_eog` / `llama_model_get_vocab`
+  - `llama_adapter_lora_init` / `llama_set_adapters_lora` / `llama_adapter_lora_free`
+  - `llama_model_free` (replaces deprecated `llama_free_model`)
 
 ## Directory Structure
 
 ```
 root/
-├── android/                    # Full Kotlin app (OWNERSHIP HERE)
-│   ├── core/
-│   │   ├── ai/                 # llama.cpp bindings, model runner
-│   │   ├── ocr/                # ML Kit wrapper
-│   │   ├── rl/                 # reinforcement learning
-│   │   └── memory/             # SQLite, embeddings
-│   ├── system/
-│   │   ├── accessibility/      # AccessibilityService
-│   │   ├── screen/             # MediaProjection
-│   │   └── actions/            # tap, swipe, intents
-│   ├── bridge/
-│   │   ├── turbo/              # TurboModules (JSI)
-│   │   └── dto/                # data contracts
-│   └── ui-native/              # future Jetpack Compose
-│
+├── .idx/dev.nix                # Firebase Studio environment config
+├── migration.md                # Migration plan and phase tracker
 ├── artifacts/
-│   ├── mobile/                 # React Native UI shell (Phase 1)
-│   │   ├── app/                # Expo Router screens
-│   │   ├── context/            # AgentContext (bridge calls)
-│   │   ├── native-bindings/    # AgentCoreBridge.ts stubs
-│   │   └── components/         # UI components
+│   ├── mobile/
+│   │   ├── android/            # ← Open this in Android Studio / Firebase Studio
+│   │   │   ├── app/src/main/
+│   │   │   │   ├── kotlin/com/ariaagent/mobile/
+│   │   │   │   │   ├── MainActivity.kt         # stub — no launcher intent (Phase 8: delete)
+│   │   │   │   │   ├── MainApplication.kt      # clean Application (SoLoader removed)
+│   │   │   │   │   ├── core/                   # AI brain (permanent)
+│   │   │   │   │   ├── system/                 # system services (permanent)
+│   │   │   │   │   └── ui/                     # Compose UI (permanent)
+│   │   │   │   ├── kotlin/expo/modules/
+│   │   │   │   │   └── ExpoModulesPackageList.kt # empty stub (Phase 8: delete)
+│   │   │   │   ├── cpp/                        # llama.cpp NDK sources
+│   │   │   │   ├── res/                        # drawables, strings, styles
+│   │   │   │   └── AndroidManifest.xml
+│   │   │   ├── build.gradle    # dual-mode app build
+│   │   │   ├── settings.gradle # auto-detects native-only vs hybrid
+│   │   │   ├── gradle.properties
+│   │   │   └── local.properties # SDK/NDK paths — never commit
+│   │   └── app/(tabs)/         # RN screens — spec source for Kotlin (do not delete yet)
 │   └── web-dashboard/          # Local Vite+React monitoring UI
-│
-├── models/
-│   ├── llama/                  # GGUF model files
-│   └── adapters/               # LoRA weights
-│
-└── shared/
-    └── schemas/                # contracts between JS and Kotlin
+├── shared/
+└── packages/
 ```
 
-## Screens (Phase 1 JS UI)
+## Events (AgentEventBus)
 
-- **Dashboard** (`/`) — agent status, metrics, module health
-- **Control** (`/control`) — start/stop/pause agent, goal input, presets
-- **Activity** (`/logs`) — action log + memory store browser
-- **Modules** (`/modules`) — per-module status with details and bridge info
-- **Settings** (`/settings`) — model config, RL settings, architecture info
+All internal events flow through `AgentEventBus` (SharedFlow). AgentViewModel subscribes
+and converts to StateFlow for Compose UI. No direct service → UI calls.
 
-## Phase 16 — Local Monitoring (No Cloud)
-
-Device serves live data directly over LAN — no external server, no cloud.
-
-- `android/core/monitoring/LocalDeviceServer.kt` — embedded HTTP server on port 8765 (java.net.ServerSocket, zero deps)
-- `android/core/monitoring/LocalSnapshotStore.kt` — volatile in-memory snapshot of all agent state
-- `android/core/monitoring/MonitoringPusher.kt` — updates LocalSnapshotStore on AgentEventBus events (≤1/3s)
-
-Dashboard connects to `http://{device-LAN-IP}:8765/aria/{endpoint}`. Bridge exposes `getLocalServerUrl()` + `getDeviceIp()` to show address in Settings.
-
-Snapshot file also written to `{filesDir}/monitoring/snapshot.json` atomically for ADB pull.
-
-## Native Build Status
-
-- `llama.cpp` (shallow clone, ~160MB) is at `artifacts/mobile/android/app/src/main/cpp/llama.cpp/`
-- All JNI API calls in `llama_jni.cpp` updated to current llama.cpp API:
-  - `llama_model_load_from_file` (replaces deprecated `llama_load_model_from_file`)
-  - `llama_memory_clear(llama_get_memory(ctx), true)` (replaces `llama_kv_cache_clear`)
-  - `llama_vocab_is_eog` / `llama_model_get_vocab` (replaces `llama_token_is_eog(model, tok)`)
-  - `llama_tokenize(vocab, ...)` buffer form (replaces convenience overload)
-  - `llama_token_to_piece(vocab, ...)` (replaces model-based form)
-  - `llama_adapter_lora_init` / `llama_set_adapters_lora` / `llama_adapter_lora_free` (replaces old lora API)
-  - `llama_model_free` (replaces deprecated `llama_free_model`)
-- `LLAMA_HAS_TRAINING` is NOT defined — `nativeTrainLora()` returns false → Kotlin falls to `stubTrainLora()`
-- CMakeLists.txt include paths: `${LLAMA_DIR}/include`, `${LLAMA_DIR}`, `${LLAMA_DIR}/common`, `${LLAMA_DIR}/ggml/include`
-- Build target: arm64-v8a only (Exynos 9611 / Galaxy M31)
-
-## Crash Fix History
-
-### Root Cause: `reactHost` returning New Architecture bridgeless engine (commit 0fd208f)
-
-`MainApplication.reactHost` was overridden to call `getDefaultReactHost(applicationContext, reactNativeHost)`.  
-That function calls `reactNativeHost.toReactHost()` which creates a `ReactHostImpl` — the New Architecture
-bridgeless engine — regardless of `isNewArchEnabled=false`.
-
-When `ReactActivityDelegate` sees a non-null `reactHost` it launches the bridgeless startup path
-(`ReactHostImpl.start()`), which conflicts with every Old Architecture package in `getPackages()` and
-causes an immediate "app has a bug" crash before JS loads.
-
-**Fix**: `override val reactHost: ReactHost? = null` — a null `reactHost` tells `ReactActivityDelegate`
-to use the bridge (Old Architecture) path via `reactNativeHost`.
-
-### Reanimated removal (audit fix)
-
-`react-native-reanimated` was registered as a native package in `MainApplication.kt` but its JS version
-(`~3.19.5`) did not match what Expo 54 / RN 0.81 expects (`~4.1.1`), and upgrading to v4 requires New
-Architecture. Nothing in the component code actually used reanimated APIs. The native .so mismatch caused
-a crash on startup.
-
-**Fix**: Removed reanimated from `package.json`, `babel.config.js` (plugin removed), `MainApplication.kt`
-(`ReanimatedPackage` removed), `settings.gradle`, and `app/build.gradle`.
-
-### Previous fixes applied before root cause was found
-
-1. Replaced `return null` with `ActivityIndicator` in `_layout.tsx` loading state
-2. Added `expo-splash-screen` to `app.json` plugins
-3. Added `@DoNotStrip` + TurboModule ProGuard rules
-
-## Audit Fixes (permissions + screen capture)
-
-### Accessibility service config — over-broad permissions
-- `android:accessibilityEventTypes` changed from `typeAllMask` to three specific types only:
-  `typeWindowStateChanged|typeWindowContentChanged|typeViewFocused`
-- Removed `canRequestFilterKeyEvents=true` and `flagRequestFilterKeyEvents` — Play Store treats
-  these as keylogger capabilities, which triggers policy warnings even when not used
-- Kept `canPerformGestures=true` and `canRetrieveWindowContent=true` (required for agent)
-
-### AccessibilityNodeInfo memory leak
-`AgentAccessibilityService.buildSemanticTree()` was storing live `AccessibilityNodeInfo` references
-in `nodeRegistry` without recycling old ones or child refs. Fixed: `obtain()` copies stored in
-registry, old copies recycled on each rebuild, child refs recycled after traversal.
-
-### Screen capture — requestScreenCapturePermission was a stub
-`AgentCoreBridge.requestScreenCapturePermission()` returned `{granted: false}` unconditionally on
-both JS and Kotlin sides. Added full `ActivityEventListener` + `requestScreenCapturePermission`
-method in `AgentCoreModule.kt` that calls `MediaProjectionManager.createScreenCaptureIntent()`,
-handles `onActivityResult`, and starts `ScreenCaptureService` on grant.
-
-### ScreenCaptureService — Android 14 MediaProjection.Callback
-Android 14 (API 34) requires `MediaProjection.registerCallback()` before `createVirtualDisplay()`.
-Without it, projection silently stops. Added callback that cleans up virtual display on system stop.
-
-### ScreenCaptureService — bitmap double-recycle
-`bitmap.recycle()` was called then `if (cropped != bitmap) cropped.recycle()` — when cropped==bitmap
-this left cropped unrecycled (memory leak) and when padding was applied it tried to recycle the
-already-recycled bitmap. Fixed: recycle `cropped` first, then `bitmap` only if they are distinct.
-
-### requestPermissions — parallel vs sequential
-`AgentContext.requestPermissions` used `Promise.all([accessibility, screenCapture])` which fires
-both system UIs simultaneously. Android drops the second intent. Changed to sequential `await`.
-
-### Lazy permission gating
-Replaced upfront `requestPermissions()` blast with just-in-time checks inside `startAgent()` and
-`startLearnOnly()`: accessibility → if missing, open Settings and return early; screen capture →
-if missing, show MediaProjection dialog and wait. Only proceeds to start the agent when both are
-confirmed active. `requestPermissions()` also updated to only prompt what is actually missing.
-
-### expo-splash-screen v31 — missing registerOnActivity + wrong theme
-`expo-splash-screen` v31 requires two things that were missing:
-1. `SplashScreenManager.registerOnActivity(this)` called BEFORE `super.onCreate()` in
-   `MainActivity.kt` so `installSplashScreen()` hooks into the window before `setContentView()`.
-2. `MainActivity`'s theme must extend `Theme.SplashScreen` (from AndroidX splash screen lib),
-   with a `postSplashScreenTheme` pointing back to `AppTheme`. Added `Theme.App.SplashScreen` to
-   `styles.xml` and set it on `<activity android:name=".MainActivity">` in `AndroidManifest.xml`.
-   Without this setup the ActivityManager can throw a theme resource lookup exception on some OEM
-   firmwares (observed on Samsung/Exynos) when `installSplashScreen()` tries to read splash attrs.
+| Event | Payload keys |
+|-------|-------------|
+| `agent_status_changed` | status, currentTask, currentApp, stepCount, lastAction, lastError, gameMode |
+| `token_generated` | token, tokensPerSecond |
+| `action_performed` | tool, nodeId, success, reward, stepCount |
+| `step_started` | stepNumber, activity |
+| `learning_cycle_complete` | loraVersion, policyVersion |
+| `thermal_status_changed` | level, inferenceSafe, trainingSafe, emergency |
+| `game_loop_status` | isActive, gameType, episodeCount, stepCount, currentScore, highScore, totalReward, lastAction, isGameOver |
+| `model_download_progress` | percent, downloadedMb, totalMb, speedMbps |
+| `model_download_complete` | path |
+| `model_download_error` | error |
+| `config_updated` | (same keys as getConfig) |
 
 ## Agent Preferences
 
-- **Auto-push to GitHub**: Desired, but not possible — GitHub OAuth integration was dismissed and the platform blocks direct git push from the agent. After each fix, inform the user to run `git push github HEAD:main` manually in the Shell. The `github` remote already has credentials embedded.
-
-## Key Files
-
-- `artifacts/mobile/native-bindings/AgentCoreBridge.ts` — TurboModule contract + Phase 1 stubs
-- `artifacts/mobile/context/AgentContext.tsx` — centralized bridge state
-- `artifacts/mobile/android/app/src/main/cpp/llama_jni.cpp` — JNI: nativeInfer, nativeLoadModel, nativeLoadLora, nativeTrainLora
-- `artifacts/web-dashboard/src/lib/api.ts` — local mock data (replace with `http://device-ip:8765` fetch when on LAN)
+- **GitHub push**: Run `git push github HEAD:main` manually in the Shell after each session.
+  The `github` remote already has credentials embedded.
+- **Auto-push**: Not possible — GitHub OAuth was dismissed and the platform blocks direct git push.
