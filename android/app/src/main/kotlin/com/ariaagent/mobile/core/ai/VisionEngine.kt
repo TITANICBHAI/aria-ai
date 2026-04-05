@@ -10,8 +10,9 @@ import android.util.Log
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.TimeUnit
 
 /**
  * VisionEngine — Multimodal screen understanding via SmolVLM-256M + llama.cpp mtmd.
@@ -278,39 +279,52 @@ object VisionEngine {
         partial: File,
         onProgress: (downloaded: Long, total: Long) -> Unit
     ): Boolean {
-        return try {
-            val resumeFrom = if (partial.exists()) partial.length() else 0L
-            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 30_000
-                readTimeout    = 60_000
-                setRequestProperty("User-Agent", "AriaAgent/1.0")
-                if (resumeFrom > 0) setRequestProperty("Range", "bytes=$resumeFrom-")
-            }
-            conn.connect()
-            val responseCode = conn.responseCode
-            if (responseCode != 200 && responseCode != 206) {
-                Log.e(TAG, "HTTP $responseCode for $url")
-                return false
-            }
-            val contentLength = conn.contentLengthLong
-            val totalBytes    = if (resumeFrom > 0) resumeFrom + contentLength else contentLength
+        val client = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .build()
 
-            conn.inputStream.use { input ->
-                FileOutputStream(partial, resumeFrom > 0).use { output ->
-                    val buf = ByteArray(256 * 1024)
-                    var downloaded = resumeFrom
-                    var n: Int
-                    while (input.read(buf).also { n = it } != -1) {
-                        output.write(buf, 0, n)
-                        downloaded += n
-                        onProgress(downloaded, totalBytes)
+        val resumeFrom = if (partial.exists()) partial.length() else 0L
+
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "AriaAgent/1.0")
+            .apply { if (resumeFrom > 0) addHeader("Range", "bytes=$resumeFrom-") }
+            .build()
+
+        return try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "HTTP ${response.code} for $url")
+                    throw Exception("HTTP ${response.code}: ${response.message}")
+                }
+                val body = response.body
+                    ?: throw Exception("Empty response body for $url")
+                val contentLength = body.contentLength()
+                val totalBytes    = if (resumeFrom > 0 && contentLength > 0)
+                    resumeFrom + contentLength else contentLength
+
+                var downloaded = resumeFrom
+                FileOutputStream(partial, resumeFrom > 0).use { out ->
+                    body.byteStream().use { input ->
+                        val buf = ByteArray(256 * 1024)
+                        var n: Int
+                        while (input.read(buf).also { n = it } != -1) {
+                            out.write(buf, 0, n)
+                            downloaded += n
+                            onProgress(downloaded, totalBytes)
+                        }
                     }
                 }
+                partial.renameTo(dest).also { renamed ->
+                    if (!renamed) throw Exception("Failed to rename partial → final: $dest")
+                }
             }
-            partial.renameTo(dest)
         } catch (e: Exception) {
             Log.e(TAG, "Download failed for $url: ${e.message}")
-            false
+            throw e
         }
     }
 }

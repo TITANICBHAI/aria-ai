@@ -11,9 +11,10 @@ import android.graphics.Rect
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 import java.nio.FloatBuffer
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.TimeUnit
 
 /**
  * Sam2Engine — On-device pixel segmentation using MobileSAM (ViT-Tiny encoder).
@@ -384,42 +385,54 @@ object Sam2Engine {
         val dest    = encoderPath(context)
         val partial = encoderPartial(context)
         if (isModelReady(context)) return true
-        return try {
-            val resumeFrom = if (partial.exists()) partial.length() else 0L
-            val conn = (URL(ENCODER_URL).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 30_000
-                readTimeout    = 60_000
-                setRequestProperty("User-Agent", "AriaAgent/1.0")
-                if (resumeFrom > 0) setRequestProperty("Range", "bytes=$resumeFrom-")
-            }
-            conn.connect()
-            val code = conn.responseCode
-            if (code != 200 && code != 206) {
-                Log.e(TAG, "HTTP $code for $ENCODER_URL")
-                return false
-            }
-            val contentLength = conn.contentLengthLong
-            val totalBytes    = if (resumeFrom > 0) resumeFrom + contentLength else contentLength
 
-            conn.inputStream.use { input ->
-                FileOutputStream(partial, resumeFrom > 0).use { output ->
-                    val buf = ByteArray(256 * 1024)
-                    var downloaded = resumeFrom
-                    var n: Int
-                    while (input.read(buf).also { n = it } != -1) {
-                        output.write(buf, 0, n)
-                        downloaded += n
-                        onProgress(downloaded, totalBytes)
+        val client = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .build()
+
+        val resumeFrom = if (partial.exists()) partial.length() else 0L
+
+        val request = Request.Builder()
+            .url(ENCODER_URL)
+            .header("User-Agent", "AriaAgent/1.0")
+            .apply { if (resumeFrom > 0) addHeader("Range", "bytes=$resumeFrom-") }
+            .build()
+
+        return try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "HTTP ${response.code} for $ENCODER_URL")
+                    throw Exception("HTTP ${response.code}: ${response.message}")
+                }
+                val body = response.body
+                    ?: throw Exception("Empty response body for MobileSAM encoder")
+                val contentLength = body.contentLength()
+                val totalBytes    = if (resumeFrom > 0 && contentLength > 0)
+                    resumeFrom + contentLength else contentLength
+
+                var downloaded = resumeFrom
+                FileOutputStream(partial, resumeFrom > 0).use { out ->
+                    body.byteStream().use { input ->
+                        val buf = ByteArray(256 * 1024)
+                        var n: Int
+                        while (input.read(buf).also { n = it } != -1) {
+                            out.write(buf, 0, n)
+                            downloaded += n
+                            onProgress(downloaded, totalBytes)
+                        }
                     }
                 }
-            }
-            partial.renameTo(dest).also {
-                if (it) Log.i(TAG, "MobileSAM encoder downloaded (${dest.length() / 1_048_576} MB)")
-                else Log.e(TAG, "Failed to rename partial file to final destination")
+                partial.renameTo(dest).also { renamed ->
+                    if (renamed) Log.i(TAG, "MobileSAM encoder downloaded (${dest.length() / 1_048_576} MB)")
+                    else throw Exception("Failed to rename partial → final: $dest")
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Download failed: ${e.message}")
-            false
+            throw e
         }
     }
 }

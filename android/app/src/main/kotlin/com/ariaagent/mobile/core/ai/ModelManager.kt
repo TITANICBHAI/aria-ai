@@ -22,7 +22,7 @@ object ModelManager {
 
     const val MODEL_FILENAME = "llama-3.2-1b-q4_k_m.gguf"
 
-    const val EXPECTED_SIZE_BYTES = 870_000_000L
+    const val EXPECTED_SIZE_BYTES = 780_000_000L
 
     // SHA256 of the exact bartowski Q4_K_M file — verify after download
     // Update this if HuggingFace re-uploads the file
