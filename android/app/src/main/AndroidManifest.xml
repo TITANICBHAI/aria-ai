@@ -19,6 +19,9 @@
     <!-- Keep CPU awake during model download and training -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- Floating chat overlay over other apps (user must grant in Settings → Special app access) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <application
         android:name=".MainApplication"
         android:label="@string/app_name"
@@ -94,6 +97,11 @@
         <service
             android:name=".system.AgentForegroundService"
             android:foregroundServiceType="specialUse"
+            android:exported="false" />
+
+        <!-- Floating Chat Overlay: TYPE_APPLICATION_OVERLAY drawn over any app -->
+        <service
+            android:name=".system.overlay.FloatingChatService"
             android:exported="false" />
 
         <property

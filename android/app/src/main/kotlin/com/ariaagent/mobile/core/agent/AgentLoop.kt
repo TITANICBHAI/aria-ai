@@ -11,6 +11,10 @@ import com.ariaagent.mobile.core.events.AgentEventBus
 import com.ariaagent.mobile.core.memory.EmbeddingEngine
 import com.ariaagent.mobile.core.memory.ExperienceStore
 import com.ariaagent.mobile.core.memory.ObjectLabelStore
+import com.ariaagent.mobile.core.memory.SessionReplayStore
+import com.ariaagent.mobile.core.memory.VisionEmbeddingStore
+import com.ariaagent.mobile.core.patterns.SuggestionStore
+import com.ariaagent.mobile.core.patterns.UsagePatternTracker
 import com.ariaagent.mobile.core.monitoring.MonitoringPusher
 import com.ariaagent.mobile.core.perception.ObjectDetectorEngine
 import com.ariaagent.mobile.core.perception.ScreenObserver
@@ -25,6 +29,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -78,6 +83,14 @@ object AgentLoop {
     // Event callback — wired by AgentViewModel to forward events into AgentEventBus
     var onEvent: ((name: String, data: Map<String, Any>) -> Unit)? = null
 
+    // ── Floating Chat live instruction injection ───────────────────────────────
+    // Set by AgentEventBus subscriber when the user sends a chat message or draws
+    // a gesture on the floating overlay. Consumed once per step in REASON phase.
+    @Volatile private var pendingUserInstruction: String?      = null
+    @Volatile private var pendingGestureAnnotation: String?    = null
+    @Volatile private var currentSessionId: String             = ""
+    @Volatile private var currentActionTools: List<String>     = emptyList()
+
     private const val MAX_STEPS = 200             // total steps across all sub-tasks in one run
     private const val MAX_STEPS_PER_SUBTASK = 30  // per-sub-task ceiling — prevents one task eating all budget
     private const val A11Y_RETRY_COUNT = 3        // retry attempts before declaring service dead
@@ -117,10 +130,35 @@ object AgentLoop {
         // ── Phase 16: Start monitoring pusher ──────────────────────────────────
         MonitoringPusher.start(context)
 
+        // ── Floating Chat: subscribe to live user instructions ─────────────────
+        // Runs as a parallel side-coroutine — sets shared volatiles that the
+        // main loop reads at the top of each REASON step then clears.
+        pendingUserInstruction   = null
+        pendingGestureAnnotation = null
+        scope.launch {
+            AgentEventBus.flow.collect { (name, data) ->
+                when (name) {
+                    "user_instruction"       -> pendingUserInstruction   = data["text"] as? String
+                    "user_gesture_annotation"-> pendingGestureAnnotation = data["annotation"] as? String
+                }
+            }
+        }
+
         loopJob = scope.launch {
-            val store = ExperienceStore.getInstance(context)
-            val labelStore = ObjectLabelStore.getInstance(context)
-            val actionHistory = mutableListOf<String>()
+            val store         = ExperienceStore.getInstance(context)
+            val labelStore    = ObjectLabelStore.getInstance(context)
+            val replayStore   = SessionReplayStore.getInstance(context)
+            val visionEmbStore= VisionEmbeddingStore.getInstance(context)
+            val patternTracker= UsagePatternTracker.getInstance(context)
+            val suggStore     = SuggestionStore.getInstance(context)
+
+            val sessionId     = java.util.UUID.randomUUID().toString()
+            currentSessionId  = sessionId
+            currentActionTools= emptyList()
+            replayStore.startSession(sessionId, goal)
+
+            val actionHistory    = mutableListOf<String>()
+            val actionToolHistory= mutableListOf<String>()  // for UsagePatternTracker
             var previousSnapshot: ScreenObserver.ScreenSnapshot? = null
 
             // Phase 15: track element names acted on for AppSkillRegistry frequency counting
@@ -423,6 +461,21 @@ object AgentLoop {
                         }
                     } else ""
 
+                    // ── Multi-Modal Memory: store vision embedding keyed by screenHash ──────
+                    // Uses the MiniLM embedding of SmolVLM's description so we get semantic
+                    // visual retrieval with zero additional models. Runs only when vision ran.
+                    if (visionDescription.isNotBlank()) {
+                        runCatching {
+                            val embVec = EmbeddingEngine.embed(context, visionDescription)
+                            visionEmbStore.store(
+                                screenHash  = snapshot.screenHash(),
+                                appPackage  = snapshot.appPackage,
+                                description = visionDescription,
+                                embedding   = embVec
+                            )
+                        }
+                    }
+
                     // ── 2f. SAM2 TAP CANDIDATES — MobileSAM (Phase 18) ─────────────
                     // Run MobileSAM on the current frame when:
                     //   a) The a11y tree is empty (game / Flutter / Unity screen), OR
@@ -447,17 +500,47 @@ object AgentLoop {
                         Log.d("AgentLoop", "SAM2 found ${samRegions.size} tap candidates (no a11y nodes)")
                     }
 
+                    // ── Multi-Modal Memory: visual retrieval when a11y is empty ───────────
+                    // When no text signal exists, retrieve past experiences by vision similarity.
+                    val visualMemory: List<String> = if (snapshot.isEmpty() && visionDescription.isNotBlank()) {
+                        runCatching {
+                            val queryEmb = EmbeddingEngine.embed(context, visionDescription)
+                            visionEmbStore.retrieveSimilar(queryEmb, snapshot.appPackage, topK = 3)
+                                .map { m -> "[${(m.similarity * 100).toInt()}% visual] ${m.description.take(80)}" }
+                        }.getOrDefault(emptyList())
+                    } else emptyList()
+
+                    // ── Floating Chat: consume pending user instruction / gesture ─────────
+                    // Drain the shared volatiles set by the event bus subscriber.
+                    // These are appended to the history as a high-priority user note so the
+                    // LLM sees them immediately in the next REASON pass.
+                    val userNote = buildString {
+                        pendingUserInstruction?.let { instr ->
+                            append("\n[USER INSTRUCTION]: $instr")
+                            pendingUserInstruction = null
+                        }
+                        pendingGestureAnnotation?.let { gesture ->
+                            append("\n[USER GESTURE]: $gesture")
+                            pendingGestureAnnotation = null
+                        }
+                    }.trim()
+                    if (userNote.isNotBlank()) {
+                        actionHistory.add("""{"tool":"UserNote","reason":"$userNote"}""")
+                        Log.i("AgentLoop", "Injecting user note: $userNote")
+                    }
+
                     // ── 3. REASON — call LLM ──────────────────────────────────
                     // Phase 19: goal = currentSubGoal so the LLM focuses on ONE step;
                     // goalPlan shows the full checklist so it keeps global context.
                     val goalPlan = if (subTasksRaw.size > 1)
                         ProgressPersistence.goalSummary(context)
                     else ""
+                    val extendedMemory = (memory + visualMemory).take(5)
                     val prompt = PromptBuilder.build(
                         snapshot          = snapshot,
                         goal              = currentSubGoal,
                         history           = actionHistory,
-                        memory            = memory,
+                        memory            = extendedMemory,
                         objectLabels      = screenLabels,
                         detectedObjects   = detectedObjects,
                         appKnowledge      = appKnowledge,
@@ -644,6 +727,36 @@ object AgentLoop {
                         isEdgeCase    = !actionSuccess
                     ))
 
+                    // ── Session Replay: record this step for timeline DVR ─────────────────
+                    runCatching {
+                        val replayResult = when {
+                            isDone    -> SessionReplayStore.RESULT_SUCCESS
+                            isWait    -> SessionReplayStore.RESULT_WAIT
+                            stuckCount >= 3 -> SessionReplayStore.RESULT_STUCK
+                            actionSuccess   -> SessionReplayStore.RESULT_SUCCESS
+                            else            -> SessionReplayStore.RESULT_FAIL
+                        }
+                        val reason = Regex("\"reason\"\\s*:\\s*\"([^\"]+)\"")
+                            .find(actionJson)?.groupValues?.get(1) ?: ""
+                        replayStore.recordStep(
+                            SessionReplayStore.ReplayEntry(
+                                sessionId  = sessionId,
+                                stepIdx    = state.stepCount,
+                                screenHash = snapshot.screenHash(),
+                                actionJson = actionJson,
+                                reason     = reason,
+                                result     = replayResult,
+                                appPackage = snapshot.appPackage
+                            )
+                        )
+                    }
+
+                    // Track tools used this session for UsagePatternTracker
+                    extractTool(actionJson)?.let { t ->
+                        actionToolHistory.add(t)
+                        currentActionTools = actionToolHistory.toList()
+                    }
+
                     // ── Phase 14.4: Log step to progress.txt ──────────────────
                     // Appended immediately after SQLite write so even a crash between
                     // steps leaves a complete record for the next session to resume from.
@@ -771,6 +884,54 @@ object AgentLoop {
         elementsTouched: List<String>,
     ) {
         scope.launch(Dispatchers.IO) {
+
+            // ── Session Replay: close session record ───────────────────────────
+            runCatching {
+                SessionReplayStore.getInstance(context).endSession(currentSessionId)
+            }
+
+            // ── Proactive Goal Surfacing: detect recurring patterns ────────────
+            if (succeeded && currentActionTools.isNotEmpty()) {
+                runCatching {
+                    val hit = UsagePatternTracker.getInstance(context).record(
+                        context        = context,
+                        appPackage     = appPackage,
+                        goal           = goal,
+                        actionSequence = currentActionTools,
+                        stepCount      = stepsTaken
+                    )
+                    if (hit != null) {
+                        // Generate a friendly suggestion text via LLM (short, non-blocking)
+                        val suggText = if (LlamaEngine.isLoaded()) {
+                            runCatching {
+                                LlamaEngine.infer(
+                                    "In one sentence, suggest to the user that they should automate this Android task. Task: ${goal.take(80)}. Be friendly and specific. No more than 15 words.",
+                                    maxTokens = 30, temperature = 0.5f
+                                ).trim().take(200)
+                            }.getOrDefault("You've done this ${hit.repeatCount}× — want me to automate it?")
+                        } else {
+                            "You've done \"${goal.take(50)}\" ${hit.repeatCount}× this week — want me to automate it?"
+                        }
+                        SuggestionStore.getInstance(context).addSuggestion(
+                            SuggestionStore.Suggestion(
+                                appPackage     = appPackage,
+                                goalText       = goal,
+                                repeatCount    = hit.repeatCount,
+                                suggestionText = suggText
+                            )
+                        )
+                        AgentEventBus.emit("suggestion_available", mapOf(
+                            "goal"       to goal,
+                            "repeatCount"to hit.repeatCount,
+                            "text"       to suggText
+                        ))
+                        Log.i("AgentLoop", "Suggestion stored: $suggText")
+                    }
+                }.onFailure { e ->
+                    Log.w("AgentLoop", "Pattern tracking failed: ${e.message}")
+                }
+            }
+
             // 1. Update the skill registry for this app
             runCatching {
                 AppSkillRegistry.getInstance(context).recordTaskOutcome(

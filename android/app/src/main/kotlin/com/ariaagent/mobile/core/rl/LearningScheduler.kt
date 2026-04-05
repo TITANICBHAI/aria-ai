@@ -9,6 +9,7 @@ import android.os.PowerManager
 import android.util.Log
 import com.ariaagent.mobile.core.ai.LlamaEngine
 import com.ariaagent.mobile.core.ai.ModelManager
+import com.ariaagent.mobile.core.rl.DreamEngine
 import com.ariaagent.mobile.core.config.ConfigStore
 import com.ariaagent.mobile.core.events.AgentEventBus
 import com.ariaagent.mobile.core.memory.ExperienceStore
@@ -176,6 +177,21 @@ class LearningScheduler(private val context: Context) {
 
                 // ── Step 3: Save policy weights ────────────────────────────────
                 PolicyNetwork.saveToFile(context)
+
+                // ── Step 4: Passive Dream Mode ─────────────────────────────────
+                // After real training, use the LLM to generate synthetic counterfactual
+                // experience pairs from existing memories. Skipped automatically if
+                // LlamaEngine is not loaded (avoids RAM competition with LoRA).
+                val dreamCount = try {
+                    DreamEngine.dream(context)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Dream mode failed: ${e.message}")
+                    0
+                }
+                if (dreamCount > 0) {
+                    Log.i(TAG, "Dream mode: generated $dreamCount synthetic experiences")
+                    AgentEventBus.emit("dream_cycle_complete", mapOf("count" to dreamCount))
+                }
 
                 // ── Step 4: Notify JS ──────────────────────────────────────────
                 // policyVersion = cumulative Adam optimizer steps across all training cycles.

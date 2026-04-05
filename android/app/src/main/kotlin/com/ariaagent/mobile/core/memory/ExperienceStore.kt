@@ -21,7 +21,7 @@ import java.util.UUID
  * Phase: 4 (Data Collection)
  */
 class ExperienceStore private constructor(context: Context) :
-    SQLiteOpenHelper(context, "aria_experience.db", null, 1) {
+    SQLiteOpenHelper(context, "aria_experience.db", null, 2) {
 
     companion object {
         @Volatile
@@ -47,7 +47,8 @@ class ExperienceStore private constructor(context: Context) :
                 is_edge_case INTEGER DEFAULT 0,
                 edge_case_notes TEXT,
                 session_id TEXT,
-                used_for_training INTEGER DEFAULT 0
+                used_for_training INTEGER DEFAULT 0,
+                is_synthetic      INTEGER DEFAULT 0
             )
         """.trimIndent())
 
@@ -68,9 +69,16 @@ class ExperienceStore private constructor(context: Context) :
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS edge_cases")
-        db.execSQL("DROP TABLE IF EXISTS experience")
-        onCreate(db)
+        if (oldVersion < 2) {
+            // v2: add is_synthetic column without losing existing data
+            runCatching {
+                db.execSQL("ALTER TABLE experience ADD COLUMN is_synthetic INTEGER DEFAULT 0")
+            }
+        } else {
+            db.execSQL("DROP TABLE IF EXISTS edge_cases")
+            db.execSQL("DROP TABLE IF EXISTS experience")
+            onCreate(db)
+        }
     }
 
     data class ExperienceTuple(
@@ -84,7 +92,8 @@ class ExperienceStore private constructor(context: Context) :
         val reward: Double,
         val isEdgeCase: Boolean = false,
         val edgeCaseNotes: String? = null,
-        val sessionId: String? = null
+        val sessionId: String? = null,
+        val isSynthetic: Boolean = false
     )
 
     fun save(tuple: ExperienceTuple) {
@@ -99,7 +108,8 @@ class ExperienceStore private constructor(context: Context) :
             put("reward", tuple.reward)
             put("is_edge_case", if (tuple.isEdgeCase) 1 else 0)
             put("edge_case_notes", tuple.edgeCaseNotes)
-            put("session_id", tuple.sessionId)
+            put("session_id",   tuple.sessionId)
+            put("is_synthetic", if (tuple.isSynthetic) 1 else 0)
         })
     }
 
