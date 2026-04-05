@@ -214,7 +214,7 @@ Items are ranked by impact and safety risk.
 | 12 | **Fix `WAKE_LOCK` orphan** | `[x]` **Done** | `LearningScheduler` now acquires `PARTIAL_WAKE_LOCK` (2 h timeout) before launching the training coroutine and releases it in `finally` and `cancelTraining()`. Permission in manifest is now backed by real code. |
 | 13 | **Replace ONNX reflection calls with direct imports** | `[x]` **Done** | `EmbeddingEngine` and `Sam2Engine` now use `ai.onnxruntime.OrtEnvironment`, `OrtSession`, `OnnxTensor` directly. ProGuard keep rule updated to cover `ai.onnxruntime.**`. No more `ClassNotFoundException` risk. |
 | 14 | **Verify Phases 5, 6, 7 on emulator** | `[ ]` | Three screens are "written but not verified." Gate Phase 8 on this. |
-| 15 | **Reconcile `migration.md` vs `ARIA_REALITY_CHECK.md`** | `[ ]` | The two documents contradict each other on what is "done." |
+| 15 | **Reconcile `migration.md` vs `ARIA_REALITY_CHECK.md`** | `[x]` | `ui-backend-audit.md` Part B rewritten — all 7 "Gap:" entries updated to "✅ Fixed". `ARIA_REALITY_CHECK.md` Q9 corrected (vision API exists). Remaining `[~]` items in migration.md are accurate (emulator verify still needed). |
 | 16 | **Complete `AgentLoop` Phase 14 integration** | `[x]` **Done** | All integrated: PixelVerifier (14.1), SustainedPerformanceManager (14.3), ProgressPersistence (14.4), stuck detection (Phase 18), TaskDecomposer + sub-task loop (Phase 19). |
 | 17 | **Add Web Dashboard entry point in SettingsScreen** | `[x]` **Done** | `SettingsScreen.kt` "Web Dashboard" section (lines 436–503) shows a start/stop toggle and copies the server URL to clipboard when running. |
 | 18 | **Build Triggers feature in GoalsScreen** | `[ ]` | Tab is a placeholder with "coming soon" text and no backend. |

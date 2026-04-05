@@ -70,6 +70,7 @@ import com.ariaagent.mobile.ui.theme.ARIAColors
 fun SettingsScreen(
     vm: AgentViewModel = viewModel(),
     onNavigateToSafety: (() -> Unit)? = null,
+    onNavigateToKnowledge: (() -> Unit)? = null,
 ) {
     val context      = LocalContext.current
     val focusManager = LocalFocusManager.current
@@ -183,6 +184,46 @@ fun SettingsScreen(
                         )
                         Text(
                             "Kill switch, app blocklist, confirmation mode",
+                            style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)
+                        )
+                    }
+                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = ARIAColors.Muted, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+
+        // ── Knowledge Base ────────────────────────────────────────────────────
+        if (onNavigateToKnowledge != null) {
+            SettingsCard(
+                modifier = Modifier.clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null,
+                    onClick    = onNavigateToKnowledge
+                )
+            ) {
+                Row(
+                    modifier              = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment     = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                            .background(ARIAColors.Accent.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.MenuBook, contentDescription = null, tint = ARIAColors.Accent, modifier = Modifier.size(20.dp))
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Knowledge Base",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = ARIAColors.Accent, fontWeight = FontWeight.SemiBold
+                            )
+                        )
+                        Text(
+                            "How ARIA works — AI engine, memory, learning, privacy",
                             style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)
                         )
                     }

@@ -113,22 +113,22 @@ Scope: all interactive controls across 8 Compose screens AND all backend service
 
 ---
 
-# Part B — Backend exists, NO UI
+# Part B — Backend ↔ UI Wiring (Historical gaps — all closed in Part C)
 
-These services and functions exist in Kotlin and work correctly, but the user has no button, toggle, or status display to see or control them.
+These services exist in Kotlin and work correctly. Each originally had no UI entry point. All gaps listed below were subsequently closed; descriptions updated to reflect current state.
 
-## 1. Unload LLM from RAM
+## 1. Unload LLM from RAM ✅ Fixed (see Part C, gap #5)
 
 | Item | File | What it does |
 |------|------|--------------|
 | `LlamaEngine.unload()` | `core/ai/LlamaEngine.kt:103` | Frees the JNI model handle and ~800 MB of RAM |
 | `LlamaEngine.loadLora()` | `core/ai/LlamaEngine.kt:156` | Hot-swaps a LoRA adapter into a loaded model |
 
-**Gap:** No button to unload the model when idle (save battery/RAM) or to manually apply a different LoRA adapter. The LoRA adapter path is stored in config but never actually passed to `loadLora()` from the UI — only the `AgentLoop` does it automatically.
+**Status:** `ModulesScreen` "Free RAM (Unload)" button calls `AgentViewModel.unloadLlmModel()` → `LlamaEngine.unload()`. The LoRA adapter path from config is passed automatically by `AgentLoop` when a task starts.
 
 ---
 
-## 2. Embedding Model (MiniLM) — no status, no download button
+## 2. Embedding Model (MiniLM) — status + download button ✅ Fixed (see Part C, gap #4)
 
 | Item | File | What it does |
 |------|------|--------------|
@@ -138,11 +138,11 @@ These services and functions exist in Kotlin and work correctly, but the user ha
 | `EmbeddingModelManager.cancelDownload()` | `core/memory/EmbeddingModelManager.kt:205` | Cancels an in-progress download |
 | `EmbeddingEngine.isModelAvailable()` | `core/memory/EmbeddingEngine.kt:51` | Combined readiness check |
 
-**Gap:** The Modules screen shows LLM and EfficientDet status, but the embedding model (used for semantic memory search) is completely invisible. If it's not downloaded, memory search silently fails. No card, no download button, no status.
+**Status:** `ModulesScreen` MiniLM card shows readiness status and a download button. `AgentViewModel.downloadEmbeddingModel()` wired.
 
 ---
 
-## 3. Local Web Server — toggle exists in comment only
+## 3. Local Web Server — toggle in SettingsScreen ✅ Fixed (see Part C, gap #6)
 
 | Item | File | What it does |
 |------|------|--------------|
@@ -152,11 +152,11 @@ These services and functions exist in Kotlin and work correctly, but the user ha
 | `MonitoringPusher.start()` | `core/monitoring/MonitoringPusher.kt:65` | Pushes live agent state to the local server |
 | `MonitoringPusher.stop()` | `core/monitoring/MonitoringPusher.kt:84` | Stops the push loop |
 
-**Gap:** `SettingsScreen.kt` has a comment at line 65: `LocalDeviceServer.kt already exists — add a toggle here to start/stop it`. The toggle, the URL display, and the MonitoringPusher start/stop are all missing from the UI.
+**Status:** `SettingsScreen` "Web Dashboard" section (lines 436–503) has a start/stop toggle, live URL display, and clipboard copy. `MonitoringPusher` started/stopped alongside the server.
 
 ---
 
-## 4. Learning Scheduler — runs hidden, no status
+## 4. Learning Scheduler — runs hidden, no status ✅ Partially addressed
 
 | Item | File | What it does |
 |------|------|--------------|
@@ -164,11 +164,11 @@ These services and functions exist in Kotlin and work correctly, but the user ha
 | `LearningScheduler.stop()` | `core/rl/LearningScheduler.kt:64` | Stops it |
 | `LearningScheduler.isTrainingRunning()` | `core/rl/LearningScheduler.kt:187` | Whether a training pass is currently running |
 
-**Gap:** The scheduler appears to run inside the RL cycle, but there is no on/off switch in the Train screen separate from the "Run RL Cycle" button, and no indicator showing whether automatic background training is currently running.
+**Status:** `TrainScreen` "Auto-schedule RL" toggle wired to `vm.setAutoScheduleRl()`, which starts/stops `LearningScheduler`. The "Run RL Cycle" button shows a spinner while any training is running. A dedicated running-indicator widget is a future nice-to-have.
 
 ---
 
-## 5. Object Label browse and stats — data exists, no viewer
+## 5. Object Label browse and stats ✅ Fixed (see Part C, gap #7)
 
 | Item | File | What it does |
 |------|------|--------------|
@@ -178,29 +178,29 @@ These services and functions exist in Kotlin and work correctly, but the user ha
 | `ObjectLabelStore.clearAll()` | `core/memory/ObjectLabelStore.kt:171` | Wipes all stored UI element labels |
 | `ObjectLabelStore.getEnrichedByApp()` | `core/memory/ObjectLabelStore.kt:197` | Labels for a specific app |
 
-**Gap:** The Modules screen shows total label count only. There is no way to browse, search, or delete stored labels outside the Labeler screen (which only works on a live capture). The `clearAll()` has no UI button.
+**Status:** `ActivityScreen` Labels tab shows a full browseable list of stored labels per-app, with a clear-all dialog. `AgentViewModel.loadLabelEntries()` and `clearAllLabels()` wired.
 
 ---
 
-## 6. ExperienceStore edge-case count — computed, never shown
+## 6. ExperienceStore breakdown ✅ Fixed (see Part C, gap #8)
 
 | Item | File | What it does |
 |------|------|--------------|
 | `ExperienceStore.edgeCaseCount()` | `core/memory/ExperienceStore.kt:112` | Count of experiences flagged as edge cases |
 | `ExperienceStore.countByResult("failure")` | `core/memory/ExperienceStore.kt:107` | Failure episode count |
 
-**Gap:** The Activity screen shows raw experience tuples, but success/failure/edge-case breakdowns are not displayed. `edgeCaseCount()` is never called by the VM or any screen.
+**Status:** `ActivityScreen` Memory tab stats bar shows Total / Success / Fail / Edge-case / Untrained breakdown. All four counts wired from `ExperienceStore`.
 
 ---
 
-## 7. LLM download progress — service emits it, VM ignores it
+## 7. LLM download progress ✅ Fixed (see Part C, gap #1)
 
 | Item | File | What it does |
 |------|------|--------------|
 | `AgentEventBus "model_download_progress"` | `ModelDownloadService.kt:137` | Emits `{percent, downloadedMb, totalMb, speedMbps}` every 2 MB |
 | `AgentEventBus "model_download_error"` | `ModelDownloadService.kt:150` | Emits `{error}` on failure |
 
-**Gap:** The ViewModel's `AgentEventBus` collector handles `model_download_complete` (line 374) but has no case for `model_download_progress` or `model_download_error`. The Download button shows a spinner for exactly 2 seconds then goes blank regardless of actual download state. Real progress, speed, and errors are broadcast but silently dropped.
+**Status:** `AgentViewModel.handleLlmDownloadProgress()` handles `model_download_progress` events and updates `_llmDownloadPercent`. `ModulesScreen` shows a real progress bar with percentage and MB/s speed. Error events surface as a dismissible error card.
 
 ---
 

@@ -190,18 +190,28 @@ g_memory_mb.store(1700.0);  // hardcoded estimate, not measured
 
 ## Q9: Is the multimodal (vision) inference real?
 
-**The C++ code is there; the Kotlin side is not exposed to users yet.**
+**The C++ code is there and the Kotlin API is now fully exposed. Active once the NDK `.so` compiles.**
 
 `llama_jni.cpp` has a complete `nativeRunVisionInference` implementation (150+ lines)
 using the `mtmd` (multimodal) library from llama.cpp. It properly encodes JPEG/PNG
 bytes through the CLIP vision encoder and prepends image embeddings to the text prompt.
 
-However, `LlamaEngine.kt` has no public `inferWithVision()` method. No screen in the
-UI offers vision inference. The `nativeInitVision` / `nativeRunVisionInference`
-functions exist in C++ but are dead code from the Kotlin/UI side.
+`LlamaEngine.kt` (lines 138–268) now exposes the full vision API:
+- `loadVision(visionModelPath, mmProjPath, contextSize, nGpuLayers): Boolean` — loads SmolVLM base + CLIP mmproj into independent handles that coexist with the text model
+- `isVisionLoaded(): Boolean` — readiness check
+- `inferWithVision(imageBytes, prompt, maxTokens, onToken): String` — CLIP encode + text generation; falls back to a stub description in stub mode
+- `unloadVision()` — frees the vision handles without touching the main text model
 
-**Verdict:** C++ implementation is real and complete. It's not hooked up to any
-user-facing feature yet — it's foundation work for a future update.
+`VisionEngine.kt` wraps these into `VisionEngine.describe(imageBytes, goal)` and is
+called by `AgentLoop` every step when the vision model is loaded.
+
+The onboarding wizard (step 2) lets the user download SmolVLM-256M + mmproj (~200 MB)
+right during setup.
+
+**Verdict:** C++ implementation and Kotlin API are both real and complete. Vision
+inference activates automatically once `libllama-jni.so` is compiled via the NDK build.
+Until then, `inferWithVision()` returns a clearly-labelled stub string so callers know
+the mode they're in.
 
 ---
 

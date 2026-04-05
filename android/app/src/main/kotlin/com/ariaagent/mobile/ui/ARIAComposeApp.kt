@@ -73,10 +73,11 @@ private val bottomNavScreens = listOf(
     Screen.Settings,
 )
 
-private const val ROUTE_LABELER    = "labeler"
-private const val ROUTE_GOALS      = "goals"
-private const val ROUTE_SAFETY     = "safety"
-private const val ROUTE_ONBOARDING = "onboarding"
+private const val ROUTE_LABELER          = "labeler"
+private const val ROUTE_GOALS            = "goals"
+private const val ROUTE_SAFETY           = "safety"
+private const val ROUTE_ONBOARDING       = "onboarding"
+private const val ROUTE_KNOWLEDGE_WIZARD = "knowledge_wizard"
 
 @Composable
 fun ARIAComposeApp() {
@@ -120,6 +121,7 @@ fun ARIAComposeApp() {
                 && currentRoute != ROUTE_GOALS
                 && currentRoute != ROUTE_SAFETY
                 && currentRoute != ROUTE_ONBOARDING
+                && currentRoute != ROUTE_KNOWLEDGE_WIZARD
 
         Scaffold(
             containerColor = ARIAColors.Background,
@@ -235,8 +237,9 @@ fun ARIAComposeApp() {
                     }
                     composable(Screen.Settings.route) {
                         SettingsScreen(
-                            vm                  = vm,
-                            onNavigateToSafety  = { navController.navigate(ROUTE_SAFETY) },
+                            vm                       = vm,
+                            onNavigateToSafety       = { navController.navigate(ROUTE_SAFETY) },
+                            onNavigateToKnowledge    = { navController.navigate(ROUTE_KNOWLEDGE_WIZARD) },
                         )
                     }
 
@@ -259,6 +262,12 @@ fun ARIAComposeApp() {
                     composable(ROUTE_SAFETY) {
                         SafetyScreen(
                             vm     = vm,
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
+
+                    composable(ROUTE_KNOWLEDGE_WIZARD) {
+                        KnowledgeWizardScreen(
                             onBack = { navController.popBackStack() },
                         )
                     }
