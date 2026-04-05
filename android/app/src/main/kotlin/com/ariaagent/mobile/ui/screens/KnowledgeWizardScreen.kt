@@ -266,7 +266,7 @@ fun KnowledgeWizardScreen(onBack: () -> Unit) {
             bullets   = listOf(
                 Icons.Default.Videocam      to "Record once → ARIA trains for ~2 minutes on-device",
                 Icons.Default.Repeat        to "Record the same flow 3 times → accuracy jumps to 95%+",
-                Icons.Default.SlowMotion24  to "Record at normal speed — ARIA handles frame extraction",
+                Icons.Default.SlowMotionVideo to "Record at normal speed — ARIA handles frame extraction",
                 Icons.Default.Warning       to "Avoid recording personal info — process runs locally but store is on-device",
             ),
             callout   = "IRL + REINFORCE together: record the task once (IRL), then run it 10 times (REINFORCE). This is the fastest training recipe in ARIA.",
