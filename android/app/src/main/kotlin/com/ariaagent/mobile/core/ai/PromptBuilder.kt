@@ -41,6 +41,15 @@ import com.ariaagent.mobile.core.perception.ScreenObserver
  *     det-1: person (87%, center 45%×60%)
  *     det-2: cell phone (72%, center 20%×15%)
  *
+ * Vision Description injection (Phase 17):
+ *   When VisionEngine has produced a multimodal description of the current frame,
+ *   it is injected as a [VISION DESCRIPTION] block between [KNOWN ELEMENTS] and
+ *   [VISUAL DETECTIONS]. This gives the LLM pixel-level context that neither the
+ *   accessibility tree nor OCR can provide (e.g. image content, icons, color cues).
+ *   Format:
+ *     [VISION DESCRIPTION] (SmolVLM-256M — pixel-level screen analysis)
+ *     Settings screen showing Wi-Fi toggle (on) and Bluetooth toggle (off). …
+ *
  * Phase: 1 (LLM) — used by AgentLoop from Phase 3 onward.
  */
 object PromptBuilder {
@@ -61,6 +70,7 @@ RULES:
 - Output ONLY valid JSON. No explanation outside the JSON object.
 - Use node_id from [NODES] section. Never guess coordinates.
 - If [KNOWN ELEMENTS] section exists, prefer those elements — they are human-verified.
+- If [VISION DESCRIPTION] section exists, use it for pixel-level context not visible in the node tree.
 - If [VISUAL DETECTIONS] section exists, use det-N labels to reference detected visual elements that have no accessibility node (icons, sprites, custom views).
 - If the screen is loading, use Wait.
 - If the goal is complete, use Done.
@@ -70,13 +80,14 @@ RULES:
     /**
      * Build a full inference prompt for one Observe→Reason step.
      *
-     * @param snapshot         The current screen observation (a11y tree + OCR)
-     * @param goal             The user's task description
-     * @param history          Last N actions taken (prevents repetition loops)
-     * @param memory           Relevant past experience snippets (from EmbeddingEngine retrieval)
-     * @param objectLabels     Human-annotated UI elements for this screen (highest-quality context)
-     * @param detectedObjects  MediaPipe detections for visual elements not in the a11y tree (Phase 13)
-     * @param appKnowledge     Compact one-liner from AppSkillRegistry for the current app (Phase 15)
+     * @param snapshot           The current screen observation (a11y tree + OCR)
+     * @param goal               The user's task description
+     * @param history            Last N actions taken (prevents repetition loops)
+     * @param memory             Relevant past experience snippets (from EmbeddingEngine retrieval)
+     * @param objectLabels       Human-annotated UI elements for this screen (highest-quality context)
+     * @param detectedObjects    MediaPipe detections for visual elements not in the a11y tree (Phase 13)
+     * @param appKnowledge       Compact one-liner from AppSkillRegistry for the current app (Phase 15)
+     * @param visionDescription  SmolVLM-256M pixel-level description of the current frame (Phase 17)
      */
     fun build(
         snapshot: ScreenObserver.ScreenSnapshot,
@@ -85,7 +96,8 @@ RULES:
         memory: List<String> = emptyList(),
         objectLabels: List<ObjectLabelStore.ObjectLabel> = emptyList(),
         detectedObjects: List<ObjectDetectorEngine.DetectedObject> = emptyList(),
-        appKnowledge: String = ""
+        appKnowledge: String = "",
+        visionDescription: String = ""
     ): String {
         val sb = StringBuilder()
 
@@ -120,6 +132,16 @@ RULES:
                 .sortedByDescending { it.importanceScore }
                 .take(8)
                 .forEach { label -> sb.appendLine(label.toPromptLine()) }
+            sb.appendLine()
+        }
+
+        // ── Vision description injected after KNOWN ELEMENTS (Phase 17) ─────────
+        // SmolVLM-256M pixel-level analysis — fills gaps that OCR and a11y miss
+        // (image content, icon semantics, colour state of custom views).
+        // Only present when VisionEngine has successfully described the frame.
+        if (visionDescription.isNotBlank()) {
+            sb.appendLine("[VISION DESCRIPTION] (SmolVLM-256M — pixel-level screen analysis)")
+            sb.appendLine(visionDescription.trim())
             sb.appendLine()
         }
 

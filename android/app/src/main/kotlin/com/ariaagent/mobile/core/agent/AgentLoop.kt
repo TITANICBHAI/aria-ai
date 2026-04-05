@@ -5,6 +5,7 @@ import android.graphics.Rect
 import android.util.Log
 import com.ariaagent.mobile.core.ai.LlamaEngine
 import com.ariaagent.mobile.core.ai.PromptBuilder
+import com.ariaagent.mobile.core.ai.VisionEngine
 import com.ariaagent.mobile.core.events.AgentEventBus
 import com.ariaagent.mobile.core.memory.EmbeddingEngine
 import com.ariaagent.mobile.core.memory.ExperienceStore
@@ -159,7 +160,12 @@ object AgentLoop {
                     // ── 1. OBSERVE ────────────────────────────────────────────
                     val snapshot = ScreenObserver.capture()
 
-                    if (snapshot.isEmpty()) {
+                    // Allow vision-only steps: if the a11y tree and OCR are both
+                    // empty (game, Flutter, Unity) but a bitmap exists AND vision
+                    // is loaded, let the step proceed — vision is the only signal.
+                    val visionAvailableForEmptyScreen =
+                        snapshot.bitmap != null && VisionEngine.isVisionModelReady(context)
+                    if (snapshot.isEmpty() && !visionAvailableForEmptyScreen) {
                         delay(WAIT_RETRY_DELAY_MS)
                         continue
                     }
@@ -272,6 +278,39 @@ object AgentLoop {
                         AppSkillRegistry.getInstance(context).getPromptHint(snapshot.appPackage)
                     }.getOrDefault("")
 
+                    // ── 2e. VISION DESCRIPTION — SmolVLM-256M (Phase 17) ──────────
+                    // Run multimodal inference on the current frame when the vision
+                    // model is loaded. Runs only on even steps to halve the vision
+                    // budget (~400 ms on Exynos 9611 CPU).
+                    //
+                    // Frame caching: pass screenHash so VisionEngine can return the
+                    // cached description instantly when the screen hasn't changed
+                    // (no inference cost on cache-hit steps).
+                    //
+                    // Goal-aware: the agent goal is forwarded so SmolVLM answers a
+                    // targeted question rather than a generic screen description.
+                    //
+                    // Vision-only fallback: if a11y+OCR were empty but vision is
+                    // available (game/Flutter screen), vision is the only signal —
+                    // always run it regardless of step parity in that case.
+                    val forceVision = snapshot.isEmpty() && visionAvailableForEmptyScreen
+                    val visionDescription: String = if (
+                        snapshot.bitmap != null &&
+                        VisionEngine.isVisionModelReady(context) &&
+                        (forceVision || state.stepCount % 2 == 0)
+                    ) {
+                        runCatching {
+                            VisionEngine.describe(
+                                context     = context,
+                                bitmap      = snapshot.bitmap!!,
+                                goal        = goal,
+                                screenHash  = snapshot.screenHash()
+                            )
+                        }.getOrDefault("").also { desc ->
+                            if (desc.isNotBlank()) Log.d("AgentLoop", "Vision[${ snapshot.screenHash()}]: $desc")
+                        }
+                    } else ""
+
                     // ── 3. REASON — call LLM ──────────────────────────────────
                     val prompt = PromptBuilder.build(
                         snapshot = snapshot,
@@ -280,7 +319,8 @@ object AgentLoop {
                         memory = memory,
                         objectLabels = screenLabels,
                         detectedObjects = detectedObjects,
-                        appKnowledge = appKnowledge
+                        appKnowledge = appKnowledge,
+                        visionDescription = visionDescription
                     )
 
                     val rawOutput = LlamaEngine.infer(prompt, maxTokens = 200) { token ->

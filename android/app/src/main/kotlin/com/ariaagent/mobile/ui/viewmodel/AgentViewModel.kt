@@ -118,6 +118,13 @@ data class ModuleUiState(
     // Local monitoring server
     val localServerRunning: Boolean   = false,
     val localServerUrl: String        = "",
+    // Vision model — SmolVLM-256M + mmproj (Phase 17)
+    val visionReady: Boolean          = false,
+    val visionLoaded: Boolean         = false,
+    val visionModelDownloadedMb: Float = 0f,
+    val mmProjDownloadedMb: Float     = 0f,
+    val visionDownloadPercent: Int    = 0,
+    val visionDownloadError: String?  = null,
 )
 
 /** ExperienceStore breakdown for ActivityScreen. */
@@ -408,6 +415,9 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     private val _embeddingDownloading = MutableStateFlow(false)
     val embeddingDownloading: StateFlow<Boolean> = _embeddingDownloading.asStateFlow()
 
+    private val _visionDownloading = MutableStateFlow(false)
+    val visionDownloading: StateFlow<Boolean> = _visionDownloading.asStateFlow()
+
     private val _memoryStats = MutableStateFlow(MemoryStatsUi())
     val memoryStats: StateFlow<MemoryStatsUi> = _memoryStats.asStateFlow()
 
@@ -630,8 +640,12 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                 embeddingReady       = embReady,
                 embeddingVocabReady  = embVocab,
                 embeddingDownloadedMb = embMb,
-                localServerRunning   = LocalDeviceServer.running,
+                localServerRunning    = LocalDeviceServer.running,
                 localServerUrl       = if (LocalDeviceServer.running) LocalDeviceServer.serverUrl() else "",
+                visionReady          = com.ariaagent.mobile.core.ai.VisionEngine.isVisionModelReady(context),
+                visionLoaded         = LlamaEngine.isVisionLoaded(),
+                visionModelDownloadedMb = com.ariaagent.mobile.core.ai.VisionEngine.visionModelDownloadedBytes(context).toFloat() / 1_048_576f,
+                mmProjDownloadedMb   = com.ariaagent.mobile.core.ai.VisionEngine.mmProjDownloadedBytes(context).toFloat() / 1_048_576f,
             )}
             _agentState.update { it.copy(
                 modelReady          = ModelManager.isModelReady(context),
@@ -723,6 +737,78 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
             } finally {
                 _embeddingDownloading.value = false
             }
+        }
+    }
+
+    // ─── Phase 17: Vision model download ────────────────────────────────────
+
+    /**
+     * Download SmolVLM-256M-Instruct-Q4_K_M.gguf (~150 MB) and its mmproj
+     * (~50 MB) to internal storage. Reports progress via moduleState.visionDownloadPercent.
+     * Safe to call when already downloaded — exits immediately.
+     */
+    fun downloadVisionModel() {
+        if (_visionDownloading.value) return
+        val visionEngine = com.ariaagent.mobile.core.ai.VisionEngine
+        if (visionEngine.isVisionModelReady(context)) {
+            refreshModuleState()
+            return
+        }
+        _visionDownloading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val totalBytes =
+                    visionEngine.VISION_MODEL_MIN_BYTES + visionEngine.MMPROJ_MIN_BYTES
+
+                // Download vision base model
+                if (!visionEngine.isVisionModelFileReady(context)) {
+                    var lastPercent = 0
+                    visionEngine.downloadFile(
+                        url     = visionEngine.VISION_MODEL_URL,
+                        dest    = visionEngine.visionModelPath(context),
+                        partial = visionEngine.visionModelPartial(context),
+                        onProgress = { dl, _ ->
+                            val pct = ((dl.toDouble() / totalBytes) * 50).toInt().coerceIn(0, 50)
+                            if (pct != lastPercent) {
+                                lastPercent = pct
+                                _moduleState.update { it.copy(visionDownloadPercent = pct) }
+                            }
+                        }
+                    )
+                }
+
+                // Download mmproj
+                if (!visionEngine.isMmProjReady(context)) {
+                    var lastPercent = 50
+                    visionEngine.downloadFile(
+                        url     = visionEngine.MMPROJ_URL,
+                        dest    = visionEngine.mmProjPath(context),
+                        partial = visionEngine.mmProjPartial(context),
+                        onProgress = { dl, _ ->
+                            val pct = (50 + (dl.toDouble() / totalBytes) * 50).toInt().coerceIn(50, 100)
+                            if (pct != lastPercent) {
+                                lastPercent = pct
+                                _moduleState.update { it.copy(visionDownloadPercent = pct) }
+                            }
+                        }
+                    )
+                }
+
+                _moduleState.update { it.copy(visionDownloadPercent = 100, visionDownloadError = null) }
+                refreshModuleState()
+            } catch (e: Exception) {
+                _moduleState.update { it.copy(visionDownloadError = e.message ?: "Vision download failed") }
+            } finally {
+                _visionDownloading.value = false
+            }
+        }
+    }
+
+    /** Free the ~200 MB of RAM used by the loaded vision model + mmproj. */
+    fun unloadVisionModel() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { com.ariaagent.mobile.core.ai.VisionEngine.unload() }
+            refreshModuleState()
         }
     }
 

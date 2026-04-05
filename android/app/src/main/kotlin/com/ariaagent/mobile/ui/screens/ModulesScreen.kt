@@ -49,6 +49,7 @@ fun ModulesScreen(
     val llmDownloading       by vm.llmDownloading.collectAsStateWithLifecycle()
     val detectorDownloading  by vm.detectorDownloading.collectAsStateWithLifecycle()
     val embeddingDownloading by vm.embeddingDownloading.collectAsStateWithLifecycle()
+    val visionDownloading    by vm.visionDownloading.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -125,6 +126,36 @@ fun ModulesScreen(
                 "${String.format("%.1f", modules.detectorSizeMb)} MB downloaded" else "Not downloaded",
             onDownload = if (detectorStatus == ModuleStatus.MISSING) {{ vm.downloadDetectorModel() }} else null,
             downloading = detectorDownloading,
+        )
+
+        // ── Vision Model (Phase 17) ───────────────────────────────────────────
+        val visionStatus = when {
+            modules.visionLoaded  -> ModuleStatus.ACTIVE
+            modules.visionReady   -> ModuleStatus.READY
+            else                  -> ModuleStatus.MISSING
+        }
+        val visionDetail = when {
+            modules.visionLoaded ->
+                "SmolVLM-256M active  •  ${String.format("%.0f", modules.visionModelDownloadedMb + modules.mmProjDownloadedMb)} MB"
+            modules.visionReady  ->
+                "Model ready  •  ${String.format("%.0f", modules.visionModelDownloadedMb)} MB + ${String.format("%.0f", modules.mmProjDownloadedMb)} MB mmproj"
+            visionDownloading && modules.visionDownloadPercent > 0 ->
+                "${modules.visionDownloadPercent}%  •  base + mmproj downloading"
+            else -> "~200 MB total  •  not downloaded"
+        }
+        ModuleCard(
+            icon = Icons.Default.RemoveRedEye,
+            title = "SmolVLM-256M Multimodal",
+            subtitle = "Pixel-level screen understanding  •  ~200 MB",
+            status = visionStatus,
+            detail = visionDetail,
+            downloadProgress = if (visionDownloading && modules.visionDownloadPercent > 0)
+                modules.visionDownloadPercent / 100f else null,
+            downloadError = modules.visionDownloadError,
+            onDownload = if (visionStatus == ModuleStatus.MISSING && !visionDownloading)
+                {{ vm.downloadVisionModel() }} else null,
+            downloading = visionDownloading,
+            onUnload = if (modules.visionLoaded) {{ vm.unloadVisionModel() }} else null,
         )
 
         // ── Vector Memory / Embedding model ──────────────────────────────────
@@ -424,7 +455,7 @@ private fun ModuleCard(
                     border         = androidx.compose.foundation.BorderStroke(1.dp, ARIAColors.Warning.copy(alpha = 0.5f)),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 ) {
-                    Icon(Icons.Default.MemoryAlt, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Icon(Icons.Default.Memory, contentDescription = null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Free RAM (Unload)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }

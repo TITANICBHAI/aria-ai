@@ -36,12 +36,17 @@ import com.ariaagent.mobile.ui.viewmodel.AgentViewModel
  * routes here if not set. ARIAComposeApp uses vm.onboardingComplete to decide
  * the start destination.
  *
- * Steps:
- *   0 — Welcome         : ARIA intro, "Get Started" button
- *   1 — Download Model  : model status + download button
- *   2 — Accessibility   : GRANT button + explanation
- *   3 — Screen Capture  : REQUEST button + explanation
- *   4 — Ready           : summary of what's set up, "Start Using ARIA"
+ * Steps (updated Phase 17):
+ *   0 — Welcome              : ARIA intro, "Get Started" button
+ *   1 — Download AI Model    : Llama 3.2-1B (~700 MB) — required
+ *   2 — Enable Vision        : SmolVLM-256M (~200 MB) — skippable
+ *   3 — Accessibility        : GRANT button + explanation
+ *   4 — Screen Capture       : REQUEST button — skippable
+ *   5 — Ready                : summary checklist, "Start Using ARIA"
+ *
+ * Vision step (step 2) is the new addition for Phase 17. It explains what
+ * SmolVLM does and lets the user download it right inside the wizard.
+ * If the user skips it they can always download from the Modules screen later.
  */
 
 private data class OnboardingStep(
@@ -54,11 +59,24 @@ private data class OnboardingStep(
 )
 
 private val ONBOARDING_STEPS = listOf(
-    OnboardingStep(0, "Welcome to ARIA", "Your 100% on-device autonomous Android agent. No cloud. No subscriptions. Fully private.", Icons.Default.SmartToy, ARIAColors.Primary),
-    OnboardingStep(1, "Download the AI Model", "ARIA runs a local Llama 3.2-1B model. Download it once (~700 MB) and it lives on your device forever.", Icons.Default.Download, ARIAColors.Accent),
-    OnboardingStep(2, "Grant Accessibility", "ARIA needs the Accessibility Service to see and interact with other apps on your behalf.", Icons.Default.Accessibility, ARIAColors.Success),
-    OnboardingStep(3, "Grant Screen Capture", "ARIA uses screen capture to understand what's on screen before taking any action.", Icons.Default.Screenshot, ARIAColors.Warning, skippable = true),
-    OnboardingStep(4, "You're ready!", "ARIA is set up and ready to work. Go to the Control tab to give it its first task.", Icons.Default.CheckCircle, ARIAColors.Success),
+    OnboardingStep(0, "Welcome to ARIA",
+        "Your 100% on-device autonomous Android agent. No cloud. No subscriptions. Fully private.",
+        Icons.Default.SmartToy, ARIAColors.Primary),
+    OnboardingStep(1, "Download the AI Model",
+        "ARIA runs a local Llama 3.2-1B model (~700 MB). Download it once and it lives on your device forever.",
+        Icons.Default.Download, ARIAColors.Accent),
+    OnboardingStep(2, "Enable Vision (Optional)",
+        "SmolVLM-256M lets ARIA visually understand your screen — useful for games, Flutter apps, and complex UIs where text alone isn't enough. ~200 MB, runs fully on-device.",
+        Icons.Default.RemoveRedEye, ARIAColors.Primary, skippable = true),
+    OnboardingStep(3, "Grant Accessibility",
+        "ARIA needs the Accessibility Service to see and interact with other apps on your behalf.",
+        Icons.Default.Accessibility, ARIAColors.Success),
+    OnboardingStep(4, "Grant Screen Capture",
+        "ARIA uses screen capture to understand what's on screen before taking any action.",
+        Icons.Default.Screenshot, ARIAColors.Warning, skippable = true),
+    OnboardingStep(5, "You're ready!",
+        "ARIA is set up and ready. Go to the Control tab to give it its first task.",
+        Icons.Default.CheckCircle, ARIAColors.Success),
 )
 
 @Composable
@@ -70,6 +88,7 @@ fun OnboardingScreen(
 ) {
     val moduleState      by vm.moduleState.collectAsStateWithLifecycle()
     val llmDownloading   by vm.llmDownloading.collectAsStateWithLifecycle()
+    val visionDownloading by vm.visionDownloading.collectAsStateWithLifecycle()
 
     var currentStep by remember { mutableIntStateOf(0) }
     val step = ONBOARDING_STEPS[currentStep]
@@ -157,20 +176,31 @@ fun OnboardingScreen(
                     // ── Step-specific content ─────────────────────────────────
                     when (stepIdx) {
                         1 -> ModelDownloadStep(
-                            modelReady    = moduleState.modelReady,
-                            downloading   = llmDownloading,
-                            downloadPct   = moduleState.llmDownloadPercent,
-                            onDownload    = { vm.downloadModel() }
+                            modelReady  = moduleState.modelReady,
+                            downloading = llmDownloading,
+                            downloadPct = moduleState.llmDownloadPercent,
+                            onDownload  = { vm.downloadLlmModel() }
                         )
-                        2 -> AccessibilityStep(
-                            granted   = moduleState.accessibilityGranted,
-                            onGrant   = onGrantAccessibility
+                        2 -> VisionDownloadStep(
+                            visionReady  = moduleState.visionReady,
+                            downloading  = visionDownloading,
+                            downloadPct  = moduleState.visionDownloadPercent,
+                            onDownload   = { vm.downloadVisionModel() }
                         )
-                        3 -> ScreenCaptureStep(
+                        3 -> AccessibilityStep(
+                            granted = moduleState.accessibilityGranted,
+                            onGrant = onGrantAccessibility
+                        )
+                        4 -> ScreenCaptureStep(
                             granted   = moduleState.screenCaptureGranted,
                             onRequest = onRequestScreenCapture
                         )
-                        4 -> ReadySummary(moduleState.modelReady, moduleState.accessibilityGranted, moduleState.screenCaptureGranted)
+                        5 -> ReadySummary(
+                            modelReady          = moduleState.modelReady,
+                            visionReady         = moduleState.visionReady,
+                            accessibilityGranted = moduleState.accessibilityGranted,
+                            screenCaptureGranted = moduleState.screenCaptureGranted,
+                        )
                         else -> {}
                     }
                 }
@@ -215,26 +245,31 @@ fun OnboardingScreen(
                 ) {
                     Text(
                         when {
-                            isLast          -> "Start Using ARIA"
+                            isLast           -> "Start Using ARIA"
                             currentStep == 0 -> "Get Started"
-                            step.skippable  -> "Next"
-                            else            -> "Continue"
+                            step.skippable   -> "Next"
+                            else             -> "Continue"
                         },
                         fontWeight = FontWeight.Bold,
                         color = ARIAColors.Background
                     )
                     Spacer(Modifier.width(4.dp))
-                    Icon(if (isLast) Icons.Default.CheckCircle else Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp), tint = ARIAColors.Background)
+                    Icon(
+                        if (isLast) Icons.Default.CheckCircle else Icons.Default.ArrowForward,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = ARIAColors.Background
+                    )
                 }
             }
 
             // Skip link for skippable steps
             if (!isLast && step.skippable) {
                 TextButton(
-                    onClick   = { currentStep++ },
-                    modifier  = Modifier.padding(bottom = 12.dp)
+                    onClick  = { currentStep++ },
+                    modifier = Modifier.padding(bottom = 12.dp)
                 ) {
-                    Text("Skip this step", style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted))
+                    Text("Skip for now", style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted))
                 }
             }
         }
@@ -289,6 +324,99 @@ private fun ModelDownloadStep(
                 Text("Requires a Wi-Fi connection. The download happens once.", style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted, textAlign = TextAlign.Center), textAlign = TextAlign.Center)
             }
         }
+    }
+}
+
+/**
+ * Vision model step (Phase 17) — SmolVLM-256M + mmproj (~200 MB total).
+ *
+ * Explains what vision adds before asking the user to download. Skippable —
+ * the user can always come back to it in the Modules screen later.
+ *
+ * When active, it shows:
+ *   • A two-row capability list (what vision is used for)
+ *   • Download button or live progress bar
+ *   • "Already downloaded" confirmation row if ready
+ */
+@Composable
+private fun VisionDownloadStep(
+    visionReady: Boolean,
+    downloading: Boolean,
+    downloadPct: Int,
+    onDownload: () -> Unit,
+) {
+    Card(
+        modifier  = Modifier.fillMaxWidth(),
+        shape     = RoundedCornerShape(12.dp),
+        colors    = CardDefaults.cardColors(containerColor = ARIAColors.Surface),
+        elevation = CardDefaults.cardElevation(0.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Capability hints shown regardless of state
+            Column(
+                modifier            = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                VisionCapabilityRow(Icons.Default.VideogameAsset,  "Understand games & Flutter apps (no a11y tree)")
+                VisionCapabilityRow(Icons.Default.TouchApp,        "Identify buttons and icons by what they look like")
+                VisionCapabilityRow(Icons.Default.Speed,           "Caches unchanged frames — ~0 ms when screen stays still")
+                VisionCapabilityRow(Icons.Default.Psychology,      "Goal-aware — answers 'what helps me achieve this task?'")
+            }
+
+            HorizontalDivider(color = ARIAColors.Divider)
+
+            when {
+                visionReady -> {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ARIAColors.Success, modifier = Modifier.size(20.dp))
+                        Text("SmolVLM-256M ready", style = MaterialTheme.typography.bodyMedium.copy(color = ARIAColors.Success, fontWeight = FontWeight.Bold))
+                    }
+                    Text("Vision model downloaded. ARIA can see the screen.", style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted, textAlign = TextAlign.Center), textAlign = TextAlign.Center)
+                }
+                downloading -> {
+                    Text("Downloading vision model…", style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Primary))
+                    LinearProgressIndicator(
+                        progress = { downloadPct / 100f },
+                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                        color    = ARIAColors.Primary,
+                    )
+                    Text("$downloadPct% complete (base + mmproj)", style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted, fontFamily = FontFamily.Monospace))
+                }
+                else -> {
+                    Button(
+                        onClick  = onDownload,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape    = RoundedCornerShape(8.dp),
+                        colors   = ButtonDefaults.buttonColors(containerColor = ARIAColors.Primary)
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Download Vision Model (~200 MB)", fontWeight = FontWeight.SemiBold, color = Color.White)
+                    }
+                    Text(
+                        "Optional but recommended. Wi-Fi advised. You can download later from the Modules screen.",
+                        style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted, textAlign = TextAlign.Center),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VisionCapabilityRow(icon: ImageVector, text: String) {
+    Row(
+        modifier            = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment   = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = null, tint = ARIAColors.Primary, modifier = Modifier.size(16.dp))
+        Text(text, style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.OnSurface, lineHeight = 18.sp))
     }
 }
 
@@ -371,7 +499,12 @@ private fun ScreenCaptureStep(granted: Boolean, onRequest: () -> Unit) {
 }
 
 @Composable
-private fun ReadySummary(modelReady: Boolean, accessibilityGranted: Boolean, screenCaptureGranted: Boolean) {
+private fun ReadySummary(
+    modelReady: Boolean,
+    visionReady: Boolean,
+    accessibilityGranted: Boolean,
+    screenCaptureGranted: Boolean,
+) {
     Card(
         modifier  = Modifier.fillMaxWidth(),
         shape     = RoundedCornerShape(12.dp),
@@ -379,15 +512,16 @@ private fun ReadySummary(modelReady: Boolean, accessibilityGranted: Boolean, scr
         elevation = CardDefaults.cardElevation(0.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OnboardingCheckRow("AI Model downloaded",     modelReady)
-            OnboardingCheckRow("Accessibility granted",   accessibilityGranted)
-            OnboardingCheckRow("Screen capture granted",  screenCaptureGranted)
+            OnboardingCheckRow("AI Model (Llama 3.2-1B)",       modelReady,          required = true)
+            OnboardingCheckRow("Vision Model (SmolVLM-256M)",   visionReady,         required = false)
+            OnboardingCheckRow("Accessibility Service",          accessibilityGranted, required = true)
+            OnboardingCheckRow("Screen Capture Permission",      screenCaptureGranted, required = false)
         }
     }
 }
 
 @Composable
-private fun OnboardingCheckRow(label: String, ok: Boolean) {
+private fun OnboardingCheckRow(label: String, ok: Boolean, required: Boolean) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -396,9 +530,21 @@ private fun OnboardingCheckRow(label: String, ok: Boolean) {
         Icon(
             if (ok) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
             contentDescription = null,
-            tint = if (ok) ARIAColors.Success else ARIAColors.Muted,
+            tint = when {
+                ok       -> ARIAColors.Success
+                required -> ARIAColors.Warning
+                else     -> ARIAColors.Muted
+            },
             modifier = Modifier.size(18.dp)
         )
-        Text(label, style = MaterialTheme.typography.bodyMedium.copy(color = if (ok) ARIAColors.OnSurface else ARIAColors.Muted))
+        Column {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyMedium.copy(color = if (ok) ARIAColors.OnSurface else ARIAColors.Muted)
+            )
+            if (!ok && !required) {
+                Text("Optional — can be set up later", style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted))
+            }
+        }
     }
 }
