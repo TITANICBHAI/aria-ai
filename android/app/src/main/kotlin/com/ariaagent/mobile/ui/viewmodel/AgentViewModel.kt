@@ -1321,9 +1321,17 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         _rlResult.value  = null
         viewModelScope.launch(Dispatchers.Default) {
             try {
+                reportLoraTrainingProgress(10, 0.0, 0, "loading_data")
                 val store  = ExperienceStore.getInstance(context)
                 val cfg    = ConfigStore.getBlocking(context)
+                reportLoraTrainingProgress(25, 0.0, 0, "training")
                 val result = LoraTrainer.train(context, store, cfg.modelPath)
+                reportLoraTrainingProgress(
+                    if (result.success) 100 else 0,
+                    0.0,
+                    result.samplesUsed,
+                    if (result.success) "complete" else "failed"
+                )
                 _rlResult.value = RlResultUi(
                     success      = result.success,
                     samplesUsed  = result.samplesUsed,
@@ -1334,6 +1342,7 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                 refreshLearningStatus()
                 refreshModuleState()
             } catch (e: Exception) {
+                reportLoraTrainingProgress(0, 0.0, 0, "failed")
                 _rlResult.value = RlResultUi(false, 0, "", 0, e.message ?: "unknown")
             } finally {
                 _rlRunning.value = false

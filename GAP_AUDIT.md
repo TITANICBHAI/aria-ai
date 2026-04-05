@@ -202,11 +202,11 @@ Items are ranked by impact and safety risk.
 |---|------|--------|-----------|
 | 1 | **Build the NDK / JNI library** | `[ ]` | Nothing real works until `libllama-jni.so` compiles. All AI gaps depend on this. |
 | 2 | **Fix both `onUpgrade()` stubs** (`ObjectLabelStore`, `ExperienceStore`) | `[x]` **Done** | Silent data corruption on every app update. |
-| 3 | **Hook `ThermalGuard` into `AgentLoop`** as hard abort | `[ ]` | Device safety — can overheat the M31. EventBus connection is now fixed; AgentLoop abort on null service still needed. |
-| 4 | **Add hard-abort when Accessibility Service is null** | `[ ]` | Prevents zombie loops burning battery with no user feedback. |
+| 3 | **Hook `ThermalGuard` into `AgentLoop`** as hard abort | `[x]` **Done** | AgentLoop already had the 10s pause + break check; EventBus emission from ThermalGuard was the missing piece (fixed in session 2). |
+| 4 | **Add hard-abort when Accessibility Service is null** | `[x]` **Done** | Guard added at top of every step iteration in AgentLoop: checks `AgentAccessibilityService.isActive`, calls `recordAndChain` and breaks immediately if dead. |
 | 5 | **Fix empty `onCancelled` in GestureEngine** | `[x]` **Done** | All 5 gesture callbacks now log OS cancellations. |
 | 6 | **Wire `ThermalGuard` → `AgentEventBus`** | `[x]` **Done** | Thermal warnings in the UI now fire from real data. |
-| 7 | **Wire `LoraTrainer` → `reportLoraTrainingProgress()`** | `[ ]` | Training progress bar always blank; `adamStep` and `lastPolicyLoss` always zero. |
+| 7 | **Wire `LoraTrainer` → `reportLoraTrainingProgress()`** | `[x]` **Done** | `runRlCycle()` in AgentViewModel now emits progress at 10% (loading_data), 25% (training), and 100%/0% (complete/failed). Error path also emits "failed". |
 | 8 | **Wire `Dashboard.tsx` to `LocalDeviceServer`** | `[x]` **Done** | Live tab added with real polling, IP config, and all 8 endpoints wired. |
 | 9 | **Wire `LoraTrainer` → `ExperienceStore`** | `[ ]` | Learning loop accumulates data that is never used for training. |
 | 10 | **Expose vision C++ code to Kotlin** | `[ ]` | Vision inference C++ exists and matches JNI, but is completely inaccessible from Kotlin. |

@@ -194,6 +194,25 @@ object AgentLoop {
                         AgentEventBus.emit("step_started", stepData)
                     }
 
+                    // ── 0b. ACCESSIBILITY SERVICE GUARD ──────────────────────
+                    // On low-RAM devices (M31: 6 GB) the OS kills the Accessibility
+                    // Service without warning. When instance is null, getSemanticTree()
+                    // returns the sentinel "(accessibility service not active)" — not
+                    // empty — so snapshot.isEmpty() passes and the LLM reasons over
+                    // garbage until MAX_STEPS is exhausted, burning battery and CPU.
+                    // Hard-abort the moment we detect the service is gone.
+                    if (!AgentAccessibilityService.isActive) {
+                        Log.e("AgentLoop", "Accessibility Service died mid-task — aborting")
+                        state = state.copy(status = Status.DONE, lastError = "accessibility_service_dead")
+                        ProgressPersistence.logNote(context, "Aborted: accessibility service not active")
+                        ProgressPersistence.logTaskEnd(context, goal, succeeded = false)
+                        SustainedPerformanceManager.disable()
+                        emitStatus()
+                        recordAndChain(context, goal, lastAppPackage, succeeded = false,
+                            stepsTaken = state.stepCount, elementsTouched = elementsTouched)
+                        break
+                    }
+
                     // ── 1. OBSERVE ────────────────────────────────────────────
                     val snapshot = ScreenObserver.capture()
 
