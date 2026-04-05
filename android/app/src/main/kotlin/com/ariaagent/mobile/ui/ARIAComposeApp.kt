@@ -73,7 +73,10 @@ private val bottomNavScreens = listOf(
     Screen.Settings,
 )
 
-private const val ROUTE_LABELER = "labeler"
+private const val ROUTE_LABELER    = "labeler"
+private const val ROUTE_GOALS      = "goals"
+private const val ROUTE_SAFETY     = "safety"
+private const val ROUTE_ONBOARDING = "onboarding"
 
 @Composable
 fun ARIAComposeApp() {
@@ -108,10 +111,15 @@ fun ARIAComposeApp() {
             )
         }
 
+        val onboardingComplete by vm.onboardingComplete.collectAsState()
+
         val navBackStackEntry by navController.currentBackStackEntryAsState()
         val currentRoute = navBackStackEntry?.destination?.route
 
         val showBottomBar = currentRoute != ROUTE_LABELER
+                && currentRoute != ROUTE_GOALS
+                && currentRoute != ROUTE_SAFETY
+                && currentRoute != ROUTE_ONBOARDING
 
         Scaffold(
             containerColor = ARIAColors.Background,
@@ -179,14 +187,29 @@ fun ARIAComposeApp() {
             ) {
                 NavHost(
                     navController    = navController,
-                    startDestination = Screen.Dashboard.route
+                    startDestination = if (onboardingComplete) Screen.Dashboard.route else ROUTE_ONBOARDING
                 ) {
+                    // ── Onboarding (first-run) ────────────────────────────────────────
+                    composable(ROUTE_ONBOARDING) {
+                        OnboardingScreen(
+                            vm                     = vm,
+                            onFinish               = {
+                                navController.navigate(Screen.Dashboard.route) {
+                                    popUpTo(ROUTE_ONBOARDING) { inclusive = true }
+                                }
+                            },
+                            onGrantAccessibility   = onGrantAccessibility,
+                            onRequestScreenCapture = onRequestScreenCapture,
+                        )
+                    }
+
                     composable(Screen.Dashboard.route) { DashboardScreen(vm) }
 
                     composable(Screen.Control.route) {
                         ControlScreen(
                             vm                  = vm,
                             onNavigateToLabeler = { navController.navigate(ROUTE_LABELER) },
+                            onNavigateToGoals   = { navController.navigate(ROUTE_GOALS) },
                         )
                     }
 
@@ -210,13 +233,33 @@ fun ARIAComposeApp() {
                             onGrantAccessibility   = onGrantAccessibility,
                         )
                     }
-                    composable(Screen.Settings.route)  { SettingsScreen(vm) }
+                    composable(Screen.Settings.route) {
+                        SettingsScreen(
+                            vm                  = vm,
+                            onNavigateToSafety  = { navController.navigate(ROUTE_SAFETY) },
+                        )
+                    }
 
                     composable(ROUTE_LABELER) {
                         LabelerScreen(
                             vm                    = vm,
                             onBack                = { navController.popBackStack() },
                             onRequestScreenCapture = onRequestScreenCapture,
+                        )
+                    }
+
+                    // ── Full-screen feature routes ────────────────────────────────────
+                    composable(ROUTE_GOALS) {
+                        GoalsScreen(
+                            vm     = vm,
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
+
+                    composable(ROUTE_SAFETY) {
+                        SafetyScreen(
+                            vm     = vm,
+                            onBack = { navController.popBackStack() },
                         )
                     }
                 }

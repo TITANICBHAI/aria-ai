@@ -67,7 +67,10 @@ import com.ariaagent.mobile.ui.theme.ARIAColors
  *   LocalDeviceServer.kt already exists — add a toggle here to start/stop it.
  */
 @Composable
-fun SettingsScreen(vm: AgentViewModel = viewModel()) {
+fun SettingsScreen(
+    vm: AgentViewModel = viewModel(),
+    onNavigateToSafety: (() -> Unit)? = null,
+) {
     val context      = LocalContext.current
     val focusManager = LocalFocusManager.current
 
@@ -147,6 +150,46 @@ fun SettingsScreen(vm: AgentViewModel = viewModel()) {
                 fontWeight = FontWeight.Bold
             )
         )
+
+        // ── Safety Boundaries shortcut ────────────────────────────────────────
+        if (onNavigateToSafety != null) {
+            SettingsCard(
+                modifier = Modifier.clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null,
+                    onClick    = onNavigateToSafety
+                )
+            ) {
+                Row(
+                    modifier              = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment     = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                            .background(ARIAColors.Destructive.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Shield, contentDescription = null, tint = ARIAColors.Destructive, modifier = Modifier.size(20.dp))
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Safety Boundaries",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = ARIAColors.Destructive, fontWeight = FontWeight.SemiBold
+                            )
+                        )
+                        Text(
+                            "Kill switch, app blocklist, confirmation mode",
+                            style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)
+                        )
+                    }
+                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = ARIAColors.Muted, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
 
         // ── Model Configuration ───────────────────────────────────────────────
         SectionLabel("Model Configuration")
@@ -594,11 +637,12 @@ fun SettingsScreen(vm: AgentViewModel = viewModel()) {
 
 @Composable
 private fun SettingsCard(
+    modifier: Modifier = Modifier,
     padding: androidx.compose.ui.unit.Dp = 16.dp,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape    = RoundedCornerShape(16.dp),
         colors   = CardDefaults.cardColors(containerColor = ARIAColors.Surface)
     ) {

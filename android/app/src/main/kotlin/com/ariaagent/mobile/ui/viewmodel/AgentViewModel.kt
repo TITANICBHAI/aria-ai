@@ -13,6 +13,7 @@ import com.ariaagent.mobile.core.ai.ModelDownloadService
 import com.ariaagent.mobile.core.ai.ModelManager
 import com.ariaagent.mobile.core.config.AriaConfig
 import com.ariaagent.mobile.core.config.ConfigStore
+import com.ariaagent.mobile.core.config.SafetyConfigStore
 import com.ariaagent.mobile.core.events.AgentEventBus
 import com.ariaagent.mobile.core.memory.EmbeddingModelManager
 import com.ariaagent.mobile.core.memory.ExperienceStore
@@ -227,6 +228,32 @@ data class ScreenCaptureUi(
     val a11yTree: String,
 )
 
+/** Safety configuration — persisted via SafetyConfigStore. */
+data class SafetyConfig(
+    val globalKillActive: Boolean  = false,
+    val confirmMode: Boolean       = false,
+    val blockedPackages: Set<String> = emptySet(),
+    val allowlistMode: Boolean     = false,
+    val allowedPackages: Set<String> = emptySet(),
+)
+
+/** One LoRA adapter checkpoint found on-disk. */
+data class LoraCheckpointItem(
+    val version: Int,
+    val adapterPath: String,
+    val sizeKb: Long,
+    val createdAt: Long,
+    val isLatest: Boolean,
+)
+
+/** Live progress during a LoRA training run. */
+data class LoraTrainingProgress(
+    val percentComplete: Int = 0,
+    val currentLoss: Double  = 0.0,
+    val samplesUsed: Int     = 0,
+    val phase: String        = "preparing",
+)
+
 /** Phase 15: notification shown when ARIA auto-chains to the next queued task. */
 data class ChainedTaskItem(
     val taskId: String,
@@ -387,6 +414,21 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     private val _allLabels = MutableStateFlow<List<ObjectLabelStore.ObjectLabel>>(emptyList())
     val allLabels: StateFlow<List<ObjectLabelStore.ObjectLabel>> = _allLabels.asStateFlow()
 
+    // ── Onboarding ────────────────────────────────────────────────────────────
+    private val _onboardingComplete = MutableStateFlow(false)
+    val onboardingComplete: StateFlow<Boolean> = _onboardingComplete.asStateFlow()
+
+    // ── Safety config ─────────────────────────────────────────────────────────
+    private val _safetyConfig = MutableStateFlow(SafetyConfig())
+    val safetyConfig: StateFlow<SafetyConfig> = _safetyConfig.asStateFlow()
+
+    // ── LoRA training history + live progress ─────────────────────────────────
+    private val _loraHistory = MutableStateFlow<List<LoraCheckpointItem>>(emptyList())
+    val loraHistory: StateFlow<List<LoraCheckpointItem>> = _loraHistory.asStateFlow()
+
+    private val _loraTrainingProgress = MutableStateFlow<LoraTrainingProgress?>(null)
+    val loraTrainingProgress: StateFlow<LoraTrainingProgress?> = _loraTrainingProgress.asStateFlow()
+
     /** Config — reactive DataStore flow, auto-updates on any config change. */
     val config: StateFlow<AriaConfig> = ConfigStore.flow(context)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), AriaConfig())
@@ -397,6 +439,11 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         refreshModuleState()
         refreshTaskQueue()
         refreshAppSkills()
+        checkOnboardingComplete()
+        viewModelScope.launch(Dispatchers.IO) {
+            _safetyConfig.value = SafetyConfigStore.load(context)
+        }
+        refreshLoraHistory()
 
         viewModelScope.launch {
             AgentEventBus.flow.collect { (name, data) ->
@@ -1361,5 +1408,97 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         } catch (_: Exception) {
             original
         }
+    }
+
+    // ─── Onboarding ───────────────────────────────────────────────────────────
+
+    fun checkOnboardingComplete() {
+        val prefs = context.getSharedPreferences("aria_prefs", android.content.Context.MODE_PRIVATE)
+        _onboardingComplete.value = prefs.getBoolean("onboarding_complete", false)
+    }
+
+    fun setOnboardingComplete() {
+        context.getSharedPreferences("aria_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().putBoolean("onboarding_complete", true).apply()
+        _onboardingComplete.value = true
+    }
+
+    // ─── Safety Config ────────────────────────────────────────────────────────
+
+    fun loadSafetyConfig() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _safetyConfig.value = SafetyConfigStore.load(context)
+        }
+    }
+
+    private fun persistSafety(config: SafetyConfig) {
+        _safetyConfig.value = config
+        viewModelScope.launch(Dispatchers.IO) { SafetyConfigStore.save(context, config) }
+    }
+
+    fun toggleGlobalKill() =
+        persistSafety(_safetyConfig.value.copy(globalKillActive = !_safetyConfig.value.globalKillActive))
+
+    fun setConfirmMode(enabled: Boolean) =
+        persistSafety(_safetyConfig.value.copy(confirmMode = enabled))
+
+    fun setAllowlistMode(enabled: Boolean) =
+        persistSafety(_safetyConfig.value.copy(allowlistMode = enabled))
+
+    fun addBlockedPackage(pkg: String) {
+        if (pkg.isBlank()) return
+        persistSafety(_safetyConfig.value.copy(blockedPackages = _safetyConfig.value.blockedPackages + pkg.trim()))
+    }
+
+    fun removeBlockedPackage(pkg: String) =
+        persistSafety(_safetyConfig.value.copy(blockedPackages = _safetyConfig.value.blockedPackages - pkg))
+
+    fun addAllowedPackage(pkg: String) {
+        if (pkg.isBlank()) return
+        persistSafety(_safetyConfig.value.copy(allowedPackages = _safetyConfig.value.allowedPackages + pkg.trim()))
+    }
+
+    fun removeAllowedPackage(pkg: String) =
+        persistSafety(_safetyConfig.value.copy(allowedPackages = _safetyConfig.value.allowedPackages - pkg))
+
+    // ─── LoRA Training History ────────────────────────────────────────────────
+
+    fun refreshLoraHistory() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val loraDir = java.io.File(context.filesDir, "lora")
+            if (!loraDir.exists()) { _loraHistory.value = emptyList(); return@launch }
+            val currentVer = LoraTrainer.currentVersion(context)
+            val checkpoints = loraDir.listFiles()
+                ?.filter { it.extension == "gguf" || it.extension == "bin" }
+                ?.mapNotNull { f ->
+                    val ver = Regex("adapter_v(\\d+)").find(f.name)
+                        ?.groupValues?.get(1)?.toIntOrNull() ?: return@mapNotNull null
+                    LoraCheckpointItem(
+                        version     = ver,
+                        adapterPath = f.absolutePath,
+                        sizeKb      = f.length() / 1024L,
+                        createdAt   = f.lastModified(),
+                        isLatest    = ver == currentVer,
+                    )
+                }
+                ?.sortedByDescending { it.version }
+                ?: emptyList()
+            _loraHistory.value = checkpoints
+        }
+    }
+
+    /** Publish live LoRA training progress. Called by LoRA training wrapper in TrainScreen. */
+    fun reportLoraTrainingProgress(pct: Int, loss: Double, samples: Int, phase: String) {
+        _loraTrainingProgress.value = LoraTrainingProgress(
+            percentComplete = pct,
+            currentLoss     = loss,
+            samplesUsed     = samples,
+            phase           = phase,
+        )
+    }
+
+    fun clearLoraTrainingProgress() {
+        _loraTrainingProgress.value = null
+        refreshLoraHistory()
     }
 }

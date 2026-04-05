@@ -45,12 +45,14 @@ fun TrainScreen(
     vm: AgentViewModel,
     onNavigateToLabeler: (() -> Unit)? = null,
 ) {
-    val statusUi       by vm.learningStatusUi.collectAsState()
-    val rlRunning      by vm.rlRunning.collectAsState()
-    val rlResult       by vm.rlResult.collectAsState()
-    val irlRunning     by vm.irlRunning.collectAsState()
-    val irlResult      by vm.irlResult.collectAsState()
-    val autoSchedule   by vm.autoScheduleRl.collectAsState()
+    val statusUi         by vm.learningStatusUi.collectAsState()
+    val rlRunning        by vm.rlRunning.collectAsState()
+    val rlResult         by vm.rlResult.collectAsState()
+    val irlRunning       by vm.irlRunning.collectAsState()
+    val irlResult        by vm.irlResult.collectAsState()
+    val autoSchedule     by vm.autoScheduleRl.collectAsState()
+    val loraHistory      by vm.loraHistory.collectAsState()
+    val loraProgress     by vm.loraTrainingProgress.collectAsState()
 
     var videoUri      by remember { mutableStateOf<Uri?>(null) }
     var videoName     by remember { mutableStateOf("") }
@@ -64,7 +66,7 @@ fun TrainScreen(
         }
     }
 
-    LaunchedEffect(Unit) { vm.refreshLearningStatus() }
+    LaunchedEffect(Unit) { vm.refreshLearningStatus(); vm.refreshLoraHistory() }
 
     Column(
         modifier = Modifier
@@ -129,6 +131,20 @@ fun TrainScreen(
         Spacer(Modifier.height(8.dp))
 
         LabelerShortcutCard(onNavigate = onNavigateToLabeler)
+
+        // ── Active training progress ──────────────────────────────────────────
+        if (loraProgress != null || rlRunning) {
+            Spacer(Modifier.height(24.dp))
+            SectionLabel("Active Training")
+            Spacer(Modifier.height(8.dp))
+            LoraProgressCard(progress = loraProgress, rlRunning = rlRunning)
+        }
+
+        // ── Checkpoint history ────────────────────────────────────────────────
+        Spacer(Modifier.height(24.dp))
+        SectionLabel("LoRA Checkpoints")
+        Spacer(Modifier.height(8.dp))
+        LoraHistoryCard(checkpoints = loraHistory, onRefresh = { vm.refreshLoraHistory() })
 
         Spacer(Modifier.height(32.dp))
     }
@@ -431,6 +447,148 @@ private fun IrlCard(
                 Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Process Video", color = if (canRun) ARIAColors.Background else ARIAColors.TextMuted, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+// ─── LoRA Training Progress Card ─────────────────────────────────────────────
+
+@Composable
+private fun LoraProgressCard(
+    progress: com.ariaagent.mobile.ui.viewmodel.LoraTrainingProgress?,
+    rlRunning: Boolean,
+) {
+    TrainCard {
+        Row(
+            modifier              = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment     = Alignment.CenterVertically
+        ) {
+            CircularProgressIndicator(
+                modifier    = androidx.compose.ui.Modifier.size(22.dp),
+                color       = ARIAColors.Accent,
+                strokeWidth = 2.5.dp,
+            )
+            Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
+                Text(
+                    progress?.phase?.replaceFirstChar { it.uppercaseChar() } ?: "Initialising…",
+                    color      = ARIAColors.TextPrimary,
+                    fontSize   = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                if (progress != null) {
+                    Text(
+                        "${progress.samplesUsed} samples · loss ${String.format("%.4f", progress.currentLoss)}",
+                        color    = ARIAColors.TextMuted,
+                        fontSize = 11.sp,
+                    )
+                }
+            }
+            if (progress != null) {
+                Text(
+                    "${progress.percentComplete}%",
+                    color      = ARIAColors.Accent,
+                    fontSize   = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+        }
+        if (progress != null && progress.percentComplete > 0) {
+            LinearProgressIndicator(
+                progress    = { progress.percentComplete / 100f },
+                modifier    = androidx.compose.ui.Modifier
+                    .fillMaxWidth()
+                    .height(5.dp)
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(3.dp)),
+                color       = ARIAColors.Accent,
+            )
+        }
+    }
+}
+
+// ─── LoRA Checkpoint History Card ─────────────────────────────────────────────
+
+@Composable
+private fun LoraHistoryCard(
+    checkpoints: List<com.ariaagent.mobile.ui.viewmodel.LoraCheckpointItem>,
+    onRefresh: () -> Unit,
+) {
+    TrainCard {
+        Row(
+            modifier              = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment     = Alignment.CenterVertically,
+        ) {
+            Text(
+                "${checkpoints.size} adapter${if (checkpoints.size != 1) "s" else ""} on disk",
+                color    = ARIAColors.TextMuted,
+                fontSize = 12.sp,
+            )
+            IconButton(onClick = onRefresh, modifier = androidx.compose.ui.Modifier.size(28.dp)) {
+                Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = ARIAColors.TextMuted, modifier = androidx.compose.ui.Modifier.size(14.dp))
+            }
+        }
+
+        if (checkpoints.isEmpty()) {
+            Text(
+                "No adapters found yet. Run an RL cycle to create the first checkpoint.",
+                color      = ARIAColors.TextMuted,
+                fontSize   = 12.sp,
+            )
+        } else {
+            checkpoints.forEach { ckpt ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                        .background(if (ckpt.isLatest) ARIAColors.Accent.copy(alpha = 0.08f) else ARIAColors.Surface2)
+                        .border(
+                            1.dp,
+                            if (ckpt.isLatest) ARIAColors.Accent.copy(alpha = 0.4f) else ARIAColors.Surface3,
+                            androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+                        )
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Default.Memory,
+                        contentDescription = null,
+                        tint     = if (ckpt.isLatest) ARIAColors.Accent else ARIAColors.TextMuted,
+                        modifier = androidx.compose.ui.Modifier.size(15.dp),
+                    )
+                    Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment     = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "v${ckpt.version}",
+                                color      = if (ckpt.isLatest) ARIAColors.Accent else ARIAColors.TextPrimary,
+                                fontSize   = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                            if (ckpt.isLatest) {
+                                Box(
+                                    modifier = androidx.compose.ui.Modifier
+                                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                                        .background(ARIAColors.Accent.copy(alpha = 0.2f))
+                                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                                ) {
+                                    Text("ACTIVE", color = ARIAColors.Accent, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                        Text(
+                            "${ckpt.sizeKb} KB · ${formatTimeAgo(ckpt.createdAt)}",
+                            color    = ARIAColors.TextMuted,
+                            fontSize = 10.sp,
+                        )
+                    }
+                }
             }
         }
     }

@@ -65,6 +65,7 @@ private val PRESET_TASKS = listOf(
 fun ControlScreen(
     vm: AgentViewModel = viewModel(),
     onNavigateToLabeler: (() -> Unit)? = null,
+    onNavigateToGoals: (() -> Unit)? = null,
 ) {
     val agentState   by vm.agentState.collectAsStateWithLifecycle()
     val moduleState  by vm.moduleState.collectAsStateWithLifecycle()
@@ -110,9 +111,26 @@ fun ControlScreen(
                 )
             )
             Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Goals shortcut button
+                if (onNavigateToGoals != null) {
+                    IconButton(
+                        onClick  = onNavigateToGoals,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(ARIAColors.Primary.copy(alpha = 0.10f))
+                    ) {
+                        Icon(
+                            Icons.Default.Queue,
+                            contentDescription = "Manage Goals",
+                            tint     = ARIAColors.Primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
                 val dotColor = when (agentState.status) {
                     "running" -> ARIAColors.Success
                     "paused"  -> ARIAColors.Warning
