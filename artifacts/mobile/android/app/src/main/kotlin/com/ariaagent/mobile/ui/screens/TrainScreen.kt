@@ -1,0 +1,545 @@
+package com.ariaagent.mobile.ui.screens
+
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.ariaagent.mobile.ui.theme.ARIAColors
+import com.ariaagent.mobile.ui.viewmodel.AgentViewModel
+
+/**
+ * TrainScreen — Migration Phase 6.
+ *
+ * Pure Kotlin + Jetpack Compose replacement for train.tsx (692 lines).
+ * All calls go through AgentViewModel → IrlModule / LoraTrainer / PolicyNetwork.
+ * No bridge. No JS.
+ *
+ * Features:
+ *  - RL Status card: LoRA version, adapter path, untrained samples, adam step, policy loss, refresh
+ *  - Run RL Cycle card: run button with CircularProgressIndicator, result display
+ *  - Video Training (IRL) card: video picker, goal field, app package field, run button, results
+ *  - Navigate to Labeler: nav card
+ *  - NEW: Auto-schedule RL toggle (triggers when untrainedSamples > 50)
+ *  - NEW: Last trained timestamp
+ */
+@Composable
+fun TrainScreen(
+    vm: AgentViewModel,
+    onNavigateToLabeler: (() -> Unit)? = null,
+) {
+    val statusUi       by vm.learningStatusUi.collectAsState()
+    val rlRunning      by vm.rlRunning.collectAsState()
+    val rlResult       by vm.rlResult.collectAsState()
+    val irlRunning     by vm.irlRunning.collectAsState()
+    val irlResult      by vm.irlResult.collectAsState()
+    val autoSchedule   by vm.autoScheduleRl.collectAsState()
+
+    var videoUri      by remember { mutableStateOf<Uri?>(null) }
+    var videoName     by remember { mutableStateOf("") }
+    var irlGoal       by remember { mutableStateOf("") }
+    var irlApp        by remember { mutableStateOf("") }
+
+    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            videoUri  = uri
+            videoName = uri.lastPathSegment ?: "video.mp4"
+        }
+    }
+
+    LaunchedEffect(Unit) { vm.refreshLearningStatus() }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ARIAColors.Background)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .navigationBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
+    ) {
+        Spacer(Modifier.height(20.dp))
+
+        TrainHeader(
+            loadingStatus = false,
+            onRefresh     = { vm.refreshLearningStatus() },
+        )
+
+        Spacer(Modifier.height(24.dp))
+
+        SectionLabel("On-Device RL Status")
+        Spacer(Modifier.height(8.dp))
+
+        RlStatusCard(
+            status       = statusUi,
+            rlRunning    = rlRunning,
+            rlResult     = rlResult,
+            autoSchedule = autoSchedule,
+            onRunRl      = { vm.runRlCycle() },
+            onAutoSchedule = { vm.setAutoScheduleRl(it) },
+        )
+
+        Spacer(Modifier.height(24.dp))
+
+        SectionLabel("Video Training (IRL)")
+        Spacer(Modifier.height(8.dp))
+
+        IrlCard(
+            videoUri   = videoUri,
+            videoName  = videoName,
+            irlGoal    = irlGoal,
+            irlApp     = irlApp,
+            irlRunning = irlRunning,
+            irlResult  = irlResult,
+            onPickVideo   = { videoPicker.launch("video/*") },
+            onClearVideo  = { videoUri = null; videoName = "" },
+            onGoalChange  = { irlGoal = it },
+            onAppChange   = { irlApp  = it },
+            onRunIrl      = {
+                videoUri?.let { uri ->
+                    vm.processIrlVideo(
+                        videoUri   = uri.toString(),
+                        goal       = irlGoal.trim(),
+                        appPackage = irlApp.trim().ifBlank { "com.android.chrome" },
+                    )
+                }
+            },
+        )
+
+        Spacer(Modifier.height(24.dp))
+
+        SectionLabel("Screenshot Labeling")
+        Spacer(Modifier.height(8.dp))
+
+        LabelerShortcutCard(onNavigate = onNavigateToLabeler)
+
+        Spacer(Modifier.height(32.dp))
+    }
+}
+
+// ─── Header ───────────────────────────────────────────────────────────────────
+
+@Composable
+private fun TrainHeader(loadingStatus: Boolean, onRefresh: () -> Unit) {
+    Row(
+        modifier              = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment     = Alignment.Top,
+    ) {
+        Column {
+            Text("Training", color = ARIAColors.TextPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            Text("Teach ARIA from video or on-device RL", color = ARIAColors.TextMuted, fontSize = 13.sp)
+        }
+        IconButton(
+            onClick  = onRefresh,
+            enabled  = !loadingStatus,
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(ARIAColors.Surface2),
+        ) {
+            if (loadingStatus) {
+                CircularProgressIndicator(Modifier.size(14.dp), color = ARIAColors.TextMuted, strokeWidth = 2.dp)
+            } else {
+                Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = ARIAColors.TextMuted, modifier = Modifier.size(16.dp))
+            }
+        }
+    }
+}
+
+// ─── Section label ────────────────────────────────────────────────────────────
+
+@Composable
+private fun SectionLabel(title: String) {
+    Text(
+        text       = title.uppercase(),
+        color      = ARIAColors.TextMuted,
+        fontSize   = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+        fontFamily = FontFamily.Monospace,
+        letterSpacing = 1.sp,
+    )
+}
+
+// ─── RL Status card ───────────────────────────────────────────────────────────
+
+@Composable
+private fun RlStatusCard(
+    status: com.ariaagent.mobile.ui.viewmodel.LearningStatusUi?,
+    rlRunning: Boolean,
+    rlResult: com.ariaagent.mobile.ui.viewmodel.RlResultUi?,
+    autoSchedule: Boolean,
+    onRunRl: () -> Unit,
+    onAutoSchedule: (Boolean) -> Unit,
+) {
+    TrainCard {
+        Row(
+            modifier              = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            StatBadge(
+                label  = "LoRA Version",
+                value  = status?.loraVersion?.toString() ?: "—",
+                accent = status?.adapterExists == true,
+                modifier = Modifier.weight(1f),
+            )
+            StatBadge(
+                label  = "Untrained",
+                value  = status?.untrainedSamples?.toString() ?: "—",
+                accent = (status?.untrainedSamples ?: 0) > 0,
+                modifier = Modifier.weight(1f),
+            )
+            StatBadge(
+                label  = "Policy",
+                value  = if (status?.policyReady == true) "Ready" else "Not ready",
+                accent = status?.policyReady == true,
+                modifier = Modifier.weight(1f),
+            )
+        }
+
+        if (!status?.latestAdapterPath.isNullOrBlank()) {
+            Text(
+                text     = status!!.latestAdapterPath.substringAfterLast('/'),
+                color    = ARIAColors.TextMuted,
+                fontSize = 11.sp,
+                maxLines = 1,
+            )
+        }
+
+        if (status != null && status.adamStep > 0) {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("Adam step: ${status.adamStep}", color = ARIAColors.TextMuted, fontSize = 11.sp)
+                Text("Policy loss: %.4f".format(status.lastPolicyLoss), color = ARIAColors.TextMuted, fontSize = 11.sp)
+            }
+        }
+
+        if (status != null && status.lastTrainedAt > 0L) {
+            val ago = formatTimeAgo(status.lastTrainedAt)
+            Text("Last trained: $ago", color = ARIAColors.TextMuted, fontSize = 11.sp)
+        }
+
+        rlResult?.let { result ->
+            ResultBox(success = result.success) {
+                if (result.success) {
+                    Text("✓ RL Cycle complete", color = ARIAColors.Success, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text("${result.samplesUsed} samples used · LoRA v${result.loraVersion}", color = ARIAColors.TextPrimary, fontSize = 12.sp)
+                    if (result.adapterPath.isNotBlank()) {
+                        Text(result.adapterPath.substringAfterLast('/'), color = ARIAColors.TextMuted, fontSize = 11.sp, maxLines = 1)
+                    }
+                } else {
+                    Text("✗ RL Cycle failed", color = ARIAColors.Error, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(result.errorMessage.ifBlank { "Unknown error" }, color = ARIAColors.TextMuted, fontSize = 12.sp)
+                }
+            }
+        }
+
+        Button(
+            onClick  = onRunRl,
+            enabled  = !rlRunning,
+            modifier = Modifier.fillMaxWidth(),
+            shape    = RoundedCornerShape(12.dp),
+            colors   = ButtonDefaults.buttonColors(
+                containerColor = ARIAColors.Primary,
+                disabledContainerColor = ARIAColors.Surface2,
+            ),
+        ) {
+            if (rlRunning) {
+                CircularProgressIndicator(Modifier.size(16.dp), color = ARIAColors.TextPrimary, strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+                Text("Running RL cycle…", color = ARIAColors.TextMuted)
+            } else {
+                Icon(Icons.Default.FlashOn, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Run RL Cycle Now", color = ARIAColors.Background, fontWeight = FontWeight.SemiBold)
+            }
+        }
+
+        Text(
+            text     = "Triggers REINFORCE + Adam update on PolicyNetwork using stored experience tuples. Best run when charging and idle.",
+            color    = ARIAColors.TextMuted,
+            fontSize = 11.sp,
+            lineHeight = 16.sp,
+        )
+
+        Row(
+            modifier              = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment     = Alignment.CenterVertically,
+        ) {
+            Column {
+                Text("Auto-schedule RL", color = ARIAColors.TextPrimary, fontSize = 13.sp)
+                Text("Runs when untrained samples > 50", color = ARIAColors.TextMuted, fontSize = 11.sp)
+            }
+            Switch(
+                checked         = autoSchedule,
+                onCheckedChange = onAutoSchedule,
+                colors          = SwitchDefaults.colors(
+                    checkedThumbColor       = ARIAColors.Background,
+                    checkedTrackColor       = ARIAColors.Primary,
+                    uncheckedThumbColor     = ARIAColors.TextMuted,
+                    uncheckedTrackColor     = ARIAColors.Surface3,
+                ),
+            )
+        }
+    }
+}
+
+// ─── IRL Video card ───────────────────────────────────────────────────────────
+
+@Composable
+private fun IrlCard(
+    videoUri: Uri?,
+    videoName: String,
+    irlGoal: String,
+    irlApp: String,
+    irlRunning: Boolean,
+    irlResult: com.ariaagent.mobile.ui.viewmodel.IrlResultUi?,
+    onPickVideo: () -> Unit,
+    onClearVideo: () -> Unit,
+    onGoalChange: (String) -> Unit,
+    onAppChange: (String) -> Unit,
+    onRunIrl: () -> Unit,
+) {
+    TrainCard {
+        Text(
+            text       = "Record yourself completing a task on your device, then feed the video here. ARIA extracts (state→action) tuples using OCR + accessibility tree.",
+            color      = ARIAColors.TextMuted,
+            fontSize   = 13.sp,
+            lineHeight = 19.sp,
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(ARIAColors.Surface2)
+                .border(
+                    width = 1.5.dp,
+                    color = if (videoUri != null) ARIAColors.Primary.copy(alpha = 0.6f) else ARIAColors.Surface3,
+                    shape = RoundedCornerShape(10.dp),
+                )
+        ) {
+            Row(
+                modifier              = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalAlignment     = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(
+                    imageVector = if (videoUri != null) Icons.Default.Movie else Icons.Default.Upload,
+                    contentDescription = null,
+                    tint     = if (videoUri != null) ARIAColors.Primary else ARIAColors.TextMuted,
+                    modifier = Modifier.size(22.dp),
+                )
+                Text(
+                    text     = if (videoUri != null) videoName else "Tap to pick a video from gallery",
+                    color    = if (videoUri != null) ARIAColors.TextPrimary else ARIAColors.TextMuted,
+                    fontSize = 13.sp,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                )
+                if (videoUri != null) {
+                    IconButton(onClick = onClearVideo, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = ARIAColors.TextMuted, modifier = Modifier.size(16.dp))
+                    }
+                } else {
+                    TextButton(onClick = onPickVideo) {
+                        Text("Pick", color = ARIAColors.Primary, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+
+        Text("Task Goal", color = ARIAColors.TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        OutlinedTextField(
+            value         = irlGoal,
+            onValueChange = onGoalChange,
+            modifier      = Modifier.fillMaxWidth(),
+            placeholder   = { Text("e.g. Open YouTube and play trending video", color = ARIAColors.TextMuted, fontSize = 13.sp) },
+            maxLines      = 2,
+            colors        = outlinedFieldColors(),
+            shape         = RoundedCornerShape(8.dp),
+        )
+
+        Text(
+            text = "App Package (optional)",
+            color = ARIAColors.TextPrimary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        OutlinedTextField(
+            value         = irlApp,
+            onValueChange = onAppChange,
+            modifier      = Modifier.fillMaxWidth(),
+            placeholder   = { Text("e.g. com.google.android.youtube", color = ARIAColors.TextMuted, fontSize = 13.sp) },
+            singleLine    = true,
+            colors        = outlinedFieldColors(),
+            shape         = RoundedCornerShape(8.dp),
+        )
+
+        irlResult?.let { result ->
+            ResultBox(success = result.errorMessage.isBlank()) {
+                if (result.errorMessage.isBlank()) {
+                    Text("✓ Video processed", color = ARIAColors.Success, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 2.dp)) {
+                        Text("${result.framesProcessed} frames", color = ARIAColors.TextPrimary, fontSize = 12.sp)
+                        Text("${result.tuplesExtracted} tuples", color = ARIAColors.TextPrimary, fontSize = 12.sp)
+                        Text("${result.llmAssistedCount} LLM-assisted", color = ARIAColors.TextPrimary, fontSize = 12.sp)
+                    }
+                    Text("Tuples stored — run an RL cycle to train on them.", color = ARIAColors.TextMuted, fontSize = 11.sp)
+                } else {
+                    Text("✗ Processing failed", color = ARIAColors.Error, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(result.errorMessage, color = ARIAColors.TextMuted, fontSize = 12.sp)
+                }
+            }
+        }
+
+        val canRun = !irlRunning && videoUri != null && irlGoal.isNotBlank()
+        Button(
+            onClick  = onRunIrl,
+            enabled  = canRun,
+            modifier = Modifier.fillMaxWidth(),
+            shape    = RoundedCornerShape(12.dp),
+            colors   = ButtonDefaults.buttonColors(
+                containerColor         = ARIAColors.Primary,
+                disabledContainerColor = ARIAColors.Surface2,
+            ),
+        ) {
+            if (irlRunning) {
+                CircularProgressIndicator(Modifier.size(16.dp), color = ARIAColors.TextPrimary, strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+                Text("Extracting tuples…", color = ARIAColors.TextMuted)
+            } else {
+                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Process Video", color = if (canRun) ARIAColors.Background else ARIAColors.TextMuted, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+// ─── Labeler shortcut card ────────────────────────────────────────────────────
+
+@Composable
+private fun LabelerShortcutCard(onNavigate: (() -> Unit)?) {
+    Card(
+        onClick   = { onNavigate?.invoke() },
+        enabled   = onNavigate != null,
+        modifier  = Modifier.fillMaxWidth(),
+        shape     = RoundedCornerShape(16.dp),
+        colors    = CardDefaults.cardColors(containerColor = ARIAColors.Surface1),
+        border    = androidx.compose.foundation.BorderStroke(1.dp, ARIAColors.Surface3),
+    ) {
+        Row(
+            modifier              = Modifier.padding(16.dp),
+            verticalAlignment     = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(ARIAColors.Primary.copy(alpha = 0.13f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Label, contentDescription = null, tint = ARIAColors.Primary, modifier = Modifier.size(22.dp))
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Object Labeler", color = ARIAColors.TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Capture the screen, tap UI elements to annotate them, enrich with the LLM. Labels are injected into every future agent prompt.",
+                    color      = ARIAColors.TextMuted,
+                    fontSize   = 12.sp,
+                    lineHeight = 17.sp,
+                )
+            }
+            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = ARIAColors.TextMuted)
+        }
+    }
+}
+
+// ─── Shared composables ───────────────────────────────────────────────────────
+
+@Composable
+private fun TrainCard(content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape    = RoundedCornerShape(16.dp),
+        colors   = CardDefaults.cardColors(containerColor = ARIAColors.Surface1),
+        border   = androidx.compose.foundation.BorderStroke(1.dp, ARIAColors.Surface3),
+    ) {
+        Column(
+            modifier            = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            content             = content,
+        )
+    }
+}
+
+@Composable
+private fun StatBadge(label: String, value: String, accent: Boolean, modifier: Modifier = Modifier) {
+    Column(
+        modifier            = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (accent) ARIAColors.Primary.copy(alpha = 0.11f) else ARIAColors.Surface2)
+            .border(1.dp, if (accent) ARIAColors.Primary.copy(alpha = 0.4f) else ARIAColors.Surface3, RoundedCornerShape(10.dp))
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(value, color = if (accent) ARIAColors.Primary else ARIAColors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text(label, color = ARIAColors.TextMuted, fontSize = 10.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+    }
+}
+
+@Composable
+private fun ResultBox(success: Boolean, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier            = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (success) ARIAColors.Success.copy(alpha = 0.07f) else ARIAColors.Error.copy(alpha = 0.07f))
+            .border(1.dp, if (success) ARIAColors.Success.copy(alpha = 0.4f) else ARIAColors.Error.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        content             = content,
+    )
+}
+
+@Composable
+private fun outlinedFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedBorderColor      = ARIAColors.Primary,
+    unfocusedBorderColor    = ARIAColors.Surface3,
+    focusedContainerColor   = ARIAColors.Surface2,
+    unfocusedContainerColor = ARIAColors.Surface2,
+    focusedTextColor        = ARIAColors.TextPrimary,
+    unfocusedTextColor      = ARIAColors.TextPrimary,
+)
+
+private fun formatTimeAgo(ts: Long): String {
+    val diff = System.currentTimeMillis() - ts
+    return when {
+        diff < 60_000L        -> "just now"
+        diff < 3_600_000L     -> "${diff / 60_000L} min ago"
+        diff < 86_400_000L    -> "${diff / 3_600_000L} hr ago"
+        else                  -> "${diff / 86_400_000L} day(s) ago"
+    }
+}

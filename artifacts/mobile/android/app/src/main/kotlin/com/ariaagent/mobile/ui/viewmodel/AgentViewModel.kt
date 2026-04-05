@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.ariaagent.mobile.core.agent.AgentLoop
 import com.ariaagent.mobile.core.agent.AppSkillRegistry
 import com.ariaagent.mobile.core.agent.TaskQueueManager
+import com.ariaagent.mobile.core.ai.ChatContextBuilder
 import com.ariaagent.mobile.core.ai.LlamaEngine
 import com.ariaagent.mobile.core.ai.ModelManager
 import com.ariaagent.mobile.core.config.AriaConfig
@@ -13,13 +14,17 @@ import com.ariaagent.mobile.core.config.ConfigStore
 import com.ariaagent.mobile.core.events.AgentEventBus
 import com.ariaagent.mobile.core.memory.ExperienceStore
 import com.ariaagent.mobile.core.memory.ObjectLabelStore
+import com.ariaagent.mobile.core.ocr.OcrEngine
 import com.ariaagent.mobile.core.perception.ObjectDetectorEngine
+import com.ariaagent.mobile.core.perception.ScreenObserver
 import com.ariaagent.mobile.core.persistence.ProgressPersistence
+import com.ariaagent.mobile.core.rl.IrlModule
 import com.ariaagent.mobile.core.rl.LoraTrainer
 import com.ariaagent.mobile.core.rl.PolicyNetwork
 import com.ariaagent.mobile.system.AgentForegroundService
 import com.ariaagent.mobile.system.accessibility.AgentAccessibilityService
 import com.ariaagent.mobile.system.screen.ScreenCaptureService
+import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -141,6 +146,55 @@ data class MemoryEntry(
     val timestamp  : Long,
 )
 
+// ── Migration Phase 5: Chat ───────────────────────────────────────────────────
+
+/** A single message in the chat conversation. role: "user" | "aria" | "system" */
+data class ChatMessageItem(
+    val id: String,
+    val role: String,
+    val text: String,
+    val tps: Double = 0.0,
+    val ts: Long = System.currentTimeMillis(),
+)
+
+// ── Migration Phase 6: Train ──────────────────────────────────────────────────
+
+data class LearningStatusUi(
+    val loraVersion: Int,
+    val latestAdapterPath: String,
+    val adapterExists: Boolean,
+    val untrainedSamples: Int,
+    val policyReady: Boolean,
+    val adamStep: Int,
+    val lastPolicyLoss: Double,
+    val lastTrainedAt: Long,
+)
+
+data class RlResultUi(
+    val success: Boolean,
+    val samplesUsed: Int,
+    val adapterPath: String,
+    val loraVersion: Int,
+    val errorMessage: String,
+)
+
+data class IrlResultUi(
+    val framesProcessed: Int,
+    val tuplesExtracted: Int,
+    val llmAssistedCount: Int,
+    val errorMessage: String,
+)
+
+// ── Migration Phase 7: Labeler ────────────────────────────────────────────────
+
+data class ScreenCaptureUi(
+    val imagePath: String,
+    val appPackage: String,
+    val screenHash: String,
+    val ocrText: String,
+    val a11yTree: String,
+)
+
 /** Phase 15: notification shown when ARIA auto-chains to the next queued task. */
 data class ChainedTaskItem(
     val taskId: String,
@@ -217,6 +271,67 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     // Migration Phase 3: memory entries for ActivityScreen Memory tab
     private val _memoryEntries = MutableStateFlow<List<MemoryEntry>>(emptyList())
     val memoryEntries: StateFlow<List<MemoryEntry>> = _memoryEntries.asStateFlow()
+
+    // ── Migration Phase 5: Chat ───────────────────────────────────────────────
+
+    private val welcomeChatMsg = ChatMessageItem(
+        id   = "welcome",
+        role = "system",
+        text = "Chat with ARIA — your messages are sent to the on-device LLM with full context: agent state, memory, task queue and app skills injected automatically.",
+        ts   = 0L,
+    )
+
+    private val _chatMessages = MutableStateFlow<List<ChatMessageItem>>(listOf(welcomeChatMsg))
+    val chatMessages: StateFlow<List<ChatMessageItem>> = _chatMessages.asStateFlow()
+
+    private val _chatThinking = MutableStateFlow(false)
+    val chatThinking: StateFlow<Boolean> = _chatThinking.asStateFlow()
+
+    // ── Migration Phase 6: Train ──────────────────────────────────────────────
+
+    private val _learningStatusUi = MutableStateFlow<LearningStatusUi?>(null)
+    val learningStatusUi: StateFlow<LearningStatusUi?> = _learningStatusUi.asStateFlow()
+
+    private val _rlRunning = MutableStateFlow(false)
+    val rlRunning: StateFlow<Boolean> = _rlRunning.asStateFlow()
+
+    private val _rlResult = MutableStateFlow<RlResultUi?>(null)
+    val rlResult: StateFlow<RlResultUi?> = _rlResult.asStateFlow()
+
+    private val _irlRunning = MutableStateFlow(false)
+    val irlRunning: StateFlow<Boolean> = _irlRunning.asStateFlow()
+
+    private val _irlResult = MutableStateFlow<IrlResultUi?>(null)
+    val irlResult: StateFlow<IrlResultUi?> = _irlResult.asStateFlow()
+
+    private val _autoScheduleRl = MutableStateFlow(false)
+    val autoScheduleRl: StateFlow<Boolean> = _autoScheduleRl.asStateFlow()
+
+    // ── Migration Phase 7: Labeler ────────────────────────────────────────────
+
+    private val _labelerCapture = MutableStateFlow<ScreenCaptureUi?>(null)
+    val labelerCapture: StateFlow<ScreenCaptureUi?> = _labelerCapture.asStateFlow()
+
+    private val _labelerLabels = MutableStateFlow<List<ObjectLabelStore.ObjectLabel>>(emptyList())
+    val labelerLabels: StateFlow<List<ObjectLabelStore.ObjectLabel>> = _labelerLabels.asStateFlow()
+
+    private val _labelerCapturing = MutableStateFlow(false)
+    val labelerCapturing: StateFlow<Boolean> = _labelerCapturing.asStateFlow()
+
+    private val _labelerDetecting = MutableStateFlow(false)
+    val labelerDetecting: StateFlow<Boolean> = _labelerDetecting.asStateFlow()
+
+    private val _labelerEnriching = MutableStateFlow(false)
+    val labelerEnriching: StateFlow<Boolean> = _labelerEnriching.asStateFlow()
+
+    private val _labelerSaving = MutableStateFlow(false)
+    val labelerSaving: StateFlow<Boolean> = _labelerSaving.asStateFlow()
+
+    private val _labelerError = MutableStateFlow<String?>(null)
+    val labelerError: StateFlow<String?> = _labelerError.asStateFlow()
+
+    private val _labelerSaveSuccess = MutableStateFlow(false)
+    val labelerSaveSuccess: StateFlow<Boolean> = _labelerSaveSuccess.asStateFlow()
 
     /** Config — reactive DataStore flow, auto-updates on any config change. */
     val config: StateFlow<AriaConfig> = ConfigStore.flow(context)
@@ -583,6 +698,398 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                 "rlEnabled"        to newConfig.rlEnabled,
                 "loraAdapterPath"  to (newConfig.loraAdapterPath ?: ""),
             ))
+        }
+    }
+
+    // ─── Migration Phase 5: Chat ──────────────────────────────────────────────
+
+    /**
+     * Send a user message through the on-device LLM.
+     * Builds full context via ChatContextBuilder, then calls LlamaEngine.infer().
+     * No bridge. No JS. Pure Kotlin.
+     */
+    fun sendChatMessage(text: String) {
+        if (_chatThinking.value) return
+        if (!LlamaEngine.isLoaded()) {
+            _chatMessages.update { prev ->
+                prev + ChatMessageItem(
+                    id   = "sys-${System.currentTimeMillis()}",
+                    role = "system",
+                    text = "LLM is not loaded. Go to Control → Load LLM Engine first, then come back here.",
+                )
+            }
+            return
+        }
+
+        val userMsg = ChatMessageItem(
+            id   = "u-${System.currentTimeMillis()}",
+            role = "user",
+            text = text,
+        )
+        _chatMessages.update { prev -> prev + userMsg }
+        _chatThinking.value = true
+
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                val history = _chatMessages.value
+                    .filter { it.role != "system" }
+                    .takeLast(8)
+                val historyJson = history.joinToString(",", "[", "]") {
+                    """{"role":"${it.role}","text":"${it.text.replace("\"","'")}"}"""
+                }
+                val systemCtx = ChatContextBuilder.build(context, text, historyJson)
+                val historyBlock = if (history.isNotEmpty()) {
+                    "\n[CONVERSATION]\n" + history.joinToString("\n") {
+                        "${if (it.role == "user") "User" else "ARIA"}: ${it.text}"
+                    } + "\n"
+                } else ""
+                val prompt = "$systemCtx${historyBlock}\nUser: $text\nARIA:"
+
+                val t0  = System.currentTimeMillis()
+                val raw = LlamaEngine.infer(prompt, maxTokens = 512)
+                val elapsed = (System.currentTimeMillis() - t0) / 1000.0
+                val wordCount = raw.trim().split(Regex("\\s+")).size
+                val tps = if (elapsed > 0) wordCount / elapsed else 0.0
+
+                val response = raw
+                    .replace(Regex("^ARIA:\\s*", RegexOption.IGNORE_CASE), "")
+                    .replace(Regex("^Assistant:\\s*", RegexOption.IGNORE_CASE), "")
+                    .trim()
+                    .ifBlank { "(no response — try rephrasing)" }
+
+                _chatMessages.update { prev ->
+                    prev + ChatMessageItem(
+                        id   = "a-${System.currentTimeMillis()}",
+                        role = "aria",
+                        text = response,
+                        tps  = tps,
+                    )
+                }
+            } catch (e: Exception) {
+                _chatMessages.update { prev ->
+                    prev + ChatMessageItem(
+                        id   = "err-${System.currentTimeMillis()}",
+                        role = "system",
+                        text = "Inference error: ${e.message ?: "unknown"}",
+                    )
+                }
+            } finally {
+                _chatThinking.value = false
+            }
+        }
+    }
+
+    fun clearChat() {
+        _chatMessages.value = listOf(welcomeChatMsg)
+        _chatThinking.value = false
+    }
+
+    // ─── Migration Phase 6: Train ─────────────────────────────────────────────
+
+    fun refreshLearningStatus() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val ver       = LoraTrainer.currentVersion(context)
+            val path      = LoraTrainer.latestAdapterPath(context)
+            val store     = ExperienceStore.getInstance(context)
+            _learningStatusUi.value = LearningStatusUi(
+                loraVersion        = ver,
+                latestAdapterPath  = path ?: "",
+                adapterExists      = path != null,
+                untrainedSamples   = store.getUntrainedSuccesses(1000).size,
+                policyReady        = PolicyNetwork.adamStepCount > 0,
+                adamStep           = PolicyNetwork.adamStepCount,
+                lastPolicyLoss     = PolicyNetwork.lastPolicyLoss,
+                lastTrainedAt      = if (path != null) java.io.File(path).lastModified() else 0L,
+            )
+        }
+    }
+
+    fun runRlCycle() {
+        if (_rlRunning.value) return
+        _rlRunning.value = true
+        _rlResult.value  = null
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                val store  = ExperienceStore.getInstance(context)
+                val result = LoraTrainer.train(context, store)
+                _rlResult.value = RlResultUi(
+                    success      = result.success,
+                    samplesUsed  = result.samplesUsed,
+                    adapterPath  = result.adapterPath,
+                    loraVersion  = result.loraVersion,
+                    errorMessage = result.errorMessage,
+                )
+                refreshLearningStatus()
+                refreshModuleState()
+            } catch (e: Exception) {
+                _rlResult.value = RlResultUi(false, 0, "", 0, e.message ?: "unknown")
+            } finally {
+                _rlRunning.value = false
+            }
+        }
+    }
+
+    fun processIrlVideo(videoUri: String, goal: String, appPackage: String) {
+        if (_irlRunning.value) return
+        _irlRunning.value = true
+        _irlResult.value  = null
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                val resolvedPath = resolveContentUri(videoUri)
+                val store  = ExperienceStore.getInstance(context)
+                val result = IrlModule.processVideo(context, resolvedPath, goal, appPackage, store)
+                _irlResult.value = IrlResultUi(
+                    framesProcessed  = result.framesProcessed,
+                    tuplesExtracted  = result.tuplesExtracted,
+                    llmAssistedCount = result.llmAssistedCount,
+                    errorMessage     = result.errorMessage,
+                )
+                refreshLearningStatus()
+            } catch (e: Exception) {
+                _irlResult.value = IrlResultUi(0, 0, 0, e.message ?: "unknown")
+            } finally {
+                _irlRunning.value = false
+            }
+        }
+    }
+
+    fun setAutoScheduleRl(enabled: Boolean) {
+        _autoScheduleRl.value = enabled
+        if (enabled) {
+            viewModelScope.launch(Dispatchers.IO) {
+                val store = ExperienceStore.getInstance(context)
+                val untrained = store.getUntrainedSuccesses(1000).size
+                if (untrained > 50 && !_rlRunning.value) {
+                    runRlCycle()
+                }
+            }
+        }
+    }
+
+    // ─── Migration Phase 7: Labeler ───────────────────────────────────────────
+
+    fun captureScreenForLabeling() {
+        if (_labelerCapturing.value) return
+        _labelerCapturing.value = true
+        _labelerError.value     = null
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val screenshot = ScreenCaptureService.captureLatest()
+                    ?: run {
+                        _labelerError.value = "Screen capture service not active — grant Media Projection permission first."
+                        return@launch
+                    }
+                val snapshot = ScreenObserver.capture()
+                val ocrText  = OcrEngine.run(screenshot)
+                val a11yTree = AgentAccessibilityService.getSemanticTree()
+
+                val file = java.io.File(context.cacheDir, "labeler_capture_${System.currentTimeMillis()}.jpg")
+                java.io.FileOutputStream(file).use { out ->
+                    screenshot.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, out)
+                }
+
+                val captureUi = ScreenCaptureUi(
+                    imagePath  = file.absolutePath,
+                    appPackage = snapshot.appPackage,
+                    screenHash = snapshot.screenHash(),
+                    ocrText    = ocrText.take(2000),
+                    a11yTree   = a11yTree.take(2000),
+                )
+                _labelerCapture.value = captureUi
+
+                val store  = ObjectLabelStore.getInstance(context)
+                val existing = store.getByScreen(captureUi.appPackage, captureUi.screenHash)
+                _labelerLabels.value = existing
+            } catch (e: Exception) {
+                _labelerError.value = e.message ?: "Capture failed"
+            } finally {
+                _labelerCapturing.value = false
+            }
+        }
+    }
+
+    fun addLabelerPin(x: Float, y: Float) {
+        val cap = _labelerCapture.value ?: return
+        val newLabel = ObjectLabelStore.ObjectLabel(
+            id          = "${System.currentTimeMillis()}_${(Math.random() * 1000).toInt()}",
+            appPackage  = cap.appPackage,
+            screenHash  = cap.screenHash,
+            x           = x,
+            y           = y,
+            name        = "",
+            context     = "",
+            elementType = ObjectLabelStore.ElementType.BUTTON,
+        )
+        _labelerLabels.update { prev -> prev + newLabel }
+    }
+
+    fun updateLabelerLabel(updated: ObjectLabelStore.ObjectLabel) {
+        _labelerLabels.update { prev ->
+            prev.map { if (it.id == updated.id) updated else it }
+        }
+    }
+
+    fun deleteLabelerLabel(id: String) {
+        _labelerLabels.update { prev -> prev.filter { it.id != id } }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { ObjectLabelStore.getInstance(context).delete(id) }
+        }
+    }
+
+    fun autoDetectLabelerPins() {
+        val cap = _labelerCapture.value ?: return
+        if (_labelerDetecting.value) return
+        _labelerDetecting.value = true
+        _labelerError.value     = null
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                val detections = ObjectDetectorEngine.detectFromPath(context, cap.imagePath)
+                if (detections.isEmpty()) {
+                    _labelerError.value = "No objects detected above 40% confidence. Try adding pins manually."
+                    return@launch
+                }
+                val newLabels = detections.map { det ->
+                    ObjectLabelStore.ObjectLabel(
+                        id             = "${System.currentTimeMillis()}_${(Math.random() * 1000).toInt()}",
+                        appPackage     = cap.appPackage,
+                        screenHash     = cap.screenHash,
+                        x              = det.normX,
+                        y              = det.normY,
+                        name           = det.label.replace("_", " ")
+                            .split(" ").joinToString(" ") { w -> w.replaceFirstChar { it.uppercaseChar() } },
+                        context        = "",
+                        elementType    = inferElementType(det.label),
+                        importanceScore = maxOf(1, minOf(10, (det.confidence * 10).toInt())),
+                    )
+                }
+                _labelerLabels.update { prev -> prev + newLabels }
+            } catch (e: Exception) {
+                _labelerError.value = e.message ?: "Auto-detect failed"
+            } finally {
+                _labelerDetecting.value = false
+            }
+        }
+    }
+
+    fun enrichAllLabelerPins() {
+        val cap = _labelerCapture.value ?: return
+        if (!LlamaEngine.isLoaded()) {
+            _labelerError.value = "Load the LLM engine first (Control → Load LLM Engine)."
+            return
+        }
+        if (_labelerEnriching.value) return
+        _labelerEnriching.value = true
+        _labelerError.value     = null
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                val screenContext = "${cap.ocrText}\n${cap.a11yTree}"
+                val enriched = _labelerLabels.value.map { label ->
+                    val prompt = buildLabelEnrichPrompt(label, screenContext)
+                    val raw    = LlamaEngine.infer(prompt, maxTokens = 150)
+                    parseLabelEnrichOutput(raw, label)
+                }
+                _labelerLabels.value = enriched
+            } catch (e: Exception) {
+                _labelerError.value = e.message ?: "Enrichment failed"
+            } finally {
+                _labelerEnriching.value = false
+            }
+        }
+    }
+
+    fun saveLabelerLabels(onSuccess: () -> Unit, onError: (String) -> Unit) {
+        val cap = _labelerCapture.value ?: return
+        if (_labelerSaving.value) return
+        _labelerSaving.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val store = ObjectLabelStore.getInstance(context)
+                store.saveAll(_labelerLabels.value)
+                _labelerSaveSuccess.value = true
+                refreshModuleState()
+                kotlinx.coroutines.withContext(Dispatchers.Main) { onSuccess() }
+            } catch (e: Exception) {
+                val msg = e.message ?: "Save failed"
+                kotlinx.coroutines.withContext(Dispatchers.Main) { onError(msg) }
+            } finally {
+                _labelerSaving.value = false
+            }
+        }
+    }
+
+    fun clearLabelerCapture() {
+        _labelerCapture.value    = null
+        _labelerLabels.value     = emptyList()
+        _labelerError.value      = null
+        _labelerSaveSuccess.value = false
+    }
+
+    fun dismissLabelerError() {
+        _labelerError.value = null
+    }
+
+    private fun inferElementType(cocoLabel: String): ObjectLabelStore.ElementType {
+        val l = cocoLabel.lowercase()
+        return when {
+            l.contains("cell phone") || l.contains("remote") ||
+            l.contains("keyboard")   || l.contains("mouse")  -> ObjectLabelStore.ElementType.BUTTON
+            l.contains("book") || l.contains("laptop") ||
+            l.contains("tv")   || l.contains("monitor") -> ObjectLabelStore.ElementType.IMAGE
+            l.contains("person") || l.contains("face")   -> ObjectLabelStore.ElementType.ICON
+            else -> ObjectLabelStore.ElementType.UNKNOWN
+        }
+    }
+
+    private fun buildLabelEnrichPrompt(
+        label: ObjectLabelStore.ObjectLabel,
+        screenContext: String,
+    ): String = buildString {
+        append("<|begin_of_text|>")
+        append("<|start_header_id|>system<|end_header_id|>\n")
+        append("You are an Android UI analyst. Analyze the given UI element and output JSON metadata for an autonomous agent.\n")
+        append("Respond ONLY in JSON:\n")
+        append("""{"meaning":"...","interactionHint":"...","reasoningContext":"...","importanceScore":7}""")
+        append("\nRules: meaning≤20 words, interactionHint≤20 words, reasoningContext≤25 words, importanceScore 0-10.\n")
+        append("<|eot_id|>\n")
+        append("<|start_header_id|>user<|end_header_id|>\n")
+        append("Element: \"${label.name}\" (${label.elementType.name.lowercase()})\n")
+        append("User description: ${label.context}\n")
+        if (label.ocrText.isNotBlank()) append("OCR text: ${label.ocrText.take(100)}\n")
+        append("Screen context: ${screenContext.take(400)}\n")
+        append("<|eot_id|>\n")
+        append("<|start_header_id|>assistant<|end_header_id|>\n")
+    }
+
+    /** Copies a content:// URI to a temp file and returns its absolute path. */
+    private fun resolveContentUri(uriString: String): String {
+        if (!uriString.startsWith("content://")) return uriString
+        val uri     = android.net.Uri.parse(uriString)
+        val tmp     = java.io.File(context.cacheDir, "irl_video_${System.currentTimeMillis()}.mp4")
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            java.io.FileOutputStream(tmp).use { out -> input.copyTo(out) }
+        }
+        return tmp.absolutePath
+    }
+
+    private fun parseLabelEnrichOutput(
+        rawOutput: String,
+        original: ObjectLabelStore.ObjectLabel,
+    ): ObjectLabelStore.ObjectLabel {
+        return try {
+            val start = rawOutput.indexOfFirst { it == '{' }
+            val end   = rawOutput.lastIndexOf('}')
+            if (start == -1 || end <= start) return original
+            val json = JSONObject(rawOutput.substring(start, end + 1))
+            original.copy(
+                meaning         = json.optString("meaning",         original.meaning).take(200),
+                interactionHint = json.optString("interactionHint", original.interactionHint).take(200),
+                reasoningContext = json.optString("reasoningContext", original.reasoningContext).take(250),
+                importanceScore = json.optInt("importanceScore",    original.importanceScore).coerceIn(0, 10),
+                isEnriched      = true,
+                updatedAt       = System.currentTimeMillis(),
+            )
+        } catch (_: Exception) {
+            original
         }
     }
 }

@@ -25,31 +25,33 @@ import com.ariaagent.mobile.ui.theme.ARIATheme
 import com.ariaagent.mobile.ui.viewmodel.AgentViewModel
 
 /**
- * ARIAComposeApp — root composable for Phase 11 native Android UI.
+ * ARIAComposeApp — root composable for the pure-Kotlin native UI.
  *
- * Hosts all 5 ARIA screens via Navigation Compose + Material3 NavigationBar.
- * A single AgentViewModel is shared across all screens through a common viewModel()
- * call at this level and passed down. This ensures all screens observe the same
- * StateFlows from the same ViewModel instance.
+ * Migration Phase 5/6/7 update: adds Chat, Train tabs and Labeler full-screen route.
  *
- * Navigation destinations:
+ * Navigation destinations (bottom nav — 7 tabs):
  *   dashboard  → DashboardScreen  — at-a-glance status
  *   control    → ControlScreen    — start/pause/stop + goal input
+ *   chat       → ChatScreen       — on-device LLM chat (Phase 5)
  *   activity   → ActivityScreen   — live action log + token stream
+ *   train      → TrainScreen      — RL cycle + IRL video training (Phase 6)
  *   modules    → ModulesScreen    — hardware/model readiness
  *   settings   → SettingsScreen   — inference parameter editing
  *
- * Phase: 11 (Jetpack Compose UI — registered in ComposeMainActivity, NOT launcher yet)
+ * Full-screen routes (no bottom nav):
+ *   labeler    → LabelerScreen    — screenshot annotation + LLM enrichment (Phase 7)
  */
 
 private sealed class Screen(
     val route: String,
     val label: String,
-    val icon: ImageVector
+    val icon: ImageVector,
 ) {
     object Dashboard : Screen("dashboard", "Dashboard", Icons.Default.Dashboard)
     object Control   : Screen("control",   "Control",   Icons.Default.SmartToy)
+    object Chat      : Screen("chat",      "Chat",      Icons.Default.Chat)
     object Activity  : Screen("activity",  "Activity",  Icons.Default.Timeline)
+    object Train     : Screen("train",     "Train",     Icons.Default.FitnessCenter)
     object Modules   : Screen("modules",   "Modules",   Icons.Default.Memory)
     object Settings  : Screen("settings",  "Settings",  Icons.Default.Settings)
 }
@@ -57,77 +59,81 @@ private sealed class Screen(
 private val bottomNavScreens = listOf(
     Screen.Dashboard,
     Screen.Control,
+    Screen.Chat,
     Screen.Activity,
+    Screen.Train,
     Screen.Modules,
     Screen.Settings,
 )
+
+private const val ROUTE_LABELER = "labeler"
 
 @Composable
 fun ARIAComposeApp() {
     ARIATheme {
         val navController = rememberNavController()
-        // Single shared ViewModel — all screens observe the same StateFlows
         val vm: AgentViewModel = viewModel()
         val agentState by vm.agentState.collectAsState()
+
+        val navBackStackEntry by navController.currentBackStackEntryAsState()
+        val currentRoute = navBackStackEntry?.destination?.route
+
+        val showBottomBar = currentRoute != ROUTE_LABELER
 
         Scaffold(
             containerColor = ARIAColors.Background,
             bottomBar = {
-                NavigationBar(
-                    containerColor = ARIAColors.Surface,
-                    tonalElevation = androidx.compose.ui.unit.Dp(0f),
-                    modifier = Modifier.navigationBarsPadding()
-                ) {
-                    val navBackStackEntry by navController.currentBackStackEntryAsState()
-                    val currentDestination = navBackStackEntry?.destination
+                if (showBottomBar) {
+                    NavigationBar(
+                        containerColor = ARIAColors.Surface,
+                        tonalElevation = androidx.compose.ui.unit.Dp(0f),
+                        modifier       = Modifier.navigationBarsPadding()
+                    ) {
+                        val currentDestination = navBackStackEntry?.destination
 
-                    bottomNavScreens.forEach { screen ->
-                        val selected = currentDestination?.hierarchy
-                            ?.any { it.route == screen.route } == true
+                        bottomNavScreens.forEach { screen ->
+                            val selected = currentDestination?.hierarchy
+                                ?.any { it.route == screen.route } == true
 
-                        NavigationBarItem(
-                            icon = {
-                                BadgedBox(
-                                    badge = {
-                                        // Show dot on Control tab when agent is running
-                                        if (screen is Screen.Control && agentState.status == "running") {
-                                            Badge(containerColor = ARIAColors.Success)
+                            NavigationBarItem(
+                                icon = {
+                                    BadgedBox(
+                                        badge = {
+                                            if (screen is Screen.Control && agentState.status == "running") {
+                                                Badge(containerColor = ARIAColors.Success)
+                                            }
                                         }
+                                    ) {
+                                        Icon(screen.icon, contentDescription = screen.label)
                                     }
-                                ) {
-                                    Icon(
-                                        screen.icon,
-                                        contentDescription = screen.label,
+                                },
+                                label = {
+                                    Text(
+                                        screen.label,
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                                        )
                                     )
-                                }
-                            },
-                            label = {
-                                Text(
-                                    screen.label,
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                                    )
+                                },
+                                selected = selected,
+                                onClick = {
+                                    navController.navigate(screen.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState    = true
+                                    }
+                                },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor   = ARIAColors.Primary,
+                                    selectedTextColor   = ARIAColors.Primary,
+                                    unselectedIconColor = ARIAColors.Muted,
+                                    unselectedTextColor = ARIAColors.Muted,
+                                    indicatorColor      = ARIAColors.Primary.copy(alpha = 0.15f),
                                 )
-                            },
-                            selected = selected,
-                            onClick = {
-                                navController.navigate(screen.route) {
-                                    // Pop to start destination to avoid a large back stack
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor      = ARIAColors.Primary,
-                                selectedTextColor      = ARIAColors.Primary,
-                                unselectedIconColor    = ARIAColors.Muted,
-                                unselectedTextColor    = ARIAColors.Muted,
-                                indicatorColor         = ARIAColors.Primary.copy(alpha = 0.15f),
                             )
-                        )
+                        }
                     }
                 }
             }
@@ -139,14 +145,40 @@ fun ARIAComposeApp() {
                     .padding(innerPadding)
             ) {
                 NavHost(
-                    navController = navController,
+                    navController    = navController,
                     startDestination = Screen.Dashboard.route
                 ) {
                     composable(Screen.Dashboard.route) { DashboardScreen(vm) }
-                    composable(Screen.Control.route)   { ControlScreen(vm) }
-                    composable(Screen.Activity.route)  { ActivityScreen(vm) }
+
+                    composable(Screen.Control.route) {
+                        ControlScreen(
+                            vm                  = vm,
+                            onNavigateToLabeler = { navController.navigate(ROUTE_LABELER) },
+                        )
+                    }
+
+                    composable(Screen.Chat.route) {
+                        ChatScreen(vm)
+                    }
+
+                    composable(Screen.Activity.route) { ActivityScreen(vm) }
+
+                    composable(Screen.Train.route) {
+                        TrainScreen(
+                            vm                  = vm,
+                            onNavigateToLabeler = { navController.navigate(ROUTE_LABELER) },
+                        )
+                    }
+
                     composable(Screen.Modules.route)   { ModulesScreen(vm) }
                     composable(Screen.Settings.route)  { SettingsScreen(vm) }
+
+                    composable(ROUTE_LABELER) {
+                        LabelerScreen(
+                            vm     = vm,
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
                 }
             }
         }
