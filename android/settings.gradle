@@ -16,6 +16,17 @@
 // No manual flag is required — mode is detected automatically.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Dependency repositories ───────────────────────────────────────────────────
+// PREFER_PROJECT lets RN/Expo composite builds add their own repos in hybrid
+// mode while still providing google() + mavenCentral() for native-only mode.
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
 // ── 1. Locate node_modules ────────────────────────────────────────────────────
 def nmDir = null
 
