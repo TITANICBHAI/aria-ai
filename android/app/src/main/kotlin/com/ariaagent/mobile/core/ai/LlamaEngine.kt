@@ -135,6 +135,137 @@ object LlamaEngine {
         fun onToken(token: String)
     }
 
+    // ─── Multimodal / Vision ──────────────────────────────────────────────────
+    //
+    // Vision requires a multimodal base model (e.g. moondream2, SmolVLM) plus a
+    // matching CLIP projection file (mmproj). These are separate from the Llama 3.2-1B
+    // text model — they are loaded into completely independent handles so they
+    // can coexist in memory without interfering.
+    //
+    // Handle layout:
+    //   visionModelHandle  — llama_model* for the vision base (e.g. moondream2-Q4)
+    //   visionCtxHandle    — llama_context* for the vision base
+    //   visionHandle       — mtmd_context* (CLIP encoder + projection layer)
+
+    private var visionModelHandle: Long = 0L
+    private var visionCtxHandle: Long = 0L
+    private var visionHandle: Long = 0L
+
+    fun isVisionLoaded(): Boolean = visionHandle != 0L
+
+    /**
+     * Load a multimodal vision model + its CLIP mmproj file.
+     *
+     * Must be called BEFORE [inferWithVision].
+     * Safe to call even when the main text model (Llama 3.2-1B) is loaded —
+     * they use independent handles and do not share state.
+     *
+     * @param visionModelPath  Absolute path to vision base GGUF (e.g. moondream2-Q4_K_M.gguf)
+     * @param mmProjPath       Absolute path to the mmproj GGUF (e.g. moondream2-mmproj.gguf)
+     * @param contextSize      KV-cache size for vision model (2048 is enough for moondream2)
+     * @param nGpuLayers       GPU layers to offload; 0 = CPU-only (safe default for Mali-G72 + mtmd)
+     * @return true if both model and mmproj loaded successfully
+     */
+    fun loadVision(
+        visionModelPath: String,
+        mmProjPath: String,
+        contextSize: Int = 2048,
+        nGpuLayers: Int = 0
+    ): Boolean {
+        if (!jniAvailable) {
+            android.util.Log.w("LlamaEngine", "loadVision: stub mode — JNI not compiled")
+            visionModelHandle = 2L   // non-zero sentinel for stub
+            visionCtxHandle   = 2L
+            visionHandle      = 2L
+            return true
+        }
+        unloadVision()
+        visionModelHandle = nativeLoadModel(visionModelPath, contextSize, nGpuLayers)
+        if (visionModelHandle == 0L) {
+            android.util.Log.e("LlamaEngine", "loadVision: failed to load vision base model")
+            return false
+        }
+        visionCtxHandle = nativeCreateContext(visionModelHandle)
+        if (visionCtxHandle == 0L) {
+            android.util.Log.e("LlamaEngine", "loadVision: failed to create vision context")
+            nativeFreeModel(visionModelHandle); visionModelHandle = 0L
+            return false
+        }
+        visionHandle = nativeInitVision(mmProjPath, visionModelHandle)
+        if (visionHandle == 0L) {
+            android.util.Log.e("LlamaEngine", "loadVision: mmproj init failed")
+            nativeFreeContext(visionCtxHandle); visionCtxHandle = 0L
+            nativeFreeModel(visionModelHandle); visionModelHandle = 0L
+            return false
+        }
+        android.util.Log.i("LlamaEngine", "Vision loaded: model=$visionModelPath mmproj=$mmProjPath")
+        return true
+    }
+
+    /**
+     * Free vision model, context, and mmproj handles.
+     * The main text model (Llama 3.2-1B) is NOT affected.
+     */
+    fun unloadVision() {
+        if (jniAvailable) {
+            if (visionHandle   != 0L) { nativeFreeVision(visionHandle); visionHandle = 0L }
+            if (visionCtxHandle != 0L) { nativeFreeContext(visionCtxHandle); visionCtxHandle = 0L }
+            if (visionModelHandle != 0L) { nativeFreeModel(visionModelHandle); visionModelHandle = 0L }
+        } else {
+            visionHandle = 0L; visionCtxHandle = 0L; visionModelHandle = 0L
+        }
+    }
+
+    /**
+     * Run vision inference: encode [imageBytes] (JPEG/PNG) through CLIP, then
+     * generate a response to [prompt] grounded in the image.
+     *
+     * Requires [loadVision] to have been called successfully.
+     * Falls back to a stub description when JNI is not compiled.
+     *
+     * @param imageBytes  Raw JPEG or PNG bytes — produced by Bitmap.compress(JPEG, 85)
+     * @param prompt      Text question about the image (image marker is prepended automatically)
+     * @param maxTokens   Generation cap — 128 is enough for screen descriptions
+     * @param onToken     Optional streaming callback
+     * @return Full generated text response
+     */
+    suspend fun inferWithVision(
+        imageBytes: ByteArray,
+        prompt: String,
+        maxTokens: Int = 128,
+        onToken: ((String) -> Unit)? = null
+    ): String {
+        if (!isVisionLoaded()) throw IllegalStateException("Vision not loaded. Call loadVision() first.")
+        return if (jniAvailable) {
+            val callback = onToken?.let { cb ->
+                object : TokenCallback { override fun onToken(token: String) { cb(token) } }
+            }
+            val result = nativeRunVisionInference(
+                visionCtxHandle, visionHandle, imageBytes, prompt, maxTokens, callback
+            )
+            lastToksPerSec = nativeGetToksPerSec()
+            result
+        } else {
+            val stub = "[vision stub] Screen shows a mobile UI. Text visible via OCR. " +
+                "No mmproj compiled yet — install libllama-jni.so to enable real vision."
+            onToken?.invoke(stub)
+            stub
+        }
+    }
+
+    // ─── Vision JNI declarations (implemented in llama_jni.cpp) ──────────────
+
+    private external fun nativeInitVision(mmProjPath: String, modelHandle: Long): Long
+    private external fun nativeFreeVision(visionHandle: Long)
+    private external fun nativeRunVisionInference(
+        ctxHandle:     Long,
+        visionHandle:  Long,
+        imageBytes:    ByteArray,
+        prompt:        String,
+        maxTokens:     Int,
+        tokenCallback: TokenCallback?
+    ): String
+
     // ─── LoRA adapter loading ─────────────────────────────────────────────────
 
     private external fun nativeLoadLora(ctxHandle: Long, adapterPath: String, scale: Float): Boolean
