@@ -100,7 +100,8 @@ object PolicyNetwork {
     // ─── Load / init ─────────────────────────────────────────────────────────
 
     fun load(context: Context) {
-        val rlDir = context.getExternalFilesDir("rl") ?: File(context.filesDir, "rl")
+        val rlDir = File(context.filesDir, "rl").also { it.mkdirs() }
+            .let { i -> if (i.canWrite()) i else (context.getExternalFilesDir("rl") ?: i).also { it.mkdirs() } }
         val weightsFile = File(rlDir, "policy_latest.bin")
         if (weightsFile.exists() && weightsFile.length() > 100L) {
             loadFromBinary(weightsFile)
@@ -317,7 +318,8 @@ object PolicyNetwork {
     fun saveToFile(context: Context) {
         if (!isInitialized) return
         try {
-            val dir = (context.getExternalFilesDir("rl") ?: File(context.filesDir, "rl")).also { it.mkdirs() }
+            val dir = File(context.filesDir, "rl").also { it.mkdirs() }
+                .let { i -> if (i.canWrite()) i else (context.getExternalFilesDir("rl") ?: i).also { it.mkdirs() } }
 
             // Save weights as little-endian float32 binary
             DataOutputStream(FileOutputStream(File(dir, "policy_latest.bin"))).use { out ->

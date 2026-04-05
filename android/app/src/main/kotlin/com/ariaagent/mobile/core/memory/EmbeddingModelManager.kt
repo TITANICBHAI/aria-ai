@@ -51,9 +51,11 @@ object EmbeddingModelManager {
     private const val VOCAB_FILENAME = "bert-vocab.txt"
     private const val VOCAB_MIN_SIZE_BYTES = 200_000L      // ~230 KB minimum valid file
 
-    private fun modelsDir(context: Context): File =
-        (context.getExternalFilesDir("models") ?: File(context.filesDir, "models"))
-            .also { it.mkdirs() }
+    private fun modelsDir(context: Context): File {
+        val internal = File(context.filesDir, "models").also { it.mkdirs() }
+        if (internal.canWrite()) return internal
+        return (context.getExternalFilesDir("models") ?: internal).also { it.mkdirs() }
+    }
 
     fun modelPath(context: Context): File =
         File(modelsDir(context), MODEL_FILENAME)

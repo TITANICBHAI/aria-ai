@@ -51,8 +51,11 @@ object EmbeddingEngine {
     private var ortEnvironment: OrtEnvironment? = null
     private var neonAvailable = false
 
-    private fun modelsDir(context: Context): File =
-        context.getExternalFilesDir("models") ?: File(context.filesDir, "models")
+    private fun modelsDir(context: Context): File {
+        val internal = File(context.filesDir, "models").also { it.mkdirs() }
+        if (internal.canWrite()) return internal
+        return (context.getExternalFilesDir("models") ?: internal).also { it.mkdirs() }
+    }
 
     fun isModelAvailable(context: Context): Boolean =
         File(modelsDir(context), MODEL_FILENAME).exists()
