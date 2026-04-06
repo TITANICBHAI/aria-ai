@@ -55,6 +55,46 @@ object ModelManager {
             .edit().putString(KEY_CUSTOM_PATH, path?.takeIf { it.isNotBlank() }).apply()
     }
 
+    // ── Custom model type + mmproj (for user-supplied GGUFs) ─────────────────
+
+    /**
+     * Classification the user assigns to their custom GGUF so ARIA knows how to load it.
+     *
+     *   TEXT_LLM       — pure text model (Llama, Mistral, Phi, Gemma …).
+     *                    Loaded via LlamaEngine.load(). If SmolVLM helper is downloaded
+     *                    it is used as a separate screen-reader.
+     *
+     *   MULTIMODAL_VLM — vision+text model (LLaVA, Moondream, InternVL, SmolVLM …).
+     *                    Requires a matching mmproj GGUF. Loaded via LlamaEngine.loadUnified()
+     *                    so a single model instance handles both vision and reasoning.
+     */
+    enum class CustomModelType { TEXT_LLM, MULTIMODAL_VLM }
+
+    private const val KEY_CUSTOM_TYPE     = "custom_model_type"
+    private const val KEY_CUSTOM_MMPROJ   = "custom_mmproj_path"
+
+    fun customModelType(context: Context): CustomModelType {
+        val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_CUSTOM_TYPE, null)
+        return if (raw == CustomModelType.MULTIMODAL_VLM.name) CustomModelType.MULTIMODAL_VLM
+               else CustomModelType.TEXT_LLM
+    }
+
+    fun setCustomModelType(context: Context, type: CustomModelType) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_CUSTOM_TYPE, type.name).apply()
+    }
+
+    fun customMmProjPath(context: Context): String? {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_CUSTOM_MMPROJ, null)?.takeIf { it.isNotBlank() }
+    }
+
+    fun setCustomMmProjPath(context: Context, path: String?) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_CUSTOM_MMPROJ, path?.takeIf { it.isNotBlank() }).apply()
+    }
+
     // ── Backward-compatible constants (always reflect the active entry) ────────
 
     val MODEL_URL: String get() = activeEntry_static?.url ?: ModelCatalog.SMOLVLM_256M.url

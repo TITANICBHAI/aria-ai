@@ -105,6 +105,10 @@ fun SettingsScreen(
     // ── Auto-detected .gguf files in the ARIA models directory ────────────────
     var detectedGgufs by remember { mutableStateOf<List<File>>(emptyList()) }
 
+    // ── Custom model type + mmproj (for user-supplied GGUFs) ─────────────────
+    var customModelType  by remember { mutableStateOf(ModelManager.customModelType(context)) }
+    var customMmProjPath by remember { mutableStateOf(ModelManager.customMmProjPath(context) ?: "") }
+
     // Refresh notification permission state each time screen composes
     LaunchedEffect(Unit) {
         notificationsGranted = NotificationManagerCompat.from(context).areNotificationsEnabled()
@@ -502,13 +506,97 @@ fun SettingsScreen(
                 maxLines        = 3
             )
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(12.dp))
+
+            // ── Model type selector ──────────────────────────────────────────
+            Text(
+                "What type of model is this?",
+                style = MaterialTheme.typography.labelMedium.copy(color = ARIAColors.OnSurface)
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    ModelManager.CustomModelType.TEXT_LLM        to "Text LLM",
+                    ModelManager.CustomModelType.MULTIMODAL_VLM  to "Multimodal VLM"
+                ).forEach { (type, label) ->
+                    val selected = customModelType == type
+                    Surface(
+                        shape  = RoundedCornerShape(8.dp),
+                        color  = if (selected) ARIAColors.Primary.copy(alpha = 0.15f)
+                                 else ARIAColors.Divider.copy(alpha = 0.10f),
+                        border = androidx.compose.foundation.BorderStroke(
+                            width = if (selected) 1.5.dp else 1.dp,
+                            color = if (selected) ARIAColors.Primary else ARIAColors.Divider
+                        ),
+                        modifier = Modifier.clickable { customModelType = type }
+                    ) {
+                        Text(
+                            label,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            style    = MaterialTheme.typography.labelMedium.copy(
+                                color      = if (selected) ARIAColors.Primary else ARIAColors.Muted,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                when (customModelType) {
+                    ModelManager.CustomModelType.TEXT_LLM ->
+                        "Llama, Mistral, Phi, Gemma … — pure text reasoning. " +
+                        "If SmolVLM helper is downloaded it handles screen reading."
+                    ModelManager.CustomModelType.MULTIMODAL_VLM ->
+                        "LLaVA, Moondream, InternVL, SmolVLM, Qwen-VL … — one model " +
+                        "handles both vision and reasoning. Needs a matching mmproj file."
+                },
+                style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)
+            )
+
+            // ── mmproj path — only for multimodal ────────────────────────────
+            if (customModelType == ModelManager.CustomModelType.MULTIMODAL_VLM) {
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value         = customMmProjPath,
+                    onValueChange = { customMmProjPath = it },
+                    modifier      = Modifier.fillMaxWidth(),
+                    label         = { Text("mmproj .gguf path", fontSize = 11.sp) },
+                    placeholder   = {
+                        Text(
+                            "/storage/emulated/0/Download/mmproj-model-f16.gguf",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = ARIAColors.Divider, fontSize = 10.sp
+                            )
+                        )
+                    },
+                    colors          = ariaTextFieldColors(),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    singleLine      = false,
+                    maxLines        = 3
+                )
+                Text(
+                    "The CLIP projection file that came with your model. " +
+                    "Usually named mmproj-*.gguf or *-mmproj-f16.gguf.",
+                    style    = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted),
+                    modifier = Modifier.padding(top = 3.dp)
+                )
+            }
+
+            Spacer(Modifier.height(10.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = {
                         if (modelPath.isNotBlank()) {
-                            vm.setLocalModelPath(modelPath)
+                            vm.setCustomModelMeta(
+                                path       = modelPath,
+                                type       = customModelType,
+                                mmProjPath = if (customModelType ==
+                                    ModelManager.CustomModelType.MULTIMODAL_VLM &&
+                                    customMmProjPath.isNotBlank()
+                                ) customMmProjPath else null
+                            )
                             activeModelId = ModelManager.activeModelId(context)
                             saveSuccess = true
                         }
@@ -524,8 +612,10 @@ fun SettingsScreen(
                     OutlinedButton(
                         onClick = {
                             vm.setLocalModelPath(null)
-                            modelPath = ""
-                            activeModelId = ModelManager.activeModelId(context)
+                            modelPath        = ""
+                            customMmProjPath = ""
+                            customModelType  = ModelManager.CustomModelType.TEXT_LLM
+                            activeModelId    = ModelManager.activeModelId(context)
                         },
                         shape  = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = ARIAColors.Muted),
@@ -539,11 +629,18 @@ fun SettingsScreen(
             if (ModelManager.customModelPath(context) != null) {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Active: ${ModelManager.customModelPath(context)}",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        color = ARIAColors.Success
-                    )
+                    "Active: ${ModelManager.customModelPath(context)}" +
+                    if (ModelManager.customModelType(context) == ModelManager.CustomModelType.MULTIMODAL_VLM)
+                        " · Multimodal VLM" else " · Text LLM",
+                    style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Success)
                 )
+                if (ModelManager.customModelType(context) == ModelManager.CustomModelType.MULTIMODAL_VLM &&
+                    ModelManager.customMmProjPath(context) != null) {
+                    Text(
+                        "mmproj: ${ModelManager.customMmProjPath(context)}",
+                        style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted)
+                    )
+                }
             }
         }
 

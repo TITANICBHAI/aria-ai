@@ -978,6 +978,25 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun setLocalModelPath(path: String?) {
         ModelManager.setCustomModelPath(context, path)
+        if (path == null) {
+            ModelManager.setCustomModelType(context, ModelManager.CustomModelType.TEXT_LLM)
+            ModelManager.setCustomMmProjPath(context, null)
+        }
+        refreshModuleState()
+    }
+
+    /**
+     * Save all three pieces of metadata for a user-supplied custom GGUF in one call.
+     * Called from SettingsScreen when the user taps "Use this file".
+     */
+    fun setCustomModelMeta(
+        path:       String?,
+        type:       ModelManager.CustomModelType,
+        mmProjPath: String?
+    ) {
+        ModelManager.setCustomModelPath(context, path)
+        ModelManager.setCustomModelType(context, type)
+        ModelManager.setCustomMmProjPath(context, mmProjPath)
         refreshModuleState()
     }
 
@@ -1360,22 +1379,39 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             val cfg = ConfigStore.getBlocking(context)
             runCatching {
-                // Unified VLM mode: active catalog model has an mmproj AND both
-                // files are fully downloaded → load ONE model instance that handles
-                // both screen vision and text reasoning (no separate SmolVLM helper).
-                // Falls back to text-only load() for custom GGUFs or if mmproj is missing.
-                val activeEntry  = ModelManager.activeEntry(context)
-                val mmProjFile   = activeEntry.mmprojFilename?.let {
-                    java.io.File(ModelManager.modelDir(context), it)
-                }
-                val mmProjReady  = mmProjFile != null &&
-                    mmProjFile.exists() && mmProjFile.length() > 0
-                val baseReady    = ModelManager.isModelReady(context)
+                // Determine mmproj path and whether unified mode is appropriate.
+                //
+                // Custom GGUF (user-supplied):
+                //   The user explicitly classified the model when they added it.
+                //   If they said "Multimodal VLM" and also provided an mmproj path,
+                //   load in unified mode.  Otherwise text-only load().
+                //
+                // Catalog model (downloaded via ARIA):
+                //   Every catalog entry is a VLM with a known mmproj filename.
+                //   If the mmproj file is fully on disk, unified mode is used automatically.
 
-                if (baseReady && mmProjReady) {
+                val isCustomPath = ModelManager.customModelPath(context) != null
+                val mmProjPath: String? = if (isCustomPath) {
+                    val customType = ModelManager.customModelType(context)
+                    if (customType == ModelManager.CustomModelType.MULTIMODAL_VLM)
+                        ModelManager.customMmProjPath(context)
+                    else null
+                } else {
+                    val activeEntry = ModelManager.activeEntry(context)
+                    activeEntry.mmprojFilename?.let { fname ->
+                        java.io.File(ModelManager.modelDir(context), fname)
+                            .takeIf { it.exists() && it.length() > 0 }
+                            ?.absolutePath
+                    }
+                }
+
+                if (mmProjPath != null &&
+                    java.io.File(mmProjPath).exists() &&
+                    java.io.File(mmProjPath).length() > 0
+                ) {
                     LlamaEngine.loadUnified(
                         modelPath   = cfg.modelPath,
-                        mmProjPath  = mmProjFile!!.absolutePath,
+                        mmProjPath  = mmProjPath,
                         contextSize = cfg.contextWindow,
                         nGpuLayers  = cfg.nGpuLayers,
                     )
