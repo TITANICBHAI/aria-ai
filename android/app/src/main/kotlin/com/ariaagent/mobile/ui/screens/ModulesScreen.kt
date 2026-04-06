@@ -1,6 +1,14 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.ariaagent.mobile.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -11,17 +19,23 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ariaagent.mobile.core.ai.ModelCatalog
 import com.ariaagent.mobile.core.ai.ModelManager
 import com.ariaagent.mobile.ui.viewmodel.AgentViewModel
 import com.ariaagent.mobile.ui.viewmodel.AppSkillItem
+import com.ariaagent.mobile.ui.viewmodel.LlmRole
+import com.ariaagent.mobile.ui.viewmodel.LoadedLlmEntry
 import com.ariaagent.mobile.ui.theme.ARIAColors
 
 /**
@@ -50,13 +64,20 @@ fun ModulesScreen(
     val learning             by vm.learningState.collectAsStateWithLifecycle()
     val appSkills            by vm.appSkills.collectAsStateWithLifecycle()
     val llmDownloading       by vm.llmDownloading.collectAsStateWithLifecycle()
-    val activeModel          = remember { ModelManager.activeEntry(context) }
+    val loadedLlms           by vm.loadedLlms.collectAsStateWithLifecycle()
     val detectorDownloading  by vm.detectorDownloading.collectAsStateWithLifecycle()
     val embeddingDownloading by vm.embeddingDownloading.collectAsStateWithLifecycle()
     val visionDownloading    by vm.visionDownloading.collectAsStateWithLifecycle()
     val visionLoading        by vm.visionLoading.collectAsStateWithLifecycle()
     val sam2Downloading      by vm.sam2Downloading.collectAsStateWithLifecycle()
     val sam2Loading          by vm.sam2Loading.collectAsStateWithLifecycle()
+
+    // Derived vision-auto-support status
+    val anyLoadedHasVision = loadedLlms.values.any { entry ->
+        ModelCatalog.findById(entry.modelId)?.isTextOnly == false
+    }
+    val allLoadedAreTextOnly = loadedLlms.values.isNotEmpty() && !anyLoadedHasVision
+    val visionAutoActive = allLoadedAreTextOnly && modules.visionLoaded
 
     Column(
         modifier = Modifier
@@ -90,30 +111,126 @@ fun ModulesScreen(
             }
         }
 
-        // ── LLM ──────────────────────────────────────────────────────────────
-        val llmStatus = when {
-            modules.modelLoaded -> ModuleStatus.ACTIVE
-            modules.modelReady  -> ModuleStatus.READY
-            else                -> ModuleStatus.MISSING
+        // ── MODEL CATALOG ─────────────────────────────────────────────────────
+        ARIACard {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Storage,
+                        contentDescription = null,
+                        tint     = ARIAColors.Primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        "MODEL CATALOG",
+                        style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted)
+                    )
+                    if (loadedLlms.isNotEmpty()) {
+                        val loadedCount = loadedLlms.values.count { it.isLoaded }
+                        Text(
+                            "$loadedCount/${loadedLlms.size} loaded",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = ARIAColors.Primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        )
+                    }
+                }
+                IconButton(onClick = { vm.refreshModuleState() }) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Refresh",
+                        tint = ARIAColors.Muted, modifier = Modifier.size(18.dp))
+                }
+            }
+
+            // Vision auto-support banner
+            if (visionAutoActive) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(ARIAColors.Accent.copy(alpha = 0.12f))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Default.RemoveRedEye, contentDescription = null,
+                        tint = ARIAColors.Accent, modifier = Modifier.size(14.dp))
+                    Text(
+                        "Vision auto-support active — SmolVLM handling screen reading for text-only model(s)",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = ARIAColors.Accent, fontSize = 11.sp
+                        )
+                    )
+                }
+            } else if (allLoadedAreTextOnly && !modules.visionLoaded) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(ARIAColors.Warning.copy(alpha = 0.10f))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Default.Warning, contentDescription = null,
+                        tint = ARIAColors.Warning, modifier = Modifier.size(14.dp))
+                    Column {
+                        Text(
+                            "Text-only models loaded — no vision coverage",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = ARIAColors.Warning, fontWeight = FontWeight.SemiBold, fontSize = 11.sp
+                            )
+                        )
+                        Text(
+                            "Download SmolVLM 256M below to auto-activate screen reading",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = ARIAColors.Muted, fontSize = 10.sp
+                            )
+                        )
+                    }
+                }
+            }
         }
-        val llmTypeLabel = if (activeModel.isTextOnly) "Text-only" else "Vision+Text"
-        ModuleCard(
-            icon = Icons.Default.Psychology,
-            title = activeModel.displayName,
-            subtitle = "Active model  •  $llmTypeLabel  •  ~${activeModel.displaySizeMb} MB",
-            status = llmStatus,
-            detail = when {
-                modules.tokensPerSecond > 0 -> "${String.format("%.1f", modules.tokensPerSecond)} tok/s  •  LoRA v${modules.loraVersion}"
-                llmDownloading && modules.llmDownloadPercent > 0 ->
-                    "${modules.llmDownloadPercent}%  •  ${String.format("%.0f", modules.llmDownloadMb)} / ${String.format("%.0f", modules.llmDownloadTotalMb)} MB  •  ${String.format("%.1f", modules.llmDownloadSpeedMbps)} MB/s"
-                else -> null
-            },
-            downloadProgress = if (llmDownloading && modules.llmDownloadPercent > 0) modules.llmDownloadPercent / 100f else null,
-            downloadError = modules.llmDownloadError,
-            onDownload = if (llmStatus == ModuleStatus.MISSING && !llmDownloading) {{ vm.downloadLlmModel() }} else null,
-            downloading = llmDownloading,
-            onUnload = if (modules.modelLoaded) {{ vm.unloadLlmModel() }} else null,
-        )
+
+        // ── Per-model catalog cards ───────────────────────────────────────────
+        ModelCatalog.ALL.forEach { catalogEntry ->
+            val slotEntry   = loadedLlms[catalogEntry.id]
+            val isDownloaded = ModelManager.isModelDownloaded(context, catalogEntry.id)
+            val isActiveRam  = modules.modelLoaded &&
+                ModelManager.activeModelId(context) == catalogEntry.id
+            CatalogModelCard(
+                catalog      = catalogEntry,
+                slotEntry    = slotEntry,
+                isDownloaded = isDownloaded,
+                isLoaded     = isActiveRam || (slotEntry?.isLoaded == true),
+                isLoading    = slotEntry?.isLoading == true,
+                llmDownloading     = llmDownloading && slotEntry?.isDownloading == true,
+                llmDownloadPercent = if (llmDownloading && ModelManager.activeModelId(context) == catalogEntry.id)
+                    modules.llmDownloadPercent else 0,
+                downloadError = if (ModelManager.activeModelId(context) == catalogEntry.id)
+                    modules.llmDownloadError else null,
+                onDownload   = if (!isDownloaded && !llmDownloading) {{
+                    vm.downloadCatalogModel(catalogEntry.id)
+                }} else null,
+                onLoad       = if (isDownloaded && !isActiveRam && slotEntry?.isLoading != true) {{
+                    vm.loadCatalogLlm(catalogEntry.id)
+                }} else null,
+                onUnload     = if (isActiveRam || slotEntry?.isLoaded == true) {{
+                    vm.unloadCatalogLlm(catalogEntry.id)
+                }} else null,
+                onRoleChange = { role -> vm.setLlmRole(catalogEntry.id, role) },
+                onPromptChange = { prompt -> vm.setLlmSystemPrompt(catalogEntry.id, prompt) },
+            )
+        }
 
         // ── OCR ───────────────────────────────────────────────────────────────
         ModuleCard(
@@ -382,6 +499,450 @@ fun ModulesScreen(
 // ─── Private composables ──────────────────────────────────────────────────────
 
 private enum class ModuleStatus { ACTIVE, READY, MISSING }
+
+// ─── CatalogModelCard ─────────────────────────────────────────────────────────
+
+@Composable
+private fun CatalogModelCard(
+    catalog:            com.ariaagent.mobile.core.ai.CatalogModel,
+    slotEntry:          LoadedLlmEntry?,
+    isDownloaded:       Boolean,
+    isLoaded:           Boolean,
+    isLoading:          Boolean,
+    llmDownloading:     Boolean,
+    llmDownloadPercent: Int,
+    downloadError:      String?,
+    onDownload:         (() -> Unit)?,
+    onLoad:             (() -> Unit)?,
+    onUnload:           (() -> Unit)?,
+    onRoleChange:       (LlmRole) -> Unit,
+    onPromptChange:     (String) -> Unit,
+) {
+    var expanded       by remember { mutableStateOf(isLoaded) }
+    var editingPrompt  by remember { mutableStateOf(false) }
+    var promptDraft    by remember(slotEntry?.systemPrompt) {
+        mutableStateOf(slotEntry?.systemPrompt ?: "")
+    }
+    val currentRole    = slotEntry?.role ?: LlmRole.REASONING
+
+    val cardBorderColor = when {
+        isLoaded      -> ARIAColors.Primary.copy(alpha = 0.5f)
+        isDownloaded  -> ARIAColors.Success.copy(alpha = 0.3f)
+        else          -> ARIAColors.Divider
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, cardBorderColor, RoundedCornerShape(12.dp)),
+        shape  = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isLoaded)
+                ARIAColors.Primary.copy(alpha = 0.06f) else ARIAColors.Surface
+        ),
+        elevation = CardDefaults.cardElevation(0.dp)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+
+            // ── Header row ────────────────────────────────────────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick    = { expanded = !expanded }
+                    ),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment     = Alignment.Top
+            ) {
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .background(
+                            if (isLoaded) ARIAColors.Primary.copy(alpha = 0.15f)
+                            else if (isDownloaded) ARIAColors.Success.copy(alpha = 0.10f)
+                            else ARIAColors.Divider.copy(alpha = 0.15f),
+                            RoundedCornerShape(10.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        if (!catalog.isTextOnly) Icons.Default.RemoveRedEye
+                        else Icons.Default.Psychology,
+                        contentDescription = null,
+                        tint = if (isLoaded) ARIAColors.Primary
+                               else if (isDownloaded) ARIAColors.Success
+                               else ARIAColors.Muted,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            catalog.displayName,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color      = if (isLoaded) ARIAColors.Primary else ARIAColors.OnSurface,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        )
+                        if (isLoaded) {
+                            Box(
+                                Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(ARIAColors.Primary.copy(alpha = 0.15f))
+                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    "IN RAM",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = ARIAColors.Primary, fontSize = 8.sp
+                                    )
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(2.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement   = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            "~${catalog.displaySizeMb} MB",
+                            style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted)
+                        )
+                        Text(
+                            if (catalog.isTextOnly) "• Text-only" else "• Vision+Text",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = if (catalog.isTextOnly) ARIAColors.Primary else ARIAColors.Accent
+                            )
+                        )
+                        if (isDownloaded) {
+                            Text(
+                                "• On device",
+                                style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Success)
+                            )
+                        }
+                        if (catalog.notRecommended) {
+                            Box(
+                                Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(ARIAColors.Warning.copy(alpha = 0.15f))
+                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    "⚠ 8 GB+",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = ARIAColors.Warning, fontWeight = FontWeight.Bold, fontSize = 9.sp
+                                    )
+                                )
+                            }
+                        }
+                        if (isLoaded && slotEntry != null) {
+                            Box(
+                                Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(ARIAColors.Accent.copy(alpha = 0.12f))
+                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    currentRole.label,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = ARIAColors.Accent, fontSize = 9.sp
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+                Icon(
+                    if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint     = ARIAColors.Muted,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            // ── Download progress ─────────────────────────────────────────
+            if (llmDownloading && llmDownloadPercent > 0) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "$llmDownloadPercent%  downloading…",
+                    style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Primary)
+                )
+                Spacer(Modifier.height(4.dp))
+                LinearProgressIndicator(
+                    progress  = { llmDownloadPercent / 100f },
+                    modifier  = Modifier.fillMaxWidth(),
+                    color     = ARIAColors.Primary,
+                    trackColor = ARIAColors.Divider,
+                )
+            }
+            downloadError?.let {
+                Spacer(Modifier.height(4.dp))
+                Text(it, style = MaterialTheme.typography.bodySmall.copy(
+                    color = ARIAColors.Error, fontSize = 11.sp))
+            }
+
+            // ── Action buttons (always visible) ──────────────────────────
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                when {
+                    onDownload != null -> {
+                        Button(
+                            onClick = onDownload,
+                            modifier = Modifier.weight(1f),
+                            shape  = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = ARIAColors.Accent),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.Download, null, modifier = Modifier.size(14.dp),
+                                tint = ARIAColors.Background)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Download", fontSize = 12.sp, color = ARIAColors.Background,
+                                fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    onLoad != null -> {
+                        Button(
+                            onClick  = onLoad,
+                            enabled  = !isLoading,
+                            modifier = Modifier.weight(1f),
+                            shape    = RoundedCornerShape(8.dp),
+                            colors   = ButtonDefaults.buttonColors(
+                                containerColor         = ARIAColors.Primary,
+                                disabledContainerColor = ARIAColors.Primary.copy(alpha = 0.4f)
+                            ),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            if (isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(12.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Color.White
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text("Loading…", fontSize = 12.sp, color = Color.White)
+                            } else {
+                                Icon(Icons.Default.Memory, null, modifier = Modifier.size(14.dp),
+                                    tint = Color.White)
+                                Spacer(Modifier.width(4.dp))
+                                Text("Load", fontSize = 12.sp, color = Color.White,
+                                    fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        if (onUnload != null) {
+                            OutlinedButton(
+                                onClick = onUnload,
+                                shape  = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = ARIAColors.Warning),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp, ARIAColors.Warning.copy(alpha = 0.5f)
+                                ),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                Text("Unload", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                    isLoaded && onUnload != null -> {
+                        OutlinedButton(
+                            onClick = onUnload,
+                            modifier = Modifier.weight(1f),
+                            shape  = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ARIAColors.Warning),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp, ARIAColors.Warning.copy(alpha = 0.5f)
+                            ),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.Memory, null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Unload from RAM", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    !isDownloaded -> {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(ARIAColors.Divider.copy(alpha = 0.15f))
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "Not downloaded",
+                                style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ── Expanded section: role + system prompt ────────────────────
+            AnimatedVisibility(
+                visible = expanded && isDownloaded,
+                enter   = expandVertically(),
+                exit    = shrinkVertically()
+            ) {
+                Column {
+                    Spacer(Modifier.height(12.dp))
+                    HorizontalDivider(color = ARIAColors.Divider)
+                    Spacer(Modifier.height(10.dp))
+
+                    // Role selector
+                    Text(
+                        "ROLE",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = ARIAColors.Muted, fontSize = 10.sp
+                        )
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement   = Arrangement.spacedBy(6.dp)
+                    ) {
+                        LlmRole.entries.forEach { role ->
+                            val selected = currentRole == role
+                            Surface(
+                                shape  = RoundedCornerShape(8.dp),
+                                color  = if (selected) ARIAColors.Accent.copy(alpha = 0.15f)
+                                         else ARIAColors.Divider.copy(alpha = 0.10f),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    if (selected) 1.5.dp else 1.dp,
+                                    if (selected) ARIAColors.Accent else ARIAColors.Divider
+                                ),
+                                modifier = Modifier.clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick    = { onRoleChange(role) }
+                                )
+                            ) {
+                                Text(
+                                    role.label,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    style    = MaterialTheme.typography.labelSmall.copy(
+                                        color      = if (selected) ARIAColors.Accent else ARIAColors.Muted,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                        fontSize   = 11.sp
+                                    )
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        currentRole.description,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = ARIAColors.Muted, fontSize = 10.sp
+                        ),
+                        modifier = Modifier.padding(top = 3.dp)
+                    )
+
+                    Spacer(Modifier.height(10.dp))
+
+                    // System prompt editor
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment     = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "SYSTEM PROMPT",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = ARIAColors.Muted, fontSize = 10.sp
+                            )
+                        )
+                        if (!editingPrompt) {
+                            TextButton(
+                                onClick        = { editingPrompt = true },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                            ) {
+                                Text(
+                                    if (promptDraft.isBlank()) "Add prompt" else "Edit",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = ARIAColors.Primary, fontSize = 11.sp
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    if (!editingPrompt) {
+                        if (promptDraft.isBlank()) {
+                            Text(
+                                "No custom prompt — using default for ${currentRole.label} role",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = ARIAColors.Muted, fontSize = 11.sp
+                                )
+                            )
+                        } else {
+                            Text(
+                                promptDraft,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = ARIAColors.OnSurface, fontSize = 11.sp
+                                ),
+                                maxLines = 3
+                            )
+                        }
+                    } else {
+                        Spacer(Modifier.height(4.dp))
+                        OutlinedTextField(
+                            value         = promptDraft,
+                            onValueChange = { promptDraft = it },
+                            modifier      = Modifier.fillMaxWidth(),
+                            placeholder   = {
+                                Text(
+                                    "e.g. You are ARIA's screen-reading assistant. Describe the UI elements…",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        color = ARIAColors.Divider, fontSize = 10.sp
+                                    )
+                                )
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor   = ARIAColors.Primary,
+                                unfocusedBorderColor = ARIAColors.Divider,
+                                focusedTextColor     = ARIAColors.OnSurface,
+                                unfocusedTextColor   = ARIAColors.OnSurface,
+                            ),
+                            singleLine = false,
+                            maxLines   = 6
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = {
+                                    onPromptChange(promptDraft)
+                                    editingPrompt = false
+                                },
+                                shape  = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = ARIAColors.Primary),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text("Save", fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                    color = ARIAColors.Background)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    promptDraft   = slotEntry?.systemPrompt ?: ""
+                                    editingPrompt = false
+                                },
+                                shape  = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = ARIAColors.Muted),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, ARIAColors.Divider),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text("Cancel", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun ModuleCard(

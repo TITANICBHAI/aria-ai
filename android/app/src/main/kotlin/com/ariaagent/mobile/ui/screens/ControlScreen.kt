@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ariaagent.mobile.core.ai.ModelCatalog
 import com.ariaagent.mobile.core.ai.ModelManager
 import com.ariaagent.mobile.ui.viewmodel.AgentViewModel
 import com.ariaagent.mobile.ui.viewmodel.ChainedTaskItem
@@ -76,8 +77,10 @@ fun ControlScreen(
     val moduleState  by vm.moduleState.collectAsStateWithLifecycle()
     val taskQueue    by vm.taskQueue.collectAsStateWithLifecycle()
     val chainedTask  by vm.chainedTask.collectAsStateWithLifecycle()
+    val loadedLlms   by vm.loadedLlms.collectAsStateWithLifecycle()
     val focusManager = LocalFocusManager.current
     val activeModel  = remember { ModelManager.activeEntry(context) }
+    val loadedCount  = loadedLlms.values.count { it.isLoaded }
 
     var goalText    by remember { mutableStateOf("") }
     var targetApp   by remember { mutableStateOf("") }
@@ -221,7 +224,44 @@ fun ControlScreen(
         }
 
         // ── LLM Load Gate ──────────────────────────────────────────────────────
-        if (!moduleState.modelLoaded) {
+        if (loadedCount > 0) {
+            // ── Loaded models summary ─────────────────────────────────────────
+            ARIACard(
+                modifier = Modifier.border(
+                    1.dp,
+                    ARIAColors.Primary.copy(alpha = 0.40f),
+                    RoundedCornerShape(12.dp)
+                ),
+                containerColor = ARIAColors.Primary.copy(alpha = 0.06f)
+            ) {
+                Row(
+                    modifier              = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment     = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Memory, null,
+                        tint = ARIAColors.Primary, modifier = Modifier.size(20.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "$loadedCount model${if (loadedCount == 1) "" else "s"} in RAM",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = ARIAColors.Primary, fontWeight = FontWeight.SemiBold
+                            )
+                        )
+                        loadedLlms.values.filter { it.isLoaded }.forEach { entry ->
+                            val cat = com.ariaagent.mobile.core.ai.ModelCatalog.findById(entry.modelId)
+                            Text(
+                                "• ${cat?.displayName ?: entry.modelId}  ·  ${entry.role.label}",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = ARIAColors.Muted, fontSize = 11.sp
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        } else if (!moduleState.modelLoaded) {
+            // ── No model loaded gate ──────────────────────────────────────────
             ARIACard(
                 modifier = Modifier.border(
                     1.dp,
@@ -230,43 +270,39 @@ fun ControlScreen(
                 ),
                 containerColor = ARIAColors.Accent.copy(alpha = 0.08f)
             ) {
+                // Quick-load current active model
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                            onClick = { vm.loadModel() }
+                            onClick    = { vm.loadModel() }
                         ),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment     = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        Icons.Default.Memory,
-                        contentDescription = null,
-                        tint = ARIAColors.Accent,
-                        modifier = Modifier.size(22.dp)
-                    )
+                    Icon(Icons.Default.Memory, null,
+                        tint = ARIAColors.Accent, modifier = Modifier.size(22.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             "Load ${activeModel.displayName}",
                             style = MaterialTheme.typography.bodyMedium.copy(
-                                color = ARIAColors.Accent,
-                                fontWeight = FontWeight.SemiBold
+                                color = ARIAColors.Accent, fontWeight = FontWeight.SemiBold
                             )
                         )
                         Text(
-                            if (moduleState.modelReady) "Tap to load into RAM"
-                            else "Not downloaded — go to Settings to pick & download a model",
+                            when {
+                                !moduleState.modelReady ->
+                                    "Not downloaded — go to Modules to pick & download a model"
+                                else ->
+                                    "Tap to load into RAM  ·  or go to Modules to load multiple"
+                            },
                             style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)
                         )
                     }
-                    Icon(
-                        Icons.Default.ChevronRight,
-                        contentDescription = null,
-                        tint = ARIAColors.Accent,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    Icon(Icons.Default.ChevronRight, null,
+                        tint = ARIAColors.Accent, modifier = Modifier.size(18.dp))
                 }
             }
         }

@@ -266,6 +266,37 @@ data class LoraCheckpointItem(
     val isLatest: Boolean,
 )
 
+// ── Multi-LLM Management (Phase 20) ──────────────────────────────────────────
+
+/**
+ * The functional role assigned to a loaded LLM.
+ * ARIA routes different subsystems to whichever model holds each role.
+ */
+enum class LlmRole(val label: String, val description: String) {
+    REASONING("Reasoning",     "Action planning, decision making, task decomposition"),
+    VISION(   "Vision",        "Screen reading, image understanding, UI parsing"),
+    PLANNING( "Planning",      "Multi-step goal planning and sub-task generation"),
+    TOOL_USE( "Tool Use",      "Function calling, gesture dispatch, app control"),
+    CHAT(     "Chat",          "Natural language conversation and user interaction"),
+    CUSTOM(   "Custom",        "Custom role — define your own system prompt"),
+}
+
+/**
+ * Tracks one catalog/custom LLM entry in the multi-LLM slot system.
+ * Models are registered in this map as soon as the user taps Load.
+ * [isLoaded] = the model weights are in RAM and ready for inference.
+ */
+data class LoadedLlmEntry(
+    val modelId:        String,
+    val role:           LlmRole = LlmRole.REASONING,
+    val systemPrompt:   String  = "",
+    val isLoaded:       Boolean = false,
+    val isLoading:      Boolean = false,
+    val isDownloading:  Boolean = false,
+    val downloadPercent: Int    = 0,
+    val downloadError:  String? = null,
+)
+
 /** Live progress during a LoRA training run. */
 data class LoraTrainingProgress(
     val percentComplete: Int = 0,
@@ -507,6 +538,11 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     private val _loraTrainingProgress = MutableStateFlow<LoraTrainingProgress?>(null)
     val loraTrainingProgress: StateFlow<LoraTrainingProgress?> = _loraTrainingProgress.asStateFlow()
 
+    // ── Multi-LLM slot state (Phase 20) ──────────────────────────────────────
+    // Key = modelId.  Each entry tracks the model's role, system prompt, and RAM state.
+    private val _loadedLlms = MutableStateFlow<Map<String, LoadedLlmEntry>>(emptyMap())
+    val loadedLlms: StateFlow<Map<String, LoadedLlmEntry>> = _loadedLlms.asStateFlow()
+
     // ── T002: Session Replay ──────────────────────────────────────────────────
     private val _replaySessions = MutableStateFlow<List<ReplaySessionItem>>(emptyList())
     val replaySessions: StateFlow<List<ReplaySessionItem>> = _replaySessions.asStateFlow()
@@ -525,6 +561,7 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     // ─── Init ─────────────────────────────────────────────────────────────────
 
     init {
+        restoreLlmSlots()
         refreshModuleState()
         refreshTaskQueue()
         refreshAppSkills()
@@ -969,6 +1006,196 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         val intent = Intent(context, ModelDownloadService::class.java)
             .putExtra(ModelDownloadService.EXTRA_MODEL_ID, modelId)
         context.startForegroundService(intent)
+    }
+
+    // ── Multi-LLM slot management (Phase 20) ─────────────────────────────────
+
+    /**
+     * Set the functional [role] for [modelId].
+     * Persists the change in the in-memory slot map; no RAM operation.
+     */
+    fun setLlmRole(modelId: String, role: LlmRole) {
+        _loadedLlms.update { map ->
+            val existing = map[modelId] ?: LoadedLlmEntry(modelId = modelId)
+            map + (modelId to existing.copy(role = role))
+        }
+        persistLlmSlots()
+    }
+
+    /**
+     * Set a custom [systemPrompt] for [modelId] that will be injected
+     * at the beginning of every inference session for that model.
+     */
+    fun setLlmSystemPrompt(modelId: String, systemPrompt: String) {
+        _loadedLlms.update { map ->
+            val existing = map[modelId] ?: LoadedLlmEntry(modelId = modelId)
+            map + (modelId to existing.copy(systemPrompt = systemPrompt))
+        }
+        persistLlmSlots()
+    }
+
+    /**
+     * Load [modelId] into RAM.
+     *
+     * - If the model is already loaded this is a no-op.
+     * - If [modelId] is text-only and no other loaded model has vision
+     *   capability, the SmolVLM vision helper is auto-activated.
+     * - LlamaEngine supports one primary model at a time on mobile.
+     *   Calling this when another non-vision LLM is already loaded will
+     *   first unload the previous primary before loading the new one.
+     */
+    fun loadCatalogLlm(modelId: String) {
+        val catalog = com.ariaagent.mobile.core.ai.ModelCatalog.findById(modelId) ?: return
+        if (!ModelManager.isModelDownloaded(context, modelId)) return
+
+        // Register the slot entry if it doesn't exist yet
+        _loadedLlms.update { map ->
+            val existing = map[modelId] ?: LoadedLlmEntry(modelId = modelId)
+            map + (modelId to existing.copy(isLoading = true, downloadError = null))
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val cfg = ConfigStore.getBlocking(context)
+                // Select this model as the active one so loadModel() picks it up
+                ModelManager.setActiveModelId(context, modelId)
+
+                val mmProjPath: String? = catalog.mmprojFilename?.let { fname ->
+                    java.io.File(ModelManager.modelDir(context), fname)
+                        .takeIf { it.exists() && it.length() > 0 }
+                        ?.absolutePath
+                }
+
+                if (mmProjPath != null) {
+                    LlamaEngine.loadUnified(
+                        modelPath   = ModelManager.modelPath(context).absolutePath,
+                        mmProjPath  = mmProjPath,
+                        contextSize = cfg.contextWindow,
+                        nGpuLayers  = cfg.nGpuLayers,
+                    )
+                } else {
+                    LlamaEngine.load(
+                        path        = ModelManager.modelPath(context).absolutePath,
+                        contextSize = cfg.contextWindow,
+                        nGpuLayers  = cfg.nGpuLayers,
+                    )
+                }
+            }
+            val loaded = LlamaEngine.isLoaded()
+            _loadedLlms.update { map ->
+                val existing = map[modelId] ?: LoadedLlmEntry(modelId = modelId)
+                map + (modelId to existing.copy(isLoaded = loaded, isLoading = false))
+            }
+            persistLlmSlots()
+            refreshModuleState()
+            // Auto-activate vision support if the loaded model is text-only
+            // and no other model with vision is in the loaded set
+            autoEnsureVisionSupport()
+        }
+    }
+
+    /**
+     * Unload [modelId] from RAM.
+     * If [modelId] is the primary LLM, LlamaEngine.unload() is called.
+     * The slot entry is kept so the user can reload quickly.
+     */
+    fun unloadCatalogLlm(modelId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            // Only unload from LlamaEngine if this is the currently active model
+            val activeId = ModelManager.activeModelId(context)
+            if (activeId == modelId && LlamaEngine.isLoaded()) {
+                runCatching { LlamaEngine.unload() }
+            }
+            _loadedLlms.update { map ->
+                val existing = map[modelId] ?: LoadedLlmEntry(modelId = modelId)
+                map + (modelId to existing.copy(isLoaded = false, isLoading = false))
+            }
+            persistLlmSlots()
+            refreshModuleState()
+        }
+    }
+
+    /**
+     * Remove [modelId] from the loaded-LLM set entirely.
+     * Same as unload but also removes the slot entry from the map.
+     */
+    fun removeLlmSlot(modelId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val activeId = ModelManager.activeModelId(context)
+            if (activeId == modelId && LlamaEngine.isLoaded()) {
+                runCatching { LlamaEngine.unload() }
+            }
+            _loadedLlms.update { map -> map - modelId }
+            persistLlmSlots()
+            refreshModuleState()
+        }
+    }
+
+    /**
+     * Auto-activate SmolVLM vision helper if:
+     *   a) There are loaded text-only LLMs, AND
+     *   b) No loaded LLM has built-in vision, AND
+     *   c) SmolVLM helper files are present on disk.
+     */
+    private suspend fun autoEnsureVisionSupport() {
+        val slots = _loadedLlms.value
+        if (slots.isEmpty()) return
+        val anyVisionModel = slots.values.any { entry ->
+            val cat = com.ariaagent.mobile.core.ai.ModelCatalog.findById(entry.modelId)
+            cat != null && !cat.isTextOnly
+        }
+        if (anyVisionModel) return  // already have a vision-capable primary model
+        // Check if SmolVLM helper is ready and not yet loaded
+        if (!LlamaEngine.isVisionLoaded() && !_visionLoading.value) {
+            // Check that SmolVLM files exist
+            val smolId = com.ariaagent.mobile.core.ai.ModelCatalog.DEFAULT_ID
+            val smolEntry = com.ariaagent.mobile.core.ai.ModelCatalog.findById(smolId) ?: return
+            val modelFile = java.io.File(ModelManager.modelDir(context), smolEntry.filename)
+            val mmprojFile = smolEntry.mmprojFilename?.let {
+                java.io.File(ModelManager.modelDir(context), it)
+            }
+            if (modelFile.exists() && mmprojFile?.exists() == true) {
+                _visionLoading.value = true
+                runCatching { VisionEngine.ensureLoaded(context) }
+                _visionLoading.value = false
+                refreshModuleState()
+            }
+        }
+    }
+
+    /**
+     * Persist the current slot configuration to SharedPreferences so it
+     * survives process death.  Stored as a simple comma-separated list of
+     * "modelId:role:prompt" entries.
+     */
+    private fun persistLlmSlots() {
+        val slots = _loadedLlms.value
+        val prefs = context.getSharedPreferences("aria_llm_slots", android.content.Context.MODE_PRIVATE)
+        prefs.edit().apply {
+            putInt("slot_count", slots.size)
+            slots.entries.forEachIndexed { i, (id, entry) ->
+                putString("slot_${i}_id",     id)
+                putString("slot_${i}_role",   entry.role.name)
+                putString("slot_${i}_prompt", entry.systemPrompt)
+            }
+        }.apply()
+    }
+
+    /** Restore the slot configuration from SharedPreferences on ViewModel init. */
+    private fun restoreLlmSlots() {
+        val prefs = context.getSharedPreferences("aria_llm_slots", android.content.Context.MODE_PRIVATE)
+        val count = prefs.getInt("slot_count", 0)
+        val map = mutableMapOf<String, LoadedLlmEntry>()
+        for (i in 0 until count) {
+            val id     = prefs.getString("slot_${i}_id",     null) ?: continue
+            val role   = runCatching {
+                LlmRole.valueOf(prefs.getString("slot_${i}_role", "REASONING") ?: "REASONING")
+            }.getOrDefault(LlmRole.REASONING)
+            val prompt = prefs.getString("slot_${i}_prompt", "") ?: ""
+            // isLoaded is always false on restore — model must be reloaded into RAM
+            map[id] = LoadedLlmEntry(modelId = id, role = role, systemPrompt = prompt)
+        }
+        _loadedLlms.value = map
     }
 
     /**

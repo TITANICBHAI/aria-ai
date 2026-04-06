@@ -39,7 +39,6 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.ariaagent.mobile.core.ai.ModelCatalog
 import com.ariaagent.mobile.core.ai.ModelManager
 import com.ariaagent.mobile.core.config.AriaConfig
 import com.ariaagent.mobile.ui.viewmodel.AgentViewModel
@@ -90,15 +89,6 @@ fun SettingsScreen(
     var rlEnabled       by remember(config.rlEnabled)        { mutableStateOf(config.rlEnabled) }
     var loraPath        by remember(config.loraAdapterPath)  { mutableStateOf(config.loraAdapterPath ?: "") }
 
-    // ── Catalog model state ───────────────────────────────────────────────────
-    var activeModelId      by remember { mutableStateOf(ModelManager.activeModelId(context)) }
-    var downloadingModelId by remember { mutableStateOf<String?>(null) }
-    val llmDownloading     by vm.llmDownloading.collectAsStateWithLifecycle()
-    // Clear downloadingModelId once the download finishes
-    LaunchedEffect(llmDownloading) {
-        if (!llmDownloading) downloadingModelId = null
-    }
-
     // ── Permission state — checked live via DisposableEffect + moduleState ────
     val accessibilityGranted = moduleState.accessibilityGranted
     val screenCaptureGranted = moduleState.screenCaptureGranted
@@ -106,10 +96,6 @@ fun SettingsScreen(
 
     // ── Auto-detected .gguf files in the ARIA models directory ────────────────
     var detectedGgufs by remember { mutableStateOf<List<File>>(emptyList()) }
-
-    // ── Custom model type + mmproj (for user-supplied GGUFs) ─────────────────
-    var customModelType  by remember { mutableStateOf(ModelManager.customModelType(context)) }
-    var customMmProjPath by remember { mutableStateOf(ModelManager.customMmProjPath(context) ?: "") }
 
     // Refresh notification permission state each time screen composes
     LaunchedEffect(Unit) {
@@ -259,419 +245,41 @@ fun SettingsScreen(
             }
         }
 
-        // ── Available Models ──────────────────────────────────────────────────
-        SectionLabel("Available Models")
-
-        ModelCatalog.ALL.forEach { model ->
-            val isActive     = activeModelId == model.id
-            val isDownloaded = ModelManager.isModelDownloaded(context, model.id)
-            val isDownloading = downloadingModelId == model.id && llmDownloading
-
-            SettingsCard {
-                Row(
-                    modifier              = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment     = Alignment.Top
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(
-                            verticalAlignment     = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                model.displayName,
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    color      = if (isActive) ARIAColors.Primary else ARIAColors.OnSurface,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            )
-                            if (isActive) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(ARIAColors.Primary.copy(alpha = 0.15f))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        "ACTIVE",
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            color    = ARIAColors.Primary,
-                                            fontSize = 9.sp
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            model.description,
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color      = ARIAColors.Muted,
-                                lineHeight = 18.sp
-                            )
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        // ── Type badge + status chips ─────────────────────────
-                        androidx.compose.foundation.layout.FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement   = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Text(
-                                "~${model.displaySizeMb} MB",
-                                style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted)
-                            )
-                            // Vision type chip
-                            if (model.isTextOnly) {
-                                Text(
-                                    "• Text-only",
-                                    style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Primary)
-                                )
-                            } else {
-                                Text(
-                                    "• Vision",
-                                    style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Accent)
-                                )
-                            }
-                            // On-device indicator
-                            if (isDownloaded) {
-                                Text(
-                                    "• On device",
-                                    style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Success)
-                                )
-                            }
-                            // Not-recommended warning chip (e.g. 11B on 6 GB phones)
-                            if (model.notRecommended) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(ARIAColors.Warning.copy(alpha = 0.15f))
-                                        .padding(horizontal = 5.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        "⚠ 8 GB+ RAM",
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            color      = ARIAColors.Warning,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize   = 9.sp
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Column(
-                        horizontalAlignment = Alignment.End,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        if (isDownloading) {
-                            val pct = moduleState.llmDownloadPercent
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    "$pct%",
-                                    style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Primary)
-                                )
-                                LinearProgressIndicator(
-                                    progress = { pct / 100f },
-                                    modifier = Modifier.width(72.dp),
-                                    color    = ARIAColors.Primary,
-                                    trackColor = ARIAColors.Divider,
-                                )
-                            }
-                        } else if (!isDownloaded) {
-                            Button(
-                                onClick = {
-                                    downloadingModelId = model.id
-                                    vm.downloadCatalogModel(model.id)
-                                },
-                                shape  = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = ARIAColors.Accent),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                modifier = Modifier.height(32.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Download,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp),
-                                    tint     = ARIAColors.Background
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    "Get",
-                                    style = MaterialTheme.typography.labelMedium.copy(
-                                        color      = ARIAColors.Background,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                )
-                            }
-                        } else if (!isActive) {
-                            Button(
-                                onClick = {
-                                    vm.selectActiveModel(model.id)
-                                    activeModelId = model.id
-                                    if (modelPath.isNotBlank()) modelPath = ""
-                                    vm.setLocalModelPath(null)
-                                },
-                                shape  = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = ARIAColors.Primary),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                modifier = Modifier.height(32.dp)
-                            ) {
-                                Text(
-                                    "Use",
-                                    style = MaterialTheme.typography.labelMedium.copy(
-                                        color      = ARIAColors.Background,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                )
-                            }
-                        } else {
-                            Icon(
-                                Icons.Default.CheckCircle,
-                                contentDescription = "Active model",
-                                tint     = ARIAColors.Success,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                    }
-                }
-
-                // Download error for this model
-                if (isActive || isDownloading) {
-                    moduleState.llmDownloadError?.let { err ->
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "Error: $err",
-                            style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Destructive)
-                        )
-                    }
-                }
-            }
-        }
-
-        // ── Load from Device ──────────────────────────────────────────────────
-        SectionLabel("Load from Device")
-
-        SettingsCard {
-            FieldLabel("Custom GGUF Path")
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Paste the full path to any .gguf file you placed on your device. " +
-                "This overrides the active catalog model above until cleared.",
-                style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted),
-                modifier = Modifier.padding(bottom = 6.dp)
+        // ── Model Catalog (moved to Modules) ─────────────────────────────────
+        SettingsCard(
+            modifier = Modifier.clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null,
+                onClick    = { /* Navigate handled by parent — user should go to Modules tab */ }
             )
-
-            // Show detected local .gguf files that aren't already in the catalog
-            val catalogFilenames = ModelCatalog.ALL.map { it.filename }.toSet()
-            val localOnlyFiles = detectedGgufs.filter { it.name !in catalogFilenames }
-            if (localOnlyFiles.isNotEmpty()) {
-                Text(
-                    "DETECTED ON DEVICE",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        color    = ARIAColors.Muted,
-                        fontSize = 10.sp,
-                        letterSpacing = 0.5.sp
-                    ),
-                    modifier = Modifier.padding(bottom = 4.dp)
-                )
-                localOnlyFiles.forEach { f ->
-                    val isSelected = modelPath == f.absolutePath
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(
-                                if (isSelected) ARIAColors.Primary.copy(alpha = 0.12f)
-                                else ARIAColors.Divider.copy(alpha = 0.08f)
-                            )
-                            .clickable { modelPath = f.absolutePath }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment     = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                f.name,
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    color      = if (isSelected) ARIAColors.Primary else ARIAColors.OnSurface,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            )
-                            Text(
-                                "${f.length() / 1_048_576} MB",
-                                style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted)
-                            )
-                        }
-                        if (isSelected) {
-                            Icon(
-                                Icons.Default.Check,
-                                contentDescription = null,
-                                tint     = ARIAColors.Primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(4.dp))
+        ) {
+            Row(
+                modifier              = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment     = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                        .background(ARIAColors.Primary.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Storage, contentDescription = null, tint = ARIAColors.Primary, modifier = Modifier.size(20.dp))
                 }
-                Spacer(Modifier.height(4.dp))
-            }
-
-            OutlinedTextField(
-                value         = modelPath,
-                onValueChange = { modelPath = it },
-                modifier      = Modifier.fillMaxWidth(),
-                label         = { Text("Full path to .gguf", fontSize = 11.sp) },
-                placeholder   = {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        "/storage/emulated/0/Download/my-model.gguf",
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            color    = ARIAColors.Divider,
-                            fontSize = 10.sp
+                        "Model Catalog — moved to Modules",
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = ARIAColors.Primary, fontWeight = FontWeight.SemiBold
                         )
                     )
-                },
-                colors          = ariaTextFieldColors(),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                singleLine      = false,
-                maxLines        = 3
-            )
-
-            Spacer(Modifier.height(12.dp))
-
-            // ── Model type selector ──────────────────────────────────────────
-            Text(
-                "What type of model is this?",
-                style = MaterialTheme.typography.labelMedium.copy(color = ARIAColors.OnSurface)
-            )
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(
-                    ModelManager.CustomModelType.TEXT_LLM        to "Text LLM",
-                    ModelManager.CustomModelType.MULTIMODAL_VLM  to "Multimodal VLM"
-                ).forEach { (type, label) ->
-                    val selected = customModelType == type
-                    Surface(
-                        shape  = RoundedCornerShape(8.dp),
-                        color  = if (selected) ARIAColors.Primary.copy(alpha = 0.15f)
-                                 else ARIAColors.Divider.copy(alpha = 0.10f),
-                        border = androidx.compose.foundation.BorderStroke(
-                            width = if (selected) 1.5.dp else 1.dp,
-                            color = if (selected) ARIAColors.Primary else ARIAColors.Divider
-                        ),
-                        modifier = Modifier.clickable { customModelType = type }
-                    ) {
-                        Text(
-                            label,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                            style    = MaterialTheme.typography.labelMedium.copy(
-                                color      = if (selected) ARIAColors.Primary else ARIAColors.Muted,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                when (customModelType) {
-                    ModelManager.CustomModelType.TEXT_LLM ->
-                        "Llama, Mistral, Phi, Gemma … — pure text reasoning. " +
-                        "If SmolVLM helper is downloaded it handles screen reading."
-                    ModelManager.CustomModelType.MULTIMODAL_VLM ->
-                        "LLaVA, Moondream, InternVL, SmolVLM, Qwen-VL … — one model " +
-                        "handles both vision and reasoning. Needs a matching mmproj file."
-                },
-                style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)
-            )
-
-            // ── mmproj path — only for multimodal ────────────────────────────
-            if (customModelType == ModelManager.CustomModelType.MULTIMODAL_VLM) {
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value         = customMmProjPath,
-                    onValueChange = { customMmProjPath = it },
-                    modifier      = Modifier.fillMaxWidth(),
-                    label         = { Text("mmproj .gguf path", fontSize = 11.sp) },
-                    placeholder   = {
-                        Text(
-                            "/storage/emulated/0/Download/mmproj-model-f16.gguf",
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color = ARIAColors.Divider, fontSize = 10.sp
-                            )
-                        )
-                    },
-                    colors          = ariaTextFieldColors(),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    singleLine      = false,
-                    maxLines        = 3
-                )
-                Text(
-                    "The CLIP projection file that came with your model. " +
-                    "Usually named mmproj-*.gguf or *-mmproj-f16.gguf.",
-                    style    = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted),
-                    modifier = Modifier.padding(top = 3.dp)
-                )
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = {
-                        if (modelPath.isNotBlank()) {
-                            vm.setCustomModelMeta(
-                                path       = modelPath,
-                                type       = customModelType,
-                                mmProjPath = if (customModelType ==
-                                    ModelManager.CustomModelType.MULTIMODAL_VLM &&
-                                    customMmProjPath.isNotBlank()
-                                ) customMmProjPath else null
-                            )
-                            activeModelId = ModelManager.activeModelId(context)
-                            saveSuccess = true
-                        }
-                    },
-                    enabled = modelPath.isNotBlank(),
-                    shape   = RoundedCornerShape(8.dp),
-                    colors  = ButtonDefaults.buttonColors(containerColor = ARIAColors.Primary)
-                ) {
-                    Text("Use this file", fontWeight = FontWeight.Bold)
-                }
-
-                if (ModelManager.customModelPath(context) != null) {
-                    OutlinedButton(
-                        onClick = {
-                            vm.setLocalModelPath(null)
-                            modelPath        = ""
-                            customMmProjPath = ""
-                            customModelType  = ModelManager.CustomModelType.TEXT_LLM
-                            activeModelId    = ModelManager.activeModelId(context)
-                        },
-                        shape  = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ARIAColors.Muted),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, ARIAColors.Divider)
-                    ) {
-                        Text("Clear")
-                    }
-                }
-            }
-
-            if (ModelManager.customModelPath(context) != null) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Active: ${ModelManager.customModelPath(context)}" +
-                    if (ModelManager.customModelType(context) == ModelManager.CustomModelType.MULTIMODAL_VLM)
-                        " · Multimodal VLM" else " · Text LLM",
-                    style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Success)
-                )
-                if (ModelManager.customModelType(context) == ModelManager.CustomModelType.MULTIMODAL_VLM &&
-                    ModelManager.customMmProjPath(context) != null) {
                     Text(
-                        "mmproj: ${ModelManager.customMmProjPath(context)}",
-                        style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted)
+                        "Download, load, unload and assign roles to LLMs from the Modules screen",
+                        style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)
                     )
                 }
+                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = ARIAColors.Muted, modifier = Modifier.size(18.dp))
             }
         }
 
