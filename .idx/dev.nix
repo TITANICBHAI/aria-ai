@@ -36,6 +36,7 @@
     pkgs.cmake        # for llama.cpp NDK build (CMake 3.22+)
     pkgs.ninja        # cmake build system backend
     pkgs.git          # version control in workspace
+    pkgs.shaderc      # provides glslc — compiles GLSL shaders to SPIR-V for GGML_VULKAN
     # nodejs_20 removed — pure Kotlin build, no JS/Metro/pnpm needed
   ];
 

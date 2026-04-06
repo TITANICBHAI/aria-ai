@@ -16,58 +16,43 @@ set(LLAMA_DIR ${CMAKE_SOURCE_DIR}/llama.cpp)
 # Mali-G72 MP3 → Vulkan 1.1 + OpenCL 2.0
 # No dedicated NPU
 #
-# ── GPU acceleration options ─────────────────────────────────────────────────
+# ── GPU backends: Vulkan + OpenCL both compiled in ───────────────────────────
 #
-# OPTION A — Vulkan (preferred, 10–30× faster than CPU):
-#   Requires glslc (Vulkan SDK shader compiler) on the BUILD machine.
-#   To enable on a local machine that has the Vulkan SDK:
-#     1. Install: https://vulkan.lunarg.com/sdk/home  (or: sudo apt install glslc)
-#     2. Change the line below to: set(GGML_VULKAN ON ...)
-#     3. Rebuild with ./gradlew assembleDebug
-#   Why it's currently OFF: EAS / CI build servers do not ship glslc, so enabling
-#   it aborts the CMake configure step before any C++ is compiled.
+# Both backends are linked into the same .so. The user selects which one to use
+# at runtime via the in-app Settings → GPU Backend chip selector (Vulkan / OpenCL / CPU).
+# GGML's backend registry handles the routing; no rebuild needed to switch.
 #
-# OPTION B — OpenCL (Mali-G72 supports OpenCL 2.0, no build-time compiler needed):
-#   Requires Khronos OpenCL headers vendored in the project:
-#     git clone https://github.com/KhronosGroup/OpenCL-Headers \
-#               android/app/src/main/cpp/opencl-headers
-#   Then set GGML_OPENCL ON below and add to target_include_directories:
-#     ${CMAKE_CURRENT_SOURCE_DIR}/opencl-headers
-#   OpenCL compiles shaders at runtime on the device — no glslc needed.
+# Vulkan (~15–30 tok/s on Mali-G72):
+#   Requires glslc (GLSL→SPIR-V compiler) on the BUILD machine.
+#   • Firebase Studio: pkgs.shaderc is in .idx/dev.nix — glslc auto-installed.
+#   • Android Studio local: sudo apt install glslc
+#                       or  https://vulkan.lunarg.com/sdk/home
+#   • GitHub Actions CI:  add shaderc to the runner image.
+#   Runtime: libvulkan.so — standard on Android 7+ (M31 ships Android 10).
 #
-# CURRENT STATE — OpenCL GPU enabled (Mali-G72 MP3):
-#   mlock=true + n_threads=6/8 fixed the 25-minute paging issue.
-#   OpenCL backend (GGML_OPENCL) now offloads all 32 layers to the GPU.
-#   Expected inference speed: ~8–15 tok/s (up from ~2–5 tok/s CPU-only).
+# OpenCL (~8–15 tok/s on Mali-G72 MP3, OpenCL 2.0):
+#   No glslc needed — kernels compile on-device at first run.
+#   Requires: opencl-headers/ vendored in this directory (already present).
+#             Python3 on the BUILD machine (for GGML_OPENCL_EMBED_KERNELS —
+#             embeds .cl sources as C strings so no runtime file I/O is needed).
+#   Runtime: libOpenCL.so — present on M31 via Mali vendor driver.
+#   Custom FindOpenCL.cmake (same directory) satisfies find_package(OpenCL REQUIRED)
+#   without requiring libOpenCL.so in the NDK sysroot.
 
-set(GGML_VULKAN OFF CACHE BOOL "Vulkan disabled — glslc not on CI. See comment above to enable locally." FORCE)
+set(GGML_VULKAN ON  CACHE BOOL "Vulkan backend — Mali-G72 MP3 Vulkan 1.1 (requires glslc at build time)" FORCE)
+set(GGML_OPENCL ON  CACHE BOOL "OpenCL backend — Mali-G72 MP3 OpenCL 2.0 (runtime-switchable with Vulkan)" FORCE)
 set(GGML_METAL  OFF CACHE BOOL "Metal is iOS only" FORCE)
 set(GGML_CUDA   OFF CACHE BOOL "No CUDA on Android" FORCE)
 set(GGML_BLAS   OFF CACHE BOOL "No external BLAS needed for Q4_K_M" FORCE)
 set(GGML_NATIVE OFF CACHE BOOL "Cross-compiling for arm64-v8a" FORCE)
 
-# ─── OpenCL — Mali-G72 MP3 (Exynos 9611) supports OpenCL 2.0 ─────────────────
-# No glslc needed — kernels are compiled on-device at first run by the driver.
-# Requires:
-#   • opencl-headers/ vendored in this directory (already done — Khronos CL/*.h)
-#   • Python 3 on the BUILD machine (for GGML_OPENCL_EMBED_KERNELS — embeds .cl
-#     sources as C header strings so no runtime file I/O is needed on Android)
-#   • libOpenCL.so on the TARGET device — present on M31 via Mali driver
-#
-# Our custom FindOpenCL.cmake (same directory, loaded via CMAKE_MODULE_PATH below)
-# satisfies find_package(OpenCL REQUIRED) inside ggml-opencl/ without requiring
-# libOpenCL.so in the NDK sysroot — the library is resolved at runtime by the
-# device's Mali driver (/vendor/lib64/libOpenCL.so).
-
+# ─── OpenCL build options ─────────────────────────────────────────────────────
+# FindOpenCL.cmake in this directory resolves the NDK+Android path.
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}")
 
-set(GGML_OPENCL              ON  CACHE BOOL "Enable OpenCL for Mali-G72 GPU acceleration"        FORCE)
-set(GGML_OPENCL_EMBED_KERNELS ON  CACHE BOOL "Embed .cl kernels as C strings (no runtime file IO)" FORCE)
-# OpenCL version target — Mali-G72 fully supports OpenCL 2.0 (report as 300 = 3.0
-# for broader kernel compatibility; driver exposes only what it supports)
-set(GGML_OPENCL_TARGET_VERSION "200" CACHE STRING "OpenCL C target version (200=2.0)" FORCE)
-# Adreno-specific matmul kernels are NOT suitable for Mali — keep default (OFF)
-set(GGML_OPENCL_USE_ADRENO_KERNELS OFF CACHE BOOL "Adreno kernels — disable for Mali" FORCE)
+set(GGML_OPENCL_EMBED_KERNELS    ON  CACHE BOOL   "Embed .cl kernels as C strings (no runtime file I/O on Android)" FORCE)
+set(GGML_OPENCL_TARGET_VERSION   "200" CACHE STRING "OpenCL C target version (200 = OpenCL 2.0)" FORCE)
+set(GGML_OPENCL_USE_ADRENO_KERNELS OFF CACHE BOOL "Adreno-specific matmul kernels — disable for Mali" FORCE)
 set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)

@@ -47,6 +47,9 @@ data class AriaConfig(
     val maxTokensPerTurn: Int   = 512,
     val temperatureX100: Int    = 70,
     val nGpuLayers: Int         = 32,
+    /** Which GPU backend to use for inference. "vulkan" | "opencl" | "cpu".
+     *  Both Vulkan and OpenCL are compiled into the same .so; this selects at load time. */
+    val gpuBackend: String      = "vulkan",
     val loraAdapterPath: String = "",
     val rlEnabled: Boolean      = true,
     val learningRate: Double    = 1e-4,
@@ -61,6 +64,7 @@ object ConfigStore {
     private val KEY_MAX_TOKENS   = intPreferencesKey("maxTokensPerTurn")
     private val KEY_TEMP_X100    = intPreferencesKey("temperatureX100")
     private val KEY_N_GPU_LAYERS = intPreferencesKey("nGpuLayers")
+    private val KEY_GPU_BACKEND  = stringPreferencesKey("gpuBackend")
     private val KEY_LORA_PATH    = stringPreferencesKey("loraAdapterPath")
     private val KEY_RL_ENABLED   = booleanPreferencesKey("rlEnabled")
     private val KEY_LEARNING_RATE = doublePreferencesKey("learningRate")
@@ -91,6 +95,7 @@ object ConfigStore {
             prefs[KEY_MAX_TOKENS]    = config.maxTokensPerTurn
             prefs[KEY_TEMP_X100]     = config.temperatureX100
             prefs[KEY_N_GPU_LAYERS]  = config.nGpuLayers
+            prefs[KEY_GPU_BACKEND]   = config.gpuBackend
             prefs[KEY_LORA_PATH]     = config.loraAdapterPath
             prefs[KEY_RL_ENABLED]    = config.rlEnabled
             prefs[KEY_LEARNING_RATE] = config.learningRate
@@ -111,6 +116,7 @@ object ConfigStore {
             maxTokensPerTurn = legacy.getInt("maxTokensPerTurn", 512),
             temperatureX100  = legacy.getInt("temperatureX100", 70),
             nGpuLayers       = legacy.getInt("nGpuLayers", 32),
+            gpuBackend       = legacy.getString("gpuBackend", "vulkan") ?: "vulkan",
             loraAdapterPath  = legacy.getString("loraAdapterPath", LoraTrainer.latestAdapterPath(context) ?: "") ?: "",
             rlEnabled        = legacy.getBoolean("rlEnabled", true),
             learningRate     = legacy.getFloat("learningRate", 1e-4.toFloat()).toDouble(),
@@ -126,6 +132,7 @@ object ConfigStore {
         maxTokensPerTurn = prefs[KEY_MAX_TOKENS]    ?: 512,
         temperatureX100  = prefs[KEY_TEMP_X100]     ?: 70,
         nGpuLayers       = prefs[KEY_N_GPU_LAYERS]  ?: 32,
+        gpuBackend       = prefs[KEY_GPU_BACKEND]   ?: "vulkan",
         // Prefer the adapter trained for the currently saved model.
         // Falls back to the globally latest adapter (highest version across all model dirs)
         // only when no model path is saved yet (e.g. very first launch).

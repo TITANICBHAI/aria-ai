@@ -8,6 +8,9 @@
 #include "llama.h"
 // common.h is in the include path via CMakeLists.txt target_include_directories.
 #include "common.h"
+// ggml-backend.h — backend device registry API (enumerate Vulkan / OpenCL / CPU devices).
+// Used by nativeLoadModel to route inference to the backend the user selected in Settings.
+#include "ggml-backend.h"
 // mtmd: multimodal library for vision (CLIP image encoder + projection layer).
 // mtmd.h is the public API; mtmd-helper.h provides mtmd_helper_eval_chunks and
 // mtmd_helper_bitmap_init_from_buf which handle the full encode-decode pipeline.
@@ -38,7 +41,9 @@ extern "C" {
 
 // ─── nativeLoadModel ─────────────────────────────────────────────────────────
 // Loads a GGUF file with mmap (never fully in RAM — only accessed pages loaded).
-// n_gpu_layers: number of layers to offload to Mali-G72 via Vulkan.
+// gpu_backend: "vulkan" | "opencl" | "cpu" — selects which GGML GPU backend to use.
+//   Both Vulkan and OpenCL are compiled in; this routes the model to the correct one
+//   via llama_model_params.devices (GGML backend device registry API).
 // Returns a non-zero Long handle on success, 0 on failure.
 JNIEXPORT jlong JNICALL
 Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeLoadModel(
@@ -46,13 +51,15 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeLoadModel(
     jobject /* thiz */,
     jstring path_jstr,
     jint    ctx_size,
-    jint    n_gpu_layers
+    jint    n_gpu_layers,
+    jstring gpu_backend_jstr
 ) {
-    const char* path = env->GetStringUTFChars(path_jstr, nullptr);
+    const char* path        = env->GetStringUTFChars(path_jstr,        nullptr);
+    const char* gpu_backend = env->GetStringUTFChars(gpu_backend_jstr, nullptr);
 
     llama_model_params mparams = llama_model_default_params();
-    mparams.n_gpu_layers = n_gpu_layers;   // offload to Mali-G72 (Vulkan/OpenCL when enabled)
-    mparams.use_mmap     = true;           // CRITICAL: mmap keeps RSS low on M31
+    mparams.n_gpu_layers = n_gpu_layers;
+    mparams.use_mmap     = true;
     // mlock=true pins model pages in RAM so the OS cannot evict them between inference
     // calls. Without this, each call causes hundreds of random page faults re-reading
     // 870MB from eMMC, turning a ~30s inference into 25+ minutes. The 1B Q4_K_M model
@@ -60,8 +67,48 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeLoadModel(
     // overhead leaves ~2.5–3GB free, well above the lock requirement.
     mparams.use_mlock    = true;
 
+    // ── Backend device selection ──────────────────────────────────────────────
+    // Both Vulkan and OpenCL are registered in GGML's backend registry when both
+    // are compiled in. llama_model_params.devices is a null-terminated array of
+    // ggml_backend_dev_t; passing NULL uses GGML's default priority (Vulkan > OpenCL > CPU).
+    // We build an explicit list so the user's Settings choice is always honoured.
+    std::vector<ggml_backend_dev_t> selected_devices;
+
+    bool want_vulkan = (strcmp(gpu_backend, "vulkan") == 0) && (n_gpu_layers > 0);
+    bool want_opencl = (strcmp(gpu_backend, "opencl") == 0) && (n_gpu_layers > 0);
+
+    if (want_vulkan || want_opencl) {
+        ggml_backend_dev_t cpu_dev = nullptr;
+        for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
+            ggml_backend_dev_t dev  = ggml_backend_dev_get(i);
+            ggml_backend_dev_type t = ggml_backend_dev_type(dev);
+            const char* name        = ggml_backend_dev_name(dev);
+            if (t == GGML_BACKEND_DEVICE_TYPE_CPU) {
+                cpu_dev = dev;                  // always include CPU as compute fallback
+            } else if (want_vulkan && strstr(name, "Vulkan")  != nullptr) {
+                selected_devices.push_back(dev);
+                LOGI("Backend selected: Vulkan (%s)", name);
+            } else if (want_opencl && strstr(name, "OpenCL") != nullptr) {
+                selected_devices.push_back(dev);
+                LOGI("Backend selected: OpenCL (%s)", name);
+            }
+        }
+        if (!selected_devices.empty()) {
+            if (cpu_dev) selected_devices.push_back(cpu_dev);
+            selected_devices.push_back(nullptr);   // null-terminate the list
+            mparams.devices = selected_devices.data();
+        } else {
+            // Requested backend not found in registry — fall back to default priority
+            LOGI("Backend '%s' not found in registry — using default priority", gpu_backend);
+        }
+    } else {
+        LOGI("GPU backend: %s (n_gpu_layers=%d) — using GGML default priority",
+             gpu_backend, n_gpu_layers);
+    }
+
     llama_model* model = llama_model_load_from_file(path, mparams);
-    env->ReleaseStringUTFChars(path_jstr, path);
+    env->ReleaseStringUTFChars(path_jstr,        path);
+    env->ReleaseStringUTFChars(gpu_backend_jstr, gpu_backend);
 
     if (!model) {
         LOGE("Failed to load model");
@@ -71,7 +118,8 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeLoadModel(
     // Estimate RSS: Q4_K_M 1B ~ 870MB disk, ~1700MB RSS when context allocated
     g_memory_mb.store(1700.0);
 
-    LOGI("Model loaded — n_params=%lld gpu_layers=%d", (long long)llama_model_n_params(model), n_gpu_layers);
+    LOGI("Model loaded — n_params=%lld gpu_layers=%d backend=%s",
+         (long long)llama_model_n_params(model), n_gpu_layers, gpu_backend);
     return reinterpret_cast<jlong>(model);
 }
 
@@ -337,7 +385,7 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeInitVision(
     const char* path = env->GetStringUTFChars(mmproj_path_jstr, nullptr);
 
     mtmd_context_params vparams  = mtmd_context_params_default();
-    vparams.use_gpu              = true;   // OpenCL enabled — offload CLIP encoder to Mali-G72
+    vparams.use_gpu              = true;   // Vulkan enabled — offload CLIP encoder to Mali-G72
     vparams.n_threads            = 6;      // Cortex-A73 big + 2 A53 LITTLE cores
     vparams.print_timings        = false;
     vparams.flash_attn_type      = LLAMA_FLASH_ATTN_TYPE_DISABLED;

@@ -212,7 +212,7 @@ object LlamaEngine {
      * @param visionModelPath  Absolute path to vision base GGUF (e.g. moondream2-Q4_K_M.gguf)
      * @param mmProjPath       Absolute path to the mmproj GGUF (e.g. moondream2-mmproj.gguf)
      * @param contextSize      KV-cache size for vision model (2048 is enough for moondream2)
-     * @param nGpuLayers       GPU layers to offload via OpenCL (32 = all layers; 0 = CPU-only fallback)
+     * @param nGpuLayers       GPU layers to offload via Vulkan (32 = all layers; 0 = CPU-only fallback)
      * @return true if both model and mmproj loaded successfully
      */
     fun loadVision(
@@ -287,7 +287,7 @@ object LlamaEngine {
      * @param mmProjPath  Absolute path to the matching mmproj GGUF (F16)
      * @param contextSize KV-cache size (2048 default — sufficient for agent action outputs;
      *                    raise to 3072 only if long reasoning chains are being truncated)
-     * @param nGpuLayers  GPU offload layers via OpenCL; 32 = all layers for Mali-G72
+     * @param nGpuLayers  GPU offload layers via Vulkan; 32 = all layers for Mali-G72
      * @return true if both model + mmproj loaded successfully
      */
     fun loadUnified(
