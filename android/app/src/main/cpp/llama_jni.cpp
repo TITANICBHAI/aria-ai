@@ -81,7 +81,7 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeLoadModel(
         ggml_backend_dev_t cpu_dev = nullptr;
         for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
             ggml_backend_dev_t dev  = ggml_backend_dev_get(i);
-            ggml_backend_dev_type t = ggml_backend_dev_type(dev);
+            enum ggml_backend_dev_type t = ggml_backend_dev_type(dev);
             const char* name        = ggml_backend_dev_name(dev);
             if (t == GGML_BACKEND_DEVICE_TYPE_CPU) {
                 cpu_dev = dev;                  // always include CPU as compute fallback

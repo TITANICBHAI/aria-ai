@@ -61,6 +61,35 @@ set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
 # 'common' CMake target is always produced and can be linked by llama-jni.
 set(LLAMA_BUILD_COMMON ON CACHE BOOL "Build llama.cpp common utilities" FORCE)
 
+# ─── Vulkan HPP headers for Android NDK cross-build ──────────────────────────
+# ggml-vulkan.cpp includes <vulkan/vulkan.hpp> (Vulkan C++ API wrapper from
+# KhronosGroup/Vulkan-Hpp).  This file is NOT shipped with the Android NDK —
+# only the C API headers (vulkan/vulkan.h, vulkan/vulkan_core.h) are.
+#
+# Strategy: the CI runner (ubuntu-24.04) provides vulkan.hpp via libvulkan-dev
+# at /usr/include/vulkan/vulkan.hpp.  Because vulkan.hpp is a header-only
+# template library (zero architecture-specific code), it is safe to use the
+# host copy when cross-compiling for arm64-v8a.
+#
+# We search /usr/include first.  If found, we prepend it to the system include
+# path so the NDK cross-compiler finds <vulkan/vulkan.hpp>.
+# If not found (local build without libvulkan-dev), we fall back by disabling
+# the Vulkan backend so the rest of the build (OpenCL + CPU) still succeeds.
+if(ANDROID)
+    find_path(VULKAN_HPP_INC
+        NAMES vulkan/vulkan.hpp
+        PATHS /usr/include
+        NO_DEFAULT_PATH
+    )
+    if(VULKAN_HPP_INC)
+        message(STATUS "[ARIA] vulkan.hpp found at ${VULKAN_HPP_INC}/vulkan/vulkan.hpp — using host headers for Vulkan C++ API")
+        include_directories(BEFORE SYSTEM "${VULKAN_HPP_INC}")
+    else()
+        message(WARNING "[ARIA] vulkan/vulkan.hpp not found on host — disabling Vulkan backend; run: sudo apt-get install -y libvulkan-dev")
+        set(GGML_VULKAN OFF CACHE BOOL "" FORCE)
+    endif()
+endif()
+
 # ─── Add llama.cpp as a static library ───────────────────────────────────────
 add_subdirectory(${LLAMA_DIR} llama_build)
 

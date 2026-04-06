@@ -56,6 +56,12 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
+      - name: Install Vulkan HPP headers
+        run: |
+          sudo apt-get update -y -q
+          sudo apt-get install -y -q libvulkan-dev
+          echo "vulkan.hpp path: $(find /usr/include -name 'vulkan.hpp' 2>/dev/null | head -1)"
+
       - name: Build debug APK (native-only mode)
         run: ./gradlew assembleDebug --no-daemon --stacktrace
         env:
