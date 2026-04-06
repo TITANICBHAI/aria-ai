@@ -76,14 +76,13 @@ set(LLAMA_BUILD_COMMON ON CACHE BOOL "Build llama.cpp common utilities" FORCE)
 # If not found (local build without libvulkan-dev), we fall back by disabling
 # the Vulkan backend so the rest of the build (OpenCL + CPU) still succeeds.
 if(ANDROID)
-    find_path(VULKAN_HPP_INC
-        NAMES vulkan/vulkan.hpp
-        PATHS /usr/include
-        NO_DEFAULT_PATH
-    )
-    if(VULKAN_HPP_INC)
-        message(STATUS "[ARIA] vulkan.hpp found at ${VULKAN_HPP_INC}/vulkan/vulkan.hpp — using host headers for Vulkan C++ API")
-        include_directories(BEFORE SYSTEM "${VULKAN_HPP_INC}")
+    # Use if(EXISTS) instead of find_path() — find_path caches its result in
+    # CMakeCache.txt and returns the stale "not found" value when the .cxx/
+    # directory is restored from a GitHub Actions cache that pre-dates
+    # libvulkan-dev being installed.  if(EXISTS) re-evaluates every CMake run.
+    if(EXISTS "/usr/include/vulkan/vulkan.hpp")
+        message(STATUS "[ARIA] vulkan.hpp found at /usr/include/vulkan/vulkan.hpp — using host headers for Vulkan C++ API")
+        include_directories(BEFORE SYSTEM "/usr/include")
     else()
         message(WARNING "[ARIA] vulkan/vulkan.hpp not found on host — disabling Vulkan backend; run: sudo apt-get install -y libvulkan-dev")
         set(GGML_VULKAN OFF CACHE BOOL "" FORCE)
