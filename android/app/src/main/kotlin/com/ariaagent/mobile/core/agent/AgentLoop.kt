@@ -323,20 +323,25 @@ object AgentLoop {
                     }
 
                     // ── Accessibility sentinel guard ──────────────────────────
-                    // The a11y service sets cachedTree to "(not ready)" on init
-                    // before it has built a real tree. This non-empty placeholder
-                    // would reach the LLM and cause hallucinated node IDs. Pause
-                    // the loop for one tick and re-observe rather than sending it.
-                    if (snapshot.a11yTree == "(not ready)") {
-                        Log.w("AgentLoop", "A11y sentinel detected — skipping step until tree is ready")
+                    // Two sentinel strings that indicate the a11y service has not
+                    // yet built a real tree and must not be forwarded to the LLM:
+                    //   "(not ready)"                     — initialising on boot
+                    //   "(accessibility service not active)" — service suspended by OS
+                    // Sending either string to the LLM causes hallucinated node IDs.
+                    // Pause for one tick, emit a UI event, and re-observe.
+                    val a11ySentinel = snapshot.a11yTree == "(not ready)" ||
+                                       snapshot.a11yTree == "(accessibility service not active)"
+                    if (a11ySentinel) {
+                        Log.w("AgentLoop",
+                            "A11y sentinel detected ('${snapshot.a11yTree}') — pausing until service is ready")
                         state = state.copy(status = Status.PAUSED, lastError = "accessibility_not_ready")
                         AgentEventBus.emit("agent_status_changed", mapOf(
-                            "status" to "paused",
+                            "status"      to "paused",
                             "currentTask" to state.goal,
-                            "currentApp" to state.appPackage,
-                            "stepCount" to state.stepCount,
-                            "lastAction" to state.lastAction,
-                            "lastError" to "accessibility_not_ready"
+                            "currentApp"  to state.appPackage,
+                            "stepCount"   to state.stepCount,
+                            "lastAction"  to state.lastAction,
+                            "lastError"   to "accessibility_not_ready"
                         ))
                         delay(A11Y_RETRY_DELAY_MS)
                         state = state.copy(status = Status.RUNNING, lastError = "")
@@ -591,26 +596,34 @@ object AgentLoop {
                     // the reasoning prompt.  No [VISION DESCRIPTION] block is needed because
                     // the model already has pixel-level context from its image encoder.
                     // Fallback to text-only infer() when no bitmap is available this step.
-                    val rawOutput = if (unifiedVlmMode && snapshot.bitmap != null) {
-                        val imageBytes = VisionEngine.compressFramePublic(snapshot.bitmap!!)
-                        LlamaEngine.inferWithVision(imageBytes, prompt, maxTokens = 200) { token ->
-                            val tokData = mapOf("token" to token, "tokensPerSecond" to LlamaEngine.lastToksPerSec)
-                            onEvent?.invoke("token_generated", tokData)
-                            AgentEventBus.emit("token_generated", tokData)
+                    //
+                    // Bitmap safety: the try-finally guarantees recycle() is called even
+                    // if inference or token-callback throws — preventing memory leaks on
+                    // the Exynos 9611 (no hardware bitmap pool on this SoC).
+                    // The local `bmp` capture avoids forcing !! on snapshot.bitmap inside
+                    // the lambda; all null checks are done before entering the try block.
+                    val bmp = snapshot.bitmap
+                    val rawOutput: String = try {
+                        if (unifiedVlmMode && bmp != null) {
+                            val imageBytes = VisionEngine.compressFramePublic(bmp)
+                            LlamaEngine.inferWithVision(imageBytes, prompt, maxTokens = 200) { token ->
+                                val tokData = mapOf("token" to token, "tokensPerSecond" to LlamaEngine.lastToksPerSec)
+                                onEvent?.invoke("token_generated", tokData)
+                                AgentEventBus.emit("token_generated", tokData)
+                            }
+                        } else {
+                            LlamaEngine.infer(prompt, maxTokens = 200) { token ->
+                                val tokData = mapOf("token" to token, "tokensPerSecond" to LlamaEngine.lastToksPerSec)
+                                onEvent?.invoke("token_generated", tokData)
+                                AgentEventBus.emit("token_generated", tokData)
+                            }
                         }
-                    } else {
-                        LlamaEngine.infer(prompt, maxTokens = 200) { token ->
-                            val tokData = mapOf("token" to token, "tokensPerSecond" to LlamaEngine.lastToksPerSec)
-                            onEvent?.invoke("token_generated", tokData)
-                            AgentEventBus.emit("token_generated", tokData)
-                        }
+                    } finally {
+                        // Always recycle — even if inference or parsing throws.
+                        // hasChanged() uses screenHash() only (no bitmap access), so
+                        // previousSnapshot.bitmap being recycled here is safe.
+                        bmp?.recycle()
                     }
-
-                    // Bug #4 fix: recycle the step bitmap now — all vision consumers
-                    // (ObjectDetectorEngine, VisionEngine, Sam2Engine, LlamaEngine) have
-                    // finished. hasChanged() only uses screenHash() which doesn't touch
-                    // the bitmap, so previousSnapshot.bitmap being recycled is safe.
-                    snapshot.bitmap?.recycle()
 
                     // ── 4. PARSE ──────────────────────────────────────────────
                     val actionJson = PromptBuilder.parseAction(rawOutput)
@@ -624,36 +637,46 @@ object AgentLoop {
                     val isWaiting   = actionJson.contains("\"tool\":\"Wait\"", ignoreCase = true)
                     val isBacking   = actionJson.contains("\"tool\":\"Back\"", ignoreCase = true)
                     val isDoneNow   = actionJson.contains("\"tool\":\"Done\"", ignoreCase = true)
+                    // Debounced stuck detection: require the hash to be UNCHANGED for
+                    // 2 consecutive ticks before scoring it as a genuine stuck step.
+                    // This prevents animated content (hash jitter from looping spinners,
+                    // score counters, etc.) from falsely triggering the stuck escalation.
                     if (!isDoneNow && !isWaiting && !isBacking && currentHash == lastScreenHash) {
-                        stuckCount++
-                        Log.w("AgentLoop", "Stuck count = $stuckCount (hash=$currentHash)")
-                        stuckHint = when {
-                            stuckCount >= 8 -> {
-                                // Abort — nothing we can do
-                                Log.e("AgentLoop", "Stuck limit reached — aborting task")
-                                state = state.copy(status = Status.DONE, lastError = "stuck_abort")
-                                ProgressPersistence.logTaskEnd(context, goal, succeeded = false)
-                                SustainedPerformanceManager.disable()
-                                emitStatus()
-                                recordAndChain(context, goal, lastAppPackage, succeeded = false,
-                                    stepsTaken = state.stepCount, elementsTouched = elementsTouched)
-                                break
+                        sameHashCount++
+                        if (sameHashCount >= 2) {
+                            sameHashCount = 0
+                            stuckCount++
+                            Log.w("AgentLoop", "Stuck count = $stuckCount (hash=$currentHash)")
+                            stuckHint = when {
+                                stuckCount >= 8 -> {
+                                    // Abort — nothing we can do
+                                    Log.e("AgentLoop", "Stuck limit reached — aborting task")
+                                    state = state.copy(status = Status.DONE, lastError = "stuck_abort")
+                                    ProgressPersistence.logTaskEnd(context, goal, succeeded = false)
+                                    SustainedPerformanceManager.disable()
+                                    emitStatus()
+                                    recordAndChain(context, goal, lastAppPackage, succeeded = false,
+                                        stepsTaken = state.stepCount, elementsTouched = elementsTouched)
+                                    break
+                                }
+                                stuckCount >= 5 -> {
+                                    // Force Back to break out of dead-end screen
+                                    Log.w("AgentLoop", "Stuck $stuckCount — forcing Back")
+                                    AgentAccessibilityService.performBack()
+                                    "You have been stuck on the same screen for $stuckCount steps. " +
+                                    "A Back action was forced. Try a completely different approach."
+                                }
+                                stuckCount >= 3 -> {
+                                    "You seem stuck. Try a different action — scroll, Back, or look " +
+                                    "for a different element. Avoid repeating the last action."
+                                }
+                                else -> stuckHint  // keep previous hint if any
                             }
-                            stuckCount >= 5 -> {
-                                // Force Back to break out of dead-end screen
-                                Log.w("AgentLoop", "Stuck $stuckCount — forcing Back")
-                                AgentAccessibilityService.performBack()
-                                "You have been stuck on the same screen for $stuckCount steps. " +
-                                "A Back action was forced. Try a completely different approach."
-                            }
-                            stuckCount >= 3 -> {
-                                "You seem stuck. Try a different action — scroll, Back, or look " +
-                                "for a different element. Avoid repeating the last action."
-                            }
-                            else -> stuckHint  // keep previous hint if any
                         }
+                        // else: first tick with same hash — wait for next tick to confirm
                     } else {
-                        // Screen changed or agent waited/backed — reset stuck counter
+                        // Hash changed or action was Wait/Back — reset debounce and stuck counter
+                        sameHashCount = 0
                         if (currentHash != lastScreenHash) {
                             stuckCount = 0
                             stuckHint  = ""

@@ -1723,6 +1723,21 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Unload the current LlamaEngine instance and reload it using the current saved config.
+     * Called after the user confirms the engine-reload dialog in SettingsScreen when
+     * engine-affecting params (nGpuLayers, contextWindow, quantization) were changed.
+     * Engine is always stopped before reload so the new params take effect immediately.
+     */
+    fun reloadLlamaEngine() {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (LlamaEngine.isLoaded()) {
+                runCatching { LlamaEngine.unload() }
+            }
+            loadModel()
+        }
+    }
+
     // ─── Migration Phase 5: Chat ──────────────────────────────────────────────
 
     /**
@@ -1757,7 +1772,15 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                     .filter { it.role != "system" }
                     .takeLast(6)
                 val historyJson = history.joinToString(",", "[", "]") {
-                    """{"role":"${it.role}","text":"${it.text.replace("\"","'")}"}"""
+                    // Proper JSON escaping: backslash first (prevents double-escaping),
+                    // then control chars, then double-quote.
+                    val escaped = it.text
+                        .replace("\\", "\\\\")
+                        .replace("\n", "\\n")
+                        .replace("\r", "\\r")
+                        .replace("\t", "\\t")
+                        .replace("\"", "\\\"")
+                    """{"role":"${it.role}","text":"$escaped"}"""
                 }
                 val systemCtx = ChatContextBuilder.build(context, text, historyJson)
                 val historyBlock = if (history.isNotEmpty()) {

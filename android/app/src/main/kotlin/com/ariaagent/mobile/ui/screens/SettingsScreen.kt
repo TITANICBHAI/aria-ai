@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ariaagent.mobile.core.ai.LlamaEngine
 import com.ariaagent.mobile.core.ai.ModelManager
 import com.ariaagent.mobile.core.config.AriaConfig
 import com.ariaagent.mobile.ui.viewmodel.AgentViewModel
@@ -115,6 +116,10 @@ fun SettingsScreen(
     // ── Save feedback ─────────────────────────────────────────────────────────
     var saveSuccess by remember { mutableStateOf(false) }
 
+    // ── Engine reload dialog ──────────────────────────────────────────────────
+    // Shown when the user saves settings that affect an already-loaded model.
+    var showReloadDialog by remember { mutableStateOf(false) }
+
     // ── Danger-zone dialogs ───────────────────────────────────────────────────
     var showClearMemoryDialog  by remember { mutableStateOf(false) }
     var showResetAgentDialog   by remember { mutableStateOf(false) }
@@ -144,6 +149,46 @@ fun SettingsScreen(
                 vm.resetAgent()
             },
             onDismiss = { showResetAgentDialog = false }
+        )
+    }
+
+    // ── Engine reload dialog ──────────────────────────────────────────────────
+    if (showReloadDialog) {
+        AlertDialog(
+            onDismissRequest = { showReloadDialog = false },
+            containerColor   = ARIAColors.Surface,
+            title = {
+                Text(
+                    "Engine Reload Required",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        color = ARIAColors.Primary, fontWeight = FontWeight.Bold
+                    )
+                )
+            },
+            text = {
+                Text(
+                    "You changed GPU layers, context window, or quantization. " +
+                    "These settings only take effect after the engine is reloaded. " +
+                    "Reload now to apply the new configuration immediately.",
+                    style = MaterialTheme.typography.bodyMedium.copy(color = ARIAColors.TextPrimary)
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showReloadDialog = false
+                        vm.reloadLlamaEngine()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ARIAColors.Primary)
+                ) {
+                    Text("Reload Now", fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showReloadDialog = false }) {
+                    Text("Later", color = ARIAColors.Muted)
+                }
+            }
         )
     }
 
@@ -690,6 +735,15 @@ fun SettingsScreen(
         Button(
             onClick  = {
                 focusManager.clearFocus()
+                // Detect whether the user changed any parameter that requires an engine
+                // reload to take effect (GPU layers, context window, quantization).
+                // Only relevant when LlamaEngine is already loaded — if it is not loaded,
+                // the new params will be picked up automatically at next load() call.
+                val engineParamsChanged = LlamaEngine.isLoaded() && (
+                    nGpuLayers    != config.nGpuLayers    ||
+                    contextWindow != config.contextWindow ||
+                    quantization  != config.quantization
+                )
                 vm.saveConfig(
                     AriaConfig(
                         modelPath        = modelPath.trim(),
@@ -703,6 +757,7 @@ fun SettingsScreen(
                     )
                 )
                 saveSuccess = true
+                if (engineParamsChanged) showReloadDialog = true
             },
             modifier = Modifier
                 .fillMaxWidth()

@@ -107,27 +107,38 @@ object LlamaEngine {
 
     fun unload() {
         // Wait for any in-progress inference to finish before freeing JNI memory.
-        // Called from Dispatchers.IO so blocking is acceptable.
+        // Called from Dispatchers.IO so blocking is acceptable, BUT we cap the wait
+        // at 10 seconds via withTimeoutOrNull so this can never cause an ANR.
+        // If inference has not released the lock within 10 s, we log a warning and
+        // skip the native free entirely — the model stays in RAM but the app stays
+        // alive. The OS will reclaim memory when the process exits.
         kotlinx.coroutines.runBlocking {
-            engineMutex.withLock {
-                if (unifiedMode) {
-                    // In unified mode text handles are aliases to vision handles.
-                    // Zero them out WITHOUT calling nativeFree — unloadVision() owns the memory.
-                    modelHandle    = 0L
-                    contextHandle  = 0L
-                    unifiedMode    = false
-                } else {
-                    val ctxSnap   = contextHandle
-                    val mdlSnap   = modelHandle
-                    modelHandle   = 0L
-                    contextHandle = 0L
-                    if (jniAvailable) {
-                        if (ctxSnap != 0L) runCatching { nativeFreeContext(ctxSnap) }
-                        if (mdlSnap != 0L) runCatching { nativeFreeModel(mdlSnap) }
+            val completed = kotlinx.coroutines.withTimeoutOrNull(10_000L) {
+                engineMutex.withLock {
+                    if (unifiedMode) {
+                        // In unified mode text handles are aliases to vision handles.
+                        // Zero them out WITHOUT calling nativeFree — unloadVision() owns the memory.
+                        modelHandle    = 0L
+                        contextHandle  = 0L
+                        unifiedMode    = false
+                    } else {
+                        val ctxSnap   = contextHandle
+                        val mdlSnap   = modelHandle
+                        modelHandle   = 0L
+                        contextHandle = 0L
+                        if (jniAvailable) {
+                            if (ctxSnap != 0L) runCatching { nativeFreeContext(ctxSnap) }
+                            if (mdlSnap != 0L) runCatching { nativeFreeModel(mdlSnap) }
+                        }
                     }
+                    lastToksPerSec = 0.0
+                    memoryMb       = 0.0
                 }
-                lastToksPerSec = 0.0
-                memoryMb       = 0.0
+            }
+            if (completed == null) {
+                android.util.Log.w("LlamaEngine",
+                    "unload(): inference lock not released within 10 s — skipping native free to prevent ANR. " +
+                    "Memory will be reclaimed when the process exits.")
             }
         }
     }
