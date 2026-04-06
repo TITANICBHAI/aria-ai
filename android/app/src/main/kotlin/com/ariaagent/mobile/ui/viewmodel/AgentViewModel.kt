@@ -1360,11 +1360,32 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             val cfg = ConfigStore.getBlocking(context)
             runCatching {
-                LlamaEngine.load(
-                    path         = cfg.modelPath,
-                    contextSize  = cfg.contextWindow,
-                    nGpuLayers   = cfg.nGpuLayers,
-                )
+                // Unified VLM mode: active catalog model has an mmproj AND both
+                // files are fully downloaded → load ONE model instance that handles
+                // both screen vision and text reasoning (no separate SmolVLM helper).
+                // Falls back to text-only load() for custom GGUFs or if mmproj is missing.
+                val activeEntry  = ModelManager.activeEntry(context)
+                val mmProjFile   = activeEntry.mmprojFilename?.let {
+                    java.io.File(ModelManager.modelDir(context), it)
+                }
+                val mmProjReady  = mmProjFile != null &&
+                    mmProjFile.exists() && mmProjFile.length() > 0
+                val baseReady    = ModelManager.isModelReady(context)
+
+                if (baseReady && mmProjReady) {
+                    LlamaEngine.loadUnified(
+                        modelPath   = cfg.modelPath,
+                        mmProjPath  = mmProjFile!!.absolutePath,
+                        contextSize = cfg.contextWindow,
+                        nGpuLayers  = cfg.nGpuLayers,
+                    )
+                } else {
+                    LlamaEngine.load(
+                        path        = cfg.modelPath,
+                        contextSize = cfg.contextWindow,
+                        nGpuLayers  = cfg.nGpuLayers,
+                    )
+                }
             }
             refreshModuleState()
         }

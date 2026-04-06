@@ -439,13 +439,24 @@ object AgentLoop {
                             .joinToString("\n") { "• ${it.appName.ifBlank { it.appPackage.substringAfterLast('.') }}: ${it.promptHint.take(80)}" }
                     }.getOrDefault("")
 
-                    // ── 2e. VISION DESCRIPTION — SmolVLM-256M (Phase 17, always-on) ──
-                    // Vision runs on EVERY step now that VisionEngine caches by screenHash.
-                    // A cache-hit (screen unchanged) costs <1 ms and returns the same
-                    // description instantly — zero extra inference overhead on steady frames.
-                    // This ensures the LLM always has pixel-level context, including on
-                    // game / Flutter / Unity screens where the a11y tree is empty.
+                    // ── 2e. VISION DESCRIPTION ────────────────────────────────────────
+                    // Two modes depending on how the primary model was loaded:
+                    //
+                    // UNIFIED MODE (LlamaEngine.isUnifiedMode() == true):
+                    //   The active catalog VLM is loaded as a single model instance that
+                    //   handles both vision and reasoning.  VisionEngine.describe() is
+                    //   SKIPPED — the VLM will see the raw screenshot bytes directly in
+                    //   the REASON step via inferWithVision().  No intermediate text
+                    //   description is needed; the model reasons over pixels + prompt.
+                    //
+                    // HELPER MODE (text-only / custom model, unifiedMode == false):
+                    //   VisionEngine runs SmolVLM-256M as a separate screen-reading
+                    //   helper, producing a [VISION DESCRIPTION] block injected into the
+                    //   PromptBuilder text prompt — the original always-on behaviour.
+                    //   Cache-hits cost <1 ms; new frames run ~400 ms of SmolVLM inference.
+                    val unifiedVlmMode = LlamaEngine.isUnifiedMode()
                     val visionDescription: String = if (
+                        !unifiedVlmMode &&
                         snapshot.bitmap != null &&
                         VisionEngine.isVisionModelReady(context)
                     ) {
@@ -551,10 +562,24 @@ object AgentLoop {
                         goalPlan          = goalPlan
                     )
 
-                    val rawOutput = LlamaEngine.infer(prompt, maxTokens = 200) { token ->
-                        val tokData = mapOf("token" to token, "tokensPerSecond" to LlamaEngine.lastToksPerSec)
-                        onEvent?.invoke("token_generated", tokData)
-                        AgentEventBus.emit("token_generated", tokData)
+                    // ── Unified VLM: one inferWithVision() call — image + prompt together ──
+                    // In unified mode the VLM sees the raw screenshot directly alongside
+                    // the reasoning prompt.  No [VISION DESCRIPTION] block is needed because
+                    // the model already has pixel-level context from its image encoder.
+                    // Fallback to text-only infer() when no bitmap is available this step.
+                    val rawOutput = if (unifiedVlmMode && snapshot.bitmap != null) {
+                        val imageBytes = VisionEngine.compressFramePublic(snapshot.bitmap!!)
+                        LlamaEngine.inferWithVision(imageBytes, prompt, maxTokens = 200) { token ->
+                            val tokData = mapOf("token" to token, "tokensPerSecond" to LlamaEngine.lastToksPerSec)
+                            onEvent?.invoke("token_generated", tokData)
+                            AgentEventBus.emit("token_generated", tokData)
+                        }
+                    } else {
+                        LlamaEngine.infer(prompt, maxTokens = 200) { token ->
+                            val tokData = mapOf("token" to token, "tokensPerSecond" to LlamaEngine.lastToksPerSec)
+                            onEvent?.invoke("token_generated", tokData)
+                            AgentEventBus.emit("token_generated", tokData)
+                        }
                     }
 
                     // ── 4. PARSE ──────────────────────────────────────────────

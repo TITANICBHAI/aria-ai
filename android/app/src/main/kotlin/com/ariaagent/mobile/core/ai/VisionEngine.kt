@@ -264,6 +264,15 @@ object VisionEngine {
     // ── Aspect-preserving frame compression ───────────────────────────────────
 
     /**
+     * Public wrapper for callers outside VisionEngine that need to compress a bitmap
+     * before passing it to [LlamaEngine.inferWithVision].
+     *
+     * Used by AgentLoop in unified VLM mode where the active catalog model receives the
+     * screenshot directly (no separate VisionEngine.describe() pass needed).
+     */
+    fun compressFramePublic(bitmap: Bitmap): ByteArray = compressFrame(bitmap)
+
+    /**
      * Letterbox [bitmap] into a VISION_RES×VISION_RES canvas (black background) and
      * JPEG-compress it to a byte array.
      *

@@ -101,14 +101,22 @@ object LlamaEngine {
     }
 
     fun unload() {
-        if (jniAvailable) {
-            if (contextHandle != 0L) nativeFreeContext(contextHandle)
-            if (modelHandle != 0L) nativeFreeModel(modelHandle)
+        if (unifiedMode) {
+            // In unified mode text handles are aliases to vision handles.
+            // Zero them out WITHOUT calling nativeFree — unloadVision() owns the memory.
+            modelHandle    = 0L
+            contextHandle  = 0L
+            unifiedMode    = false
+        } else {
+            if (jniAvailable) {
+                if (contextHandle != 0L) nativeFreeContext(contextHandle)
+                if (modelHandle   != 0L) nativeFreeModel(modelHandle)
+            }
+            modelHandle   = 0L
+            contextHandle = 0L
         }
-        modelHandle   = 0L
-        contextHandle = 0L
         lastToksPerSec = 0.0
-        memoryMb = 0.0
+        memoryMb       = 0.0
     }
 
     // ─── JNI declarations ────────────────────────────────────────────────────
@@ -151,6 +159,21 @@ object LlamaEngine {
     private var visionCtxHandle: Long = 0L
     private var visionHandle: Long = 0L
 
+    /**
+     * True when the active model was loaded in unified mode via [loadUnified].
+     *
+     * In unified mode the primary text handles (modelHandle/contextHandle) are
+     * aliased to the vision handles — a single model instance handles BOTH
+     * visual understanding and text reasoning.  The agent loop skips the
+     * separate VisionEngine.describe() step and calls [inferWithVision]
+     * directly with the raw screenshot bytes + full reasoning prompt.
+     *
+     * In non-unified mode the primary model is text-only and VisionEngine
+     * auto-loads SmolVLM-256M as a separate screen-reading helper.
+     */
+    @Volatile private var unifiedMode: Boolean = false
+
+    fun isUnifiedMode(): Boolean = unifiedMode
     fun isVisionLoaded(): Boolean = visionHandle != 0L
 
     /**
@@ -204,16 +227,61 @@ object LlamaEngine {
 
     /**
      * Free vision model, context, and mmproj handles.
-     * The main text model (Llama 3.2-1B) is NOT affected.
+     * The main text model is NOT affected unless running in unified mode,
+     * in which case [unload] must be called first to clear the aliases.
      */
     fun unloadVision() {
         if (jniAvailable) {
-            if (visionHandle   != 0L) { nativeFreeVision(visionHandle); visionHandle = 0L }
-            if (visionCtxHandle != 0L) { nativeFreeContext(visionCtxHandle); visionCtxHandle = 0L }
-            if (visionModelHandle != 0L) { nativeFreeModel(visionModelHandle); visionModelHandle = 0L }
+            if (visionHandle      != 0L) { nativeFreeVision(visionHandle);      visionHandle      = 0L }
+            if (visionCtxHandle   != 0L) { nativeFreeContext(visionCtxHandle);  visionCtxHandle   = 0L }
+            if (visionModelHandle != 0L) { nativeFreeModel(visionModelHandle);  visionModelHandle = 0L }
         } else {
             visionHandle = 0L; visionCtxHandle = 0L; visionModelHandle = 0L
         }
+    }
+
+    /**
+     * Load a multimodal VLM as the SOLE model instance for both vision and reasoning.
+     *
+     * The model is loaded ONCE into the vision handles.  The primary text handles
+     * (modelHandle / contextHandle) are then aliased to the same values so that
+     * [isLoaded] returns true and callers that check the primary handles still work.
+     * No second copy of the model is held in RAM — critical on M31 (6 GB).
+     *
+     * After this call:
+     *   • [isUnifiedMode] == true
+     *   • [isLoaded]      == true  (text handles aliased to vision handles)
+     *   • [isVisionLoaded]== true
+     *
+     * The agent loop detects [isUnifiedMode] and calls [inferWithVision] directly
+     * with the raw screenshot + full reasoning prompt, skipping the separate
+     * VisionEngine.describe() step entirely.
+     *
+     * @param modelPath   Absolute path to the VLM base GGUF
+     * @param mmProjPath  Absolute path to the matching mmproj GGUF (F16)
+     * @param contextSize KV-cache size (4096 is sufficient for action-sized outputs)
+     * @param nGpuLayers  GPU offload layers; 0 = CPU-only (safe default for Mali-G72)
+     * @return true if both model + mmproj loaded successfully
+     */
+    fun loadUnified(
+        modelPath:   String,
+        mmProjPath:  String,
+        contextSize: Int = 4096,
+        nGpuLayers:  Int = 0
+    ): Boolean {
+        unload()
+        unloadVision()
+        val ok = loadVision(modelPath, mmProjPath, contextSize, nGpuLayers)
+        if (ok) {
+            // Alias — no extra RAM cost, no extra JNI calls
+            modelHandle   = visionModelHandle
+            contextHandle = visionCtxHandle
+            unifiedMode   = true
+            memoryMb      = if (jniAvailable) nativeGetMemoryMb() else 1700.0
+            android.util.Log.i("LlamaEngine",
+                "Unified VLM mode active: $modelPath + $mmProjPath")
+        }
+        return ok
     }
 
     /**
