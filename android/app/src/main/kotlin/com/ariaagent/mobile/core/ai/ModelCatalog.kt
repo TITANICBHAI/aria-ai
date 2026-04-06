@@ -23,10 +23,9 @@ package com.ariaagent.mobile.core.ai
  * Moondream2       │ VLM         │ ~2 GB  │ cjpais/moondream2-llamafile
  * Qwen2.5-VL 3B   │ VLM         │ ~3 GB  │ ggml-org/Qwen2.5-VL-3B-Instruct-GGUF
  * MiniCPM-V 2.6   │ VLM Q4_0   │ ~5.5 GB│ openbmb/MiniCPM-V-2_6-gguf
- * Llama 3.2 V 11B │ VLM ⚠heavy  │ 8 GB+  │ ggml-org/Llama-3.2-11B-Vision-...
  * Llama 3.2 1B    │ Text        │ ~1.2 GB│ bartowski/Llama-3.2-1B-Instruct-GGUF
  * Gemma 3 1B      │ Text        │ ~1.1 GB│ ggml-org/gemma-3-1b-it-GGUF
- * Qwen2.5 1.5B    │ Text        │ ~1.5 GB│ ggml-org/Qwen2.5-1.5B-Instruct-GGUF
+ * Qwen2.5 1.5B    │ Text        │ ~1.5 GB│ bartowski/Qwen2.5-1.5B-Instruct-GGUF
  * Llama 3.2 3B    │ Text        │ ~2.5 GB│ bartowski/Llama-3.2-3B-Instruct-GGUF
  * Gemma 3 4B      │ Text        │ ~3 GB  │ ggml-org/gemma-3-4b-it-GGUF
  *
@@ -134,7 +133,7 @@ object ModelCatalog {
         description       = "Most powerful on-device vision model. Strong reasoning, document understanding, and screen interaction. Needs 6 GB+ RAM.",
         filename          = "qwen2.5-vl-3b-q4_k_m.gguf",
         url               = "https://huggingface.co/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/" +
-                            "qwen2.5-vl-3b-instruct-q4_k_m.gguf",
+                            "Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf",
         expectedSizeBytes = 1_900_000_000L,
         displaySizeMb     = 2300,
         mmprojFilename    = "qwen2.5-vl-3b-mmproj-f16.gguf",
@@ -209,7 +208,7 @@ object ModelCatalog {
     )
 
     // ── Qwen2.5 1.5B Instruct (text-only, Alibaba) ────────────────────────────
-    // Repo:    ggml-org/Qwen2.5-1.5B-Instruct-GGUF
+    // Repo:    bartowski/Qwen2.5-1.5B-Instruct-GGUF  (ggml-org copy is gated/401)
     // Params:  ~1.5B  │  Q4_K_M ≈ 970 MB
     // RAM:     ~1.5 GB — fast and very capable at instruction following
 
@@ -218,7 +217,7 @@ object ModelCatalog {
         displayName       = "Qwen2.5 1.5B",
         description       = "Alibaba's 1.5B instruction model — surprisingly capable at tool-use and structured output. Text-only, pairs with SmolVLM. ~970 MB.",
         filename          = "qwen2.5-1.5b-instruct-q4_k_m.gguf",
-        url               = "https://huggingface.co/ggml-org/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/" +
+        url               = "https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/" +
                             "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
         expectedSizeBytes = 850_000_000L,
         displaySizeMb     = 970,
@@ -244,27 +243,11 @@ object ModelCatalog {
                             "mmproj-model-f16.gguf",
     )
 
-    // ── Llama 3.2 Vision 11B (NOT RECOMMENDED for 6 GB phones) ───────────────
-    // Repo:    ggml-org/Llama-3.2-11B-Vision-Instruct-GGUF
-    // Params:  ~11B   │  Q4_K_M ≈ 7.0 GB base — exceeds 6 GB phone RAM
-    // RAM:     8 GB+ required — will crash or run at <1 token/sec on 6 GB devices
-
-    val LLAMA32_VISION_11B = CatalogModel(
-        id                = "llama3.2-vision-11b",
-        displayName       = "Llama 3.2 Vision 11B",
-        description       = "⚠ NOT RECOMMENDED for 6 GB phones. 11B parameters require 8 GB+ RAM — will crash or run below 1 token/sec on most Android devices. Use Qwen2.5-VL-3B or MiniCPM-V 2.6 instead.",
-        filename          = "llama-3.2-11b-vision-instruct-q4_k_m.gguf",
-        url               = "https://huggingface.co/ggml-org/Llama-3.2-11B-Vision-Instruct-GGUF/resolve/main/" +
-                            "Llama-3.2-11B-Vision-Instruct-Q4_K_M.gguf",
-        expectedSizeBytes = 6_500_000_000L,
-        displaySizeMb     = 8000,
-        mmprojFilename    = "llama-3.2-11b-vision-mmproj-f16.gguf",
-        mmprojUrl         = "https://huggingface.co/ggml-org/Llama-3.2-11B-Vision-Instruct-GGUF/resolve/main/" +
-                            "mmproj-Llama-3.2-11B-Vision-Instruct-f16.gguf",
-        notRecommended    = true,
-    )
-
     // ── Registry ──────────────────────────────────────────────────────────────
+    // NOTE: Llama 3.2 Vision 11B was removed — every public HF mirror for that
+    // model requires accepting Meta's license (HTTP 401).  It cannot be
+    // downloaded without a HuggingFace token and is already too large for 6 GB
+    // phones anyway.  Use MiniCPM-V 2.6 for high-quality on-device vision.
 
     val ALL: List<CatalogModel> = listOf(
         // ── Multimodal (vision + text) ────────────────────────────────────────
@@ -273,7 +256,6 @@ object ModelCatalog {
         MOONDREAM2,             // 1.86B — compact VLM
         QWEN25_VL_3B,           // 3B    — best vision/text balance
         MINICPM_V26,            // 8B    — GPT-4V quality, tight on 6 GB
-        LLAMA32_VISION_11B,     // 11B   — not recommended for 6 GB phones
         // ── Text-only (pair with SmolVLM for screen understanding) ────────────
         LLAMA32_1B,             // 1B    — fastest text LLM
         GEMMA3_1B,              // 1B    — Google, great structured output
