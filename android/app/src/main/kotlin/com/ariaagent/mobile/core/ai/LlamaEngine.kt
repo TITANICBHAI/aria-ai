@@ -91,6 +91,7 @@ object LlamaEngine {
     suspend fun infer(
         prompt: String,
         maxTokens: Int = 512,
+        temperature: Float = 0.7f,
         onToken: ((String) -> Unit)? = null
     ): String = engineMutex.withLock {
         if (!isLoaded()) throw IllegalStateException("Model not loaded. Call load() first.")
@@ -99,7 +100,7 @@ object LlamaEngine {
             val callback = onToken?.let { cb ->
                 object : TokenCallback { override fun onToken(token: String) { cb(token) } }
             }
-            val result = nativeRunInference(contextHandle, prompt, maxTokens, callback)
+            val result = nativeRunInference(contextHandle, prompt, maxTokens, temperature, callback)
             lastToksPerSec = nativeGetToksPerSec()
             result
         } else {
@@ -159,6 +160,7 @@ object LlamaEngine {
         ctxHandle:     Long,
         prompt:        String,
         maxTokens:     Int,
+        temperature:   Float,
         tokenCallback: TokenCallback?
     ): String
     private external fun nativeFreeModel(handle: Long)
