@@ -60,9 +60,13 @@ jobs:
       - name: Install Vulkan HPP headers and glslc
         run: |
           sudo apt-get update -y -q
-          sudo apt-get install -y -q libvulkan-dev shaderc glslang-tools
+          sudo apt-get install -y -q libvulkan-dev glslang-tools
+          # glslc comes bundled with the NDK — add it to PATH so CMake can find it
+          NDK_SHADER_TOOLS="$ANDROID_SDK_ROOT/ndk/27.1.12297006/shader-tools/linux-x86_64"
+          echo "$NDK_SHADER_TOOLS" >> $GITHUB_PATH
           echo "vulkan.hpp path: $(find /usr/include -name 'vulkan.hpp' 2>/dev/null | head -1)"
-          echo "glslc path: $(which glslc 2>/dev/null || echo 'NOT FOUND')"
+          echo "glslc path: $NDK_SHADER_TOOLS/glslc"
+          ls "$NDK_SHADER_TOOLS/glslc" && echo "glslc OK" || echo "glslc NOT FOUND at expected path"
 
       - name: Build debug APK (native-only mode)
         run: ./gradlew assembleDebug --no-daemon --stacktrace
