@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.ariaagent.mobile.ui.screens
 
 import android.content.Intent
