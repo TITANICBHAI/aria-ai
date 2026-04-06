@@ -13,11 +13,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ariaagent.mobile.core.ai.ModelManager
 import com.ariaagent.mobile.ui.viewmodel.AgentViewModel
 import com.ariaagent.mobile.ui.viewmodel.AppSkillItem
 import com.ariaagent.mobile.ui.theme.ARIAColors
@@ -43,10 +45,12 @@ fun ModulesScreen(
     onRequestScreenCapture: () -> Unit = {},
     onGrantAccessibility: () -> Unit = {},
 ) {
+    val context              = LocalContext.current
     val modules              by vm.moduleState.collectAsStateWithLifecycle()
     val learning             by vm.learningState.collectAsStateWithLifecycle()
     val appSkills            by vm.appSkills.collectAsStateWithLifecycle()
     val llmDownloading       by vm.llmDownloading.collectAsStateWithLifecycle()
+    val activeModel          = remember { ModelManager.activeEntry(context) }
     val detectorDownloading  by vm.detectorDownloading.collectAsStateWithLifecycle()
     val embeddingDownloading by vm.embeddingDownloading.collectAsStateWithLifecycle()
     val visionDownloading    by vm.visionDownloading.collectAsStateWithLifecycle()
@@ -92,10 +96,11 @@ fun ModulesScreen(
             modules.modelReady  -> ModuleStatus.READY
             else                -> ModuleStatus.MISSING
         }
+        val llmTypeLabel = if (activeModel.isTextOnly) "Text-only" else "Vision+Text"
         ModuleCard(
             icon = Icons.Default.Psychology,
-            title = "Llama 3.2-1B Q4_K_M",
-            subtitle = "Primary reasoning engine  •  ~800 MB",
+            title = activeModel.displayName,
+            subtitle = "Active model  •  $llmTypeLabel  •  ~${activeModel.displaySizeMb} MB",
             status = llmStatus,
             detail = when {
                 modules.tokensPerSecond > 0 -> "${String.format("%.1f", modules.tokensPerSecond)} tok/s  •  LoRA v${modules.loraVersion}"
@@ -179,12 +184,12 @@ fun ModulesScreen(
                 "${modules.sam2DownloadPercent}%  •  encoder downloading"
             modules.sam2DownloadedMb > 0 ->
                 "${String.format("%.0f", modules.sam2DownloadedMb)} MB  •  download incomplete"
-            else -> "~22 MB  •  not downloaded"
+            else -> "~38 MB  •  not downloaded"
         }
         ModuleCard(
             icon = Icons.Default.CropFree,
             title = "MobileSAM (ViT-Tiny)",
-            subtitle = "Pixel segmentation for game / Flutter screens  •  ~22 MB",
+            subtitle = "Pixel segmentation for game / Flutter screens  •  ~38 MB",
             status = sam2Status,
             detail = sam2Detail,
             downloadProgress = if (sam2Downloading && modules.sam2DownloadPercent > 0)

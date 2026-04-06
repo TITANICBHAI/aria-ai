@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -28,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ariaagent.mobile.core.ai.ModelManager
 import com.ariaagent.mobile.ui.viewmodel.AgentViewModel
 import com.ariaagent.mobile.ui.viewmodel.ChainedTaskItem
 import com.ariaagent.mobile.ui.viewmodel.QueuedTaskItem
@@ -69,11 +71,13 @@ fun ControlScreen(
     onNavigateToLabeler: (() -> Unit)? = null,
     onNavigateToGoals: (() -> Unit)? = null,
 ) {
+    val context      = LocalContext.current
     val agentState   by vm.agentState.collectAsStateWithLifecycle()
     val moduleState  by vm.moduleState.collectAsStateWithLifecycle()
     val taskQueue    by vm.taskQueue.collectAsStateWithLifecycle()
     val chainedTask  by vm.chainedTask.collectAsStateWithLifecycle()
     val focusManager = LocalFocusManager.current
+    val activeModel  = remember { ModelManager.activeEntry(context) }
 
     var goalText    by remember { mutableStateOf("") }
     var targetApp   by remember { mutableStateOf("") }
@@ -245,7 +249,7 @@ fun ControlScreen(
                     )
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            "Load LLM Engine",
+                            "Load ${activeModel.displayName}",
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 color = ARIAColors.Accent,
                                 fontWeight = FontWeight.SemiBold
@@ -253,7 +257,7 @@ fun ControlScreen(
                         )
                         Text(
                             if (moduleState.modelReady) "Tap to load into RAM"
-                            else "Model not downloaded — go to Modules first",
+                            else "Not downloaded — go to Settings to pick & download a model",
                             style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)
                         )
                     }

@@ -20,8 +20,8 @@ import java.util.concurrent.TimeUnit
  * Sam2Engine — On-device pixel segmentation using MobileSAM (ViT-Tiny encoder).
  *
  * Architecture:
- *   Model: MobileSAM image encoder — ViT-Tiny variant (~22 MB ONNX)
- *   Source: dhkim2810/MobileSAM on HuggingFace (original MobileSAM authors)
+ *   Model: MobileSAM image encoder — ViT-Tiny variant (~38 MB ONNX)
+ *   Source: Acly/MobileSAM on HuggingFace (ONNX-exported encoder)
  *
  * Pipeline:
  *   1. Resize + letterbox bitmap → 1024×1024 RGB float32
@@ -40,9 +40,9 @@ import java.util.concurrent.TimeUnit
  *   compile-time dependency on ONNX Runtime at class-load.
  *
  * Memory:
- *   Encoder weights: ~22 MB.
+ *   Encoder weights: ~38 MB.
  *   Activation tensor: 1×256×64×64 × 4 bytes = ~4 MB peak.
- *   Total RAM peak: ~26 MB — safe on Exynos 9611 (6 GB LPDDR4X).
+ *   Total RAM peak: ~42 MB — safe on Exynos 9611 (6 GB LPDDR4X).
  *
  * Thread safety:
  *   ensureLoaded() is @Synchronized. segment() calls ensureLoaded() internally.
@@ -53,13 +53,13 @@ object Sam2Engine {
 
     private const val TAG = "Sam2Engine"
 
-    // ── MobileSAM ViT-Tiny encoder ONNX (dhkim2810/MobileSAM on HuggingFace) ──
+    // ── MobileSAM ViT-Tiny encoder ONNX (Acly/MobileSAM on HuggingFace) ─────
 
     const val ENCODER_URL =
-        "https://huggingface.co/dhkim2810/MobileSAM/resolve/main/mobile_sam_vit_t_encoder.onnx"
+        "https://huggingface.co/Acly/MobileSAM/resolve/main/mobile_sam_image_encoder.onnx"
 
     const val ENCODER_FILENAME = "mobilesam-encoder.onnx"
-    const val ENCODER_MIN_BYTES = 18_000_000L          // ~22 MB expected
+    const val ENCODER_MIN_BYTES = 30_000_000L          // ~38 MB expected
 
     /** SAM native resolution — encoder trained on 1024×1024 inputs. */
     private const val SAM_RES = 1024

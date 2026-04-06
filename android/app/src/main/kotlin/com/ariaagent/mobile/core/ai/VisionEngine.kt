@@ -50,19 +50,20 @@ object VisionEngine {
     private const val TAG = "VisionEngine"
 
     // ── SmolVLM-256M from ggml-org on HuggingFace ────────────────────────────
+    // Note: Q4_K_M is not available for this model; Q8_0 is the smallest quant.
 
     const val VISION_MODEL_URL =
         "https://huggingface.co/ggml-org/SmolVLM-256M-Instruct-GGUF/resolve/main/" +
-        "SmolVLM-256M-Instruct-Q4_K_M.gguf"
+        "SmolVLM-256M-Instruct-Q8_0.gguf"
 
     const val MMPROJ_URL =
         "https://huggingface.co/ggml-org/SmolVLM-256M-Instruct-GGUF/resolve/main/" +
         "mmproj-SmolVLM-256M-Instruct-f16.gguf"
 
-    const val VISION_MODEL_FILENAME = "smolvlm-256m-q4_k_m.gguf"
+    const val VISION_MODEL_FILENAME = "smolvlm-256m-q8_0.gguf"
     const val MMPROJ_FILENAME       = "smolvlm-256m-mmproj-f16.gguf"
 
-    const val VISION_MODEL_MIN_BYTES = 140_000_000L   // ~150 MB expected
+    const val VISION_MODEL_MIN_BYTES = 155_000_000L   // ~163 MB expected (Q8_0)
     const val MMPROJ_MIN_BYTES       =  40_000_000L   // ~50 MB expected
 
     /** Native resolution expected by SmolVLM CLIP encoder. */

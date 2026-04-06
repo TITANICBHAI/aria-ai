@@ -65,17 +65,17 @@ object ModelCatalog {
     // ── SmolVLM 256M (smallest VLM — default model) ───────────────────────────
     // Repo:    ggml-org/SmolVLM-256M-Instruct-GGUF
     //          ggml-org/SmolVLM-256M-Instruct-GGUF (mmproj)
-    // Params:  ~256M  │  Q4_K_M ≈ 125 MB + 98 MB mmproj
+    // Params:  ~256M  │  Q8_0 ≈ 163 MB + ~50 MB mmproj  (Q4_K_M not available)
     // RAM:     under 1 GB — works on any Android phone
 
     val SMOLVLM_256M = CatalogModel(
         id                = "smolvlm-256m",
         displayName       = "SmolVLM 256M",
         description       = "World's smallest multimodal model. Understands images and text with under 1 GB RAM. Ideal default for any Android phone.",
-        filename          = "smolvlm-256m-q4_k_m.gguf",
+        filename          = "smolvlm-256m-q8_0.gguf",
         url               = "https://huggingface.co/ggml-org/SmolVLM-256M-Instruct-GGUF/resolve/main/" +
-                            "SmolVLM-256M-Instruct-Q4_K_M.gguf",
-        expectedSizeBytes = 120_000_000L,
+                            "SmolVLM-256M-Instruct-Q8_0.gguf",
+        expectedSizeBytes = 155_000_000L,
         displaySizeMb     = 220,
         mmprojFilename    = "smolvlm-256m-mmproj-f16.gguf",
         mmprojUrl         = "https://huggingface.co/ggml-org/SmolVLM-256M-Instruct-GGUF/resolve/main/" +
