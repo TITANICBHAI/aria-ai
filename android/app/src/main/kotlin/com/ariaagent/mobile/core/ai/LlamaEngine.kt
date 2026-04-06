@@ -1,5 +1,8 @@
 package com.ariaagent.mobile.core.ai
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
 /**
  * LlamaEngine — JNI wrapper around llama.cpp for on-device inference.
  *
@@ -26,6 +29,8 @@ package com.ariaagent.mobile.core.ai
  *   interface TokenCallback { fun onToken(token: String) }
  */
 object LlamaEngine {
+
+    private val engineMutex = Mutex()
 
     private var modelHandle: Long = 0L
     private var contextHandle: Long = 0L
@@ -81,10 +86,10 @@ object LlamaEngine {
         prompt: String,
         maxTokens: Int = 512,
         onToken: ((String) -> Unit)? = null
-    ): String {
+    ): String = engineMutex.withLock {
         if (!isLoaded()) throw IllegalStateException("Model not loaded. Call load() first.")
 
-        return if (jniAvailable) {
+        if (jniAvailable) {
             val callback = onToken?.let { cb ->
                 object : TokenCallback { override fun onToken(token: String) { cb(token) } }
             }
@@ -101,22 +106,30 @@ object LlamaEngine {
     }
 
     fun unload() {
-        if (unifiedMode) {
-            // In unified mode text handles are aliases to vision handles.
-            // Zero them out WITHOUT calling nativeFree — unloadVision() owns the memory.
-            modelHandle    = 0L
-            contextHandle  = 0L
-            unifiedMode    = false
-        } else {
-            if (jniAvailable) {
-                if (contextHandle != 0L) nativeFreeContext(contextHandle)
-                if (modelHandle   != 0L) nativeFreeModel(modelHandle)
+        // Wait for any in-progress inference to finish before freeing JNI memory.
+        // Called from Dispatchers.IO so blocking is acceptable.
+        kotlinx.coroutines.runBlocking {
+            engineMutex.withLock {
+                if (unifiedMode) {
+                    // In unified mode text handles are aliases to vision handles.
+                    // Zero them out WITHOUT calling nativeFree — unloadVision() owns the memory.
+                    modelHandle    = 0L
+                    contextHandle  = 0L
+                    unifiedMode    = false
+                } else {
+                    val ctxSnap   = contextHandle
+                    val mdlSnap   = modelHandle
+                    modelHandle   = 0L
+                    contextHandle = 0L
+                    if (jniAvailable) {
+                        if (ctxSnap != 0L) runCatching { nativeFreeContext(ctxSnap) }
+                        if (mdlSnap != 0L) runCatching { nativeFreeModel(mdlSnap) }
+                    }
+                }
+                lastToksPerSec = 0.0
+                memoryMb       = 0.0
             }
-            modelHandle   = 0L
-            contextHandle = 0L
         }
-        lastToksPerSec = 0.0
-        memoryMb       = 0.0
     }
 
     // ─── JNI declarations ────────────────────────────────────────────────────

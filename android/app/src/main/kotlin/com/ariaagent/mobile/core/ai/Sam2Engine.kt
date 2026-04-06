@@ -448,7 +448,7 @@ object Sam2Engine {
             .followSslRedirects(true)
             .build()
 
-        val resumeFrom = if (partial.exists()) partial.length() else 0L
+        var resumeFrom = if (partial.exists()) partial.length() else 0L
 
         val request = Request.Builder()
             .url(ENCODER_URL)
@@ -461,6 +461,13 @@ object Sam2Engine {
                 if (!response.isSuccessful) {
                     Log.e(TAG, "HTTP ${response.code} for $ENCODER_URL")
                     throw Exception("HTTP ${response.code}: ${response.message}")
+                }
+                // If we requested a range but server returned 200 (not 206),
+                // it ignored the Range header — restart from scratch to avoid corruption.
+                if (resumeFrom > 0 && response.code == 200) {
+                    Log.w(TAG, "Server ignored Range header (returned 200), restarting from 0")
+                    partial.delete()
+                    resumeFrom = 0L
                 }
                 val body = response.body
                     ?: throw Exception("Empty response body for MobileSAM encoder")

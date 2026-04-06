@@ -37,6 +37,7 @@ import com.ariaagent.mobile.system.overlay.FloatingChatService
 import com.ariaagent.mobile.system.screen.ScreenCaptureService
 import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withTimeout
 import com.ariaagent.mobile.core.triggers.TriggerItem
 import com.ariaagent.mobile.core.triggers.TriggerStore
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -273,6 +274,7 @@ data class LoraCheckpointItem(
  * ARIA routes different subsystems to whichever model holds each role.
  */
 enum class LlmRole(val label: String, val description: String) {
+    EVERYTHING_ELSE("Everything Else", "Handles all tasks not assigned to another model"),
     REASONING("Reasoning",     "Action planning, decision making, task decomposition"),
     VISION(   "Vision",        "Screen reading, image understanding, UI parsing"),
     PLANNING( "Planning",      "Multi-step goal planning and sub-task generation"),
@@ -1749,11 +1751,11 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
         _chatMessages.update { prev -> prev + userMsg }
         _chatThinking.value = true
 
-        viewModelScope.launch(Dispatchers.Default) {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 val history = _chatMessages.value
                     .filter { it.role != "system" }
-                    .takeLast(8)
+                    .takeLast(6)
                 val historyJson = history.joinToString(",", "[", "]") {
                     """{"role":"${it.role}","text":"${it.text.replace("\"","'")}"}"""
                 }
@@ -1766,7 +1768,9 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                 val prompt = "$systemCtx${historyBlock}\nUser: $text\nARIA:"
 
                 val t0  = System.currentTimeMillis()
-                val raw = LlamaEngine.infer(prompt, maxTokens = 512)
+                val raw = withTimeout(120_000L) {
+                    LlamaEngine.infer(prompt, maxTokens = 512)
+                }
                 val elapsed = (System.currentTimeMillis() - t0) / 1000.0
                 val wordCount = raw.trim().split(Regex("\\s+")).size
                 val tps = if (elapsed > 0) wordCount / elapsed else 0.0
@@ -1783,6 +1787,14 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                         role = "aria",
                         text = response,
                         tps  = tps,
+                    )
+                }
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                _chatMessages.update { prev ->
+                    prev + ChatMessageItem(
+                        id   = "err-${System.currentTimeMillis()}",
+                        role = "system",
+                        text = "Response timed out (2 min). The model may be overloaded — try a shorter message or reduce context window in Settings.",
                     )
                 }
             } catch (e: Exception) {

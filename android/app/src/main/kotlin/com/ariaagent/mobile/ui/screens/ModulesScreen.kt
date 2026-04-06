@@ -202,6 +202,7 @@ fun ModulesScreen(
         }
 
         // ── Per-model catalog cards ───────────────────────────────────────────
+        val totalLoadedCount = loadedLlms.values.count { it.isLoaded }
         ModelCatalog.ALL.forEach { catalogEntry ->
             val slotEntry   = loadedLlms[catalogEntry.id]
             val isDownloaded = ModelManager.isModelDownloaded(context, catalogEntry.id)
@@ -213,6 +214,7 @@ fun ModulesScreen(
                 isDownloaded = isDownloaded,
                 isLoaded     = isActiveRam || (slotEntry?.isLoaded == true),
                 isLoading    = slotEntry?.isLoading == true,
+                totalLoadedCount   = totalLoadedCount,
                 llmDownloading     = llmDownloading && slotEntry?.isDownloading == true,
                 llmDownloadPercent = if (llmDownloading && ModelManager.activeModelId(context) == catalogEntry.id)
                     modules.llmDownloadPercent else 0,
@@ -509,6 +511,7 @@ private fun CatalogModelCard(
     isDownloaded:       Boolean,
     isLoaded:           Boolean,
     isLoading:          Boolean,
+    totalLoadedCount:   Int,
     llmDownloading:     Boolean,
     llmDownloadPercent: Int,
     downloadError:      String?,
@@ -793,53 +796,101 @@ private fun CatalogModelCard(
                     HorizontalDivider(color = ARIAColors.Divider)
                     Spacer(Modifier.height(10.dp))
 
-                    // Role selector
-                    Text(
-                        "ROLE",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = ARIAColors.Muted, fontSize = 10.sp
-                        )
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement   = Arrangement.spacedBy(6.dp)
-                    ) {
-                        LlmRole.entries.forEach { role ->
-                            val selected = currentRole == role
-                            Surface(
-                                shape  = RoundedCornerShape(8.dp),
-                                color  = if (selected) ARIAColors.Accent.copy(alpha = 0.15f)
-                                         else ARIAColors.Divider.copy(alpha = 0.10f),
-                                border = androidx.compose.foundation.BorderStroke(
-                                    if (selected) 1.5.dp else 1.dp,
-                                    if (selected) ARIAColors.Accent else ARIAColors.Divider
-                                ),
-                                modifier = Modifier.clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
-                                    onClick    = { onRoleChange(role) }
-                                )
-                            ) {
+                    // Role selector — only shown when 2+ models are loaded
+                    if (totalLoadedCount <= 1 && isLoaded) {
+                        // Single model: handles everything — no role assignment needed
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(ARIAColors.Primary.copy(alpha = 0.08f))
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.AllInclusive,
+                                contentDescription = null,
+                                tint = ARIAColors.Primary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Column {
                                 Text(
-                                    role.label,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                    style    = MaterialTheme.typography.labelSmall.copy(
-                                        color      = if (selected) ARIAColors.Accent else ARIAColors.Muted,
-                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                        fontSize   = 11.sp
+                                    "Handles everything",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = ARIAColors.Primary,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp
+                                    )
+                                )
+                                Text(
+                                    "Load a 2nd model to assign specific roles",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = ARIAColors.Muted, fontSize = 10.sp
                                     )
                                 )
                             }
                         }
+                    } else if (totalLoadedCount >= 2) {
+                        Text(
+                            "ROLE",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = ARIAColors.Muted, fontSize = 10.sp
+                            )
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement   = Arrangement.spacedBy(6.dp)
+                        ) {
+                            LlmRole.entries.forEach { role ->
+                                val selected = currentRole == role
+                                Surface(
+                                    shape  = RoundedCornerShape(8.dp),
+                                    color  = when {
+                                        selected && role == LlmRole.EVERYTHING_ELSE ->
+                                            ARIAColors.Primary.copy(alpha = 0.15f)
+                                        selected -> ARIAColors.Accent.copy(alpha = 0.15f)
+                                        else     -> ARIAColors.Divider.copy(alpha = 0.10f)
+                                    },
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        if (selected) 1.5.dp else 1.dp,
+                                        when {
+                                            selected && role == LlmRole.EVERYTHING_ELSE -> ARIAColors.Primary
+                                            selected -> ARIAColors.Accent
+                                            else     -> ARIAColors.Divider
+                                        }
+                                    ),
+                                    modifier = Modifier.clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                        onClick    = { onRoleChange(role) }
+                                    )
+                                ) {
+                                    Text(
+                                        role.label,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                        style    = MaterialTheme.typography.labelSmall.copy(
+                                            color      = when {
+                                                selected && role == LlmRole.EVERYTHING_ELSE -> ARIAColors.Primary
+                                                selected -> ARIAColors.Accent
+                                                else     -> ARIAColors.Muted
+                                            },
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                            fontSize   = 11.sp
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            currentRole.description,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = ARIAColors.Muted, fontSize = 10.sp
+                            ),
+                            modifier = Modifier.padding(top = 3.dp)
+                        )
                     }
-                    Text(
-                        currentRole.description,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = ARIAColors.Muted, fontSize = 10.sp
-                        ),
-                        modifier = Modifier.padding(top = 3.dp)
-                    )
 
                     Spacer(Modifier.height(10.dp))
 
