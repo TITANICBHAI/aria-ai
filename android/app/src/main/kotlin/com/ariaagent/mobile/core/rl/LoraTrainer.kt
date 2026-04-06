@@ -7,13 +7,17 @@ import com.ariaagent.mobile.core.memory.ObjectLabelStore
 import java.io.File
 
 /**
- * LoraTrainer — On-device LoRA fine-tuning of Llama 3.2-1B.
+ * LoraTrainer — Model-agnostic on-device LoRA fine-tuning.
+ *
+ * Works with any GGUF model (Llama 3.2-1B, SmolVLM-256M, Moondream2, …).
+ * Each model gets its own isolated adapter directory and its own training log
+ * so switching models never consumes or overwrites another model's data.
  *
  * Architecture: W = W₀ + BA
  *   W₀ = frozen pre-trained weight matrix (in the GGUF file)
  *   B  = low-rank matrix, shape (d × r), initialized to zero
  *   A  = low-rank matrix, shape (r × k), initialized with Gaussian noise
- *   r  = rank (4 for M31 — higher rank = more capacity, more RAM)
+ *   r  = rank (4 — higher rank = more capacity, more RAM)
  *
  * TWO training data sources (combined into one JSONL dataset):
  *
@@ -21,6 +25,7 @@ import java.io.File
  *      - Successful (state, action) pairs from autonomous operation
  *      - Format: screen_summary → action_json
  *      - Quality: medium — agent sometimes gets lucky, sometimes wrong
+ *      - Tracked per-model via ExperienceStore.training_log table
  *
  *   2. ObjectLabelStore (human-annotated)
  *      - Labels created by the Object Labeler tool: name, context, interaction_hint,
@@ -29,6 +34,7 @@ import java.io.File
  *      - Quality: HIGH — human-verified, LLM-enriched
  *      - Weight: each label sample counts 3× vs. an experience tuple
  *        (human expert > agent experience)
+ *      - Re-usable across models — never marked as consumed
  *
  * Strategy: "collect-then-train"
  *   - Collect during active use (ExperienceStore.save() + ObjectLabelStore.save())
@@ -41,7 +47,7 @@ import java.io.File
  *     stubTrainLora() runs instead — writes a metadata-only .bin so the rest of
  *     the pipeline (versioning, hot-reload) still exercises correctly.
  *
- * Output: LoRA adapter file → internal storage/lora/adapter_v{N}.bin
+ * Output: lora/<modelId>/adapter_v{N}.gguf — one subdirectory per model.
  *   Loaded by LlamaEngine via nativeLoadLora() between sessions.
  *
  * Phase: 5 (RL/IRL Processing)
@@ -87,32 +93,38 @@ object LoraTrainer {
         labelStore: ObjectLabelStore? = null,
         enrichedRewards: Map<String, Double> = emptyMap()
     ): TrainingResult {
-        val experiences = store.getUntrainedSuccesses(limit = MAX_EXPERIENCE_SAMPLES)
+        // Derive a stable, filesystem-safe model ID from the model file name.
+        // Each model gets its own lora subdirectory and its own training log rows,
+        // so switching models never consumes or overwrites another model's adapters.
+        val mId = modelId(modelPath)
+
+        val experiences = store.getUntrainedSuccessesFor(mId, limit = MAX_EXPERIENCE_SAMPLES)
         val labels = labelStore?.getAllEnriched(limit = MAX_LABEL_SAMPLES) ?: emptyList()
 
         val totalEffectiveSamples = experiences.size + labels.size * LABEL_SAMPLE_WEIGHT
 
         if (totalEffectiveSamples < MIN_SAMPLES_TO_TRAIN) {
-            Log.i(TAG, "Not enough data: $totalEffectiveSamples effective samples < $MIN_SAMPLES_TO_TRAIN")
+            Log.i(TAG, "[$mId] Not enough data: $totalEffectiveSamples effective samples < $MIN_SAMPLES_TO_TRAIN")
             return TrainingResult(
                 success           = false,
                 samplesUsed       = experiences.size,
                 labelSamplesUsed  = labels.size,
                 adapterPath       = "",
-                loraVersion       = currentVersion(context),
+                loraVersion       = currentVersion(context, mId),
                 errorMessage      = "insufficient_data (${experiences.size} exp + ${labels.size} labels)"
             )
         }
 
-        val loraDir = File(context.filesDir, "lora").also { it.mkdirs() }
-            .let { i -> if (i.canWrite()) i else (context.getExternalFilesDir("lora") ?: i).also { it.mkdirs() } }
-        val nextVersion = currentVersion(context) + 1
+        // Each model gets its own subdirectory: lora/<modelId>/adapter_vN.gguf
+        // This prevents adapters from different models overwriting each other.
+        val loraDir = loraDir(context, mId)
+        val nextVersion = currentVersion(context, mId) + 1
         // .gguf extension: nativeTrainLora() writes a full GGUF checkpoint via
         // llama_model_save_to_file(). LlamaEngine.loadLora() detects GGUF magic
         // bytes and reloads it as the base model rather than a LoRA adapter.
         val adapterPath = File(loraDir, "adapter_v$nextVersion.gguf").absolutePath
 
-        Log.i(TAG, "Starting LoRA training: ${experiences.size} experience + ${labels.size} label samples → rank=$LORA_RANK")
+        Log.i(TAG, "[$mId] Starting LoRA training: ${experiences.size} experience + ${labels.size} label samples → rank=$LORA_RANK")
 
         return try {
             // Write unified JSONL dataset (both paths use it)
@@ -128,15 +140,17 @@ object LoraTrainer {
             if (!jniSucceeded) {
                 // ── Stub fallback (stub mode / not yet compiled) ──────────────
                 stubTrainLora(adapterPath, nextVersion, experiences.size, labels.size)
-                Log.i(TAG, "LoRA stub written → adapter_v$nextVersion (JNI not available)")
+                Log.i(TAG, "[$mId] LoRA stub written → adapter_v$nextVersion (JNI not available)")
             } else {
                 jniTrainingAvailable = true
-                Log.i(TAG, "LoRA JNI training complete → adapter_v$nextVersion (${experiences.size} exp + ${labels.size} labels)")
+                Log.i(TAG, "[$mId] LoRA JNI training complete → adapter_v$nextVersion (${experiences.size} exp + ${labels.size} labels)")
             }
 
-            // Mark agent experiences as trained (labels are re-usable, don't mark)
-            store.markAsTrained(experiences.map { it.id })
-            writeVersionFile(context, nextVersion)
+            // Mark agent experiences as trained for this specific model.
+            // Labels are re-usable across models — don't mark them.
+            // Other models' untrained counts are completely unaffected.
+            store.markAsTrainedFor(experiences.map { it.id }, mId)
+            writeVersionFile(context, nextVersion, mId)
 
             TrainingResult(
                 success          = true,
@@ -147,13 +161,13 @@ object LoraTrainer {
                 usedJni          = jniSucceeded
             )
         } catch (e: Exception) {
-            Log.e(TAG, "LoRA training failed: ${e.message}")
+            Log.e(TAG, "[$mId] LoRA training failed: ${e.message}")
             TrainingResult(
                 success          = false,
                 samplesUsed      = experiences.size,
                 labelSamplesUsed = labels.size,
                 adapterPath      = "",
-                loraVersion      = currentVersion(context),
+                loraVersion      = currentVersion(context, mId),
                 errorMessage     = e.message ?: "unknown"
             )
         }
@@ -271,30 +285,120 @@ object LoraTrainer {
         )
     }
 
+    // ─── Model ID helpers ─────────────────────────────────────────────────────
+
+    /**
+     * Derive a stable, filesystem-safe ID from a GGUF model path.
+     * Example: "/files/models/llama-3.2-1b.Q4_K_M.gguf" → "llama-3.2-1b.Q4_K_M"
+     * Used as the subdirectory name under lora/ and as the key in training_log.
+     */
+    fun modelId(modelPath: String): String =
+        java.io.File(modelPath).nameWithoutExtension
+            .replace(Regex("[^a-zA-Z0-9._-]"), "_")
+            .take(64)
+            .ifEmpty { "default" }
+
+    // ─── Directory helpers ────────────────────────────────────────────────────
+
+    /** Base lora directory (internal storage, writable fallback to external). */
     private fun loraDir(context: Context): File {
         val internal = File(context.filesDir, "lora").also { it.mkdirs() }
         if (internal.canWrite()) return internal
         return (context.getExternalFilesDir("lora") ?: internal).also { it.mkdirs() }
     }
 
-    fun currentVersion(context: Context): Int {
-        val versionFile = File(loraDir(context), "version.txt")
+    /**
+     * Model-specific lora directory: lora/<modelId>/
+     * Each model's adapters live here so they never overwrite each other.
+     */
+    private fun loraDir(context: Context, modelId: String): File =
+        File(loraDir(context), modelId).also { it.mkdirs() }
+
+    // ─── Version helpers ──────────────────────────────────────────────────────
+
+    /**
+     * Version for a specific model (reads lora/<modelId>/version.txt).
+     * This is what LoRA training uses internally.
+     */
+    fun currentVersion(context: Context, modelId: String): Int {
+        val versionFile = File(loraDir(context, modelId), "version.txt")
         return if (versionFile.exists()) versionFile.readText().trim().toIntOrNull() ?: 0 else 0
     }
 
-    private fun writeVersionFile(context: Context, version: Int) {
-        File(loraDir(context), "version.txt").writeText(version.toString())
+    /**
+     * Global version for display / monitoring — returns the highest version
+     * across all model subdirs, falling back to the legacy flat lora/version.txt.
+     * Callers that don't know the active model (MonitoringPusher, UI stats) use this.
+     */
+    fun currentVersion(context: Context): Int {
+        // Legacy flat version.txt (backward compat for existing installs)
+        val flatVersion = File(loraDir(context), "version.txt").let { f ->
+            if (f.exists()) f.readText().trim().toIntOrNull() ?: 0 else 0
+        }
+        // Highest version across all model subdirectories
+        val subDirMax = loraDir(context).listFiles()
+            ?.filter { it.isDirectory }
+            ?.mapNotNull { dir ->
+                val vf = File(dir, "version.txt")
+                if (vf.exists()) vf.readText().trim().toIntOrNull() else null
+            }
+            ?.maxOrNull() ?: 0
+        return maxOf(flatVersion, subDirMax)
     }
 
-    fun latestAdapterPath(context: Context): String? {
-        val version = currentVersion(context)
+    private fun writeVersionFile(context: Context, version: Int, modelId: String) {
+        File(loraDir(context, modelId), "version.txt").writeText(version.toString())
+    }
+
+    // ─── Adapter path helpers ─────────────────────────────────────────────────
+
+    /**
+     * Latest adapter path for a specific model (lora/<modelId>/adapter_vN.gguf).
+     * Use this when the active model is known (e.g. when loading into LlamaEngine).
+     */
+    fun latestAdapterPath(context: Context, modelId: String): String? {
+        val version = currentVersion(context, modelId)
         if (version == 0) return null
-        val loraDir = loraDir(context)
-        // Prefer .gguf (produced by real nativeTrainLora via llama_model_save_to_file)
-        val gguf = File(loraDir, "adapter_v$version.gguf")
+        val dir = loraDir(context, modelId)
+        val gguf = File(dir, "adapter_v$version.gguf")
         if (gguf.exists()) return gguf.absolutePath
-        // Fall back to .bin for stub adapters written by older sessions
-        val bin = File(loraDir, "adapter_v$version.bin")
+        val bin = File(dir, "adapter_v$version.bin")
+        return if (bin.exists()) bin.absolutePath else null
+    }
+
+    /**
+     * Latest adapter path without a known model — scans all model subdirs and
+     * returns the adapter with the highest version number. Also falls back to the
+     * legacy flat lora/adapter_vN.gguf structure for existing installs.
+     * Used by ConfigStore default population and MonitoringPusher reporting.
+     */
+    fun latestAdapterPath(context: Context): String? {
+        // Scan model subdirectories for the highest versioned adapter
+        val bestSubDir = loraDir(context).listFiles()
+            ?.filter { it.isDirectory }
+            ?.mapNotNull { dir ->
+                val vf = File(dir, "version.txt")
+                val ver = if (vf.exists()) vf.readText().trim().toIntOrNull() ?: 0 else 0
+                if (ver > 0) {
+                    val gguf = File(dir, "adapter_v$ver.gguf")
+                    if (gguf.exists()) return@mapNotNull Pair(ver, gguf.absolutePath)
+                    val bin = File(dir, "adapter_v$ver.bin")
+                    if (bin.exists()) return@mapNotNull Pair(ver, bin.absolutePath)
+                }
+                null
+            }
+            ?.maxByOrNull { it.first }
+
+        if (bestSubDir != null) return bestSubDir.second
+
+        // Legacy fallback: flat lora/adapter_vN.gguf (pre-model-aware builds)
+        val flatVer = File(loraDir(context), "version.txt").let { f ->
+            if (f.exists()) f.readText().trim().toIntOrNull() ?: 0 else 0
+        }
+        if (flatVer == 0) return null
+        val gguf = File(loraDir(context), "adapter_v$flatVer.gguf")
+        if (gguf.exists()) return gguf.absolutePath
+        val bin = File(loraDir(context), "adapter_v$flatVer.bin")
         return if (bin.exists()) bin.absolutePath else null
     }
 
