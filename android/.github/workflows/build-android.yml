@@ -50,17 +50,19 @@ jobs:
         with:
           path: app/.cxx
           key: ndk-${{ runner.os }}-${{ hashFiles('app/src/main/cpp/**') }}
-          restore-keys: |
-            ndk-${{ runner.os }}-
+          # No restore-keys — a stale NDK cache causes linker failures when
+          # llama.cpp adds new Vulkan shader targets (flash_attn etc.) that
+          # the cached ninja build files don't know about.
 
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-      - name: Install Vulkan HPP headers
+      - name: Install Vulkan HPP headers and glslc
         run: |
           sudo apt-get update -y -q
-          sudo apt-get install -y -q libvulkan-dev
+          sudo apt-get install -y -q libvulkan-dev shaderc glslang-tools
           echo "vulkan.hpp path: $(find /usr/include -name 'vulkan.hpp' 2>/dev/null | head -1)"
+          echo "glslc path: $(which glslc 2>/dev/null || echo 'NOT FOUND')"
 
       - name: Build debug APK (native-only mode)
         run: ./gradlew assembleDebug --no-daemon --stacktrace
