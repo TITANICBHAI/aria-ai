@@ -3,21 +3,34 @@ package com.ariaagent.mobile.core.ai
 /**
  * ModelCatalog — single source of truth for all downloadable LLM/VLM models.
  *
- * All 4 entries are multimodal (vision + text) so ARIA can understand the screen
- * in every mode. URLs and filenames are verified against the live HuggingFace repos
- * as of April 2025 — do not edit without re-checking the repo file listing.
+ * Two categories — both work with ARIA's training pipeline:
  *
- * Model  │ Repo (base file)                               │ Size Q4_K_M
- * ───────┼────────────────────────────────────────────────┼────────────
- * 256M   │ ggml-org/SmolVLM-256M-Instruct-GGUF            │ ~125 MB
- * 500M   │ Mungert/SmolVLM-500M-Instruct-GGUF             │ ~289 MB
- * Moon.2 │ cjpais/moondream2-llamafile (pure GGUF Q5_K)   │ ~1.06 GB
- * Qwen3B │ ggml-org/Qwen2.5-VL-3B-Instruct-GGUF           │ ~1.93 GB
+ *   MULTIMODAL (vision + text): single model handles screen reading and reasoning.
+ *     mmproj field is set; loaded via LlamaEngine.loadUnified().
  *
- * mmproj files are always F16 (quantising them causes visible image quality loss).
+ *   TEXT-ONLY: pure reasoning model; screen reading delegated to SmolVLM helper
+ *     if downloaded, otherwise falls back to accessibility tree + OCR.
+ *     mmprojFilename / mmprojUrl are null; loaded via LlamaEngine.load().
  *
- * DEFAULT_ID is smolvlm-256m — the fastest, lowest-RAM model, most suitable as
- * a first-boot default on mid-range devices like the Samsung Galaxy M31.
+ * Training data is fully shared across model types: ExperienceStore records
+ * screen summaries as plain text regardless of how they were produced, so
+ * a text LLM can train on vision-enriched experiences and vice versa.
+ *
+ * Model            │ Type        │ RAM    │ Source repo
+ * ─────────────────┼─────────────┼────────┼──────────────────────────────────
+ * SmolVLM 256M     │ VLM         │ <1 GB  │ ggml-org/SmolVLM-256M-Instruct-GGUF
+ * SmolVLM 500M     │ VLM         │ ~1.2 GB│ Mungert/SmolVLM-500M-Instruct-GGUF
+ * Moondream2       │ VLM         │ ~2 GB  │ cjpais/moondream2-llamafile
+ * Qwen2.5-VL 3B   │ VLM         │ ~3 GB  │ ggml-org/Qwen2.5-VL-3B-Instruct-GGUF
+ * MiniCPM-V 2.6   │ VLM Q4_0   │ ~5.5 GB│ openbmb/MiniCPM-V-2_6-gguf
+ * Llama 3.2 V 11B │ VLM ⚠heavy  │ 8 GB+  │ ggml-org/Llama-3.2-11B-Vision-...
+ * Llama 3.2 1B    │ Text        │ ~1.2 GB│ bartowski/Llama-3.2-1B-Instruct-GGUF
+ * Gemma 3 1B      │ Text        │ ~1.1 GB│ ggml-org/gemma-3-1b-it-GGUF
+ * Qwen2.5 1.5B    │ Text        │ ~1.5 GB│ ggml-org/Qwen2.5-1.5B-Instruct-GGUF
+ * Llama 3.2 3B    │ Text        │ ~2.5 GB│ bartowski/Llama-3.2-3B-Instruct-GGUF
+ * Gemma 3 4B      │ Text        │ ~3 GB  │ ggml-org/gemma-3-4b-it-GGUF
+ *
+ * DEFAULT_ID is smolvlm-256m — fastest, lowest-RAM, works on any Android phone.
  */
 data class CatalogModel(
     /** Stable identifier stored in SharedPreferences. Never change once shipped. */
@@ -30,13 +43,22 @@ data class CatalogModel(
     val url: String,
     /** Minimum expected byte count — used to confirm download is complete. */
     val expectedSizeBytes: Long,
-    /** CLIP projection filename required for vision inference (null = text-only). */
+    /** CLIP projection filename required for vision inference (null = text-only model). */
     val mmprojFilename: String? = null,
     /** Download URL for the mmproj GGUF. Null only if model has no vision head. */
     val mmprojUrl: String? = null,
     /** Approximate combined on-disk size in MB shown in the UI. */
     val displaySizeMb: Int = (expectedSizeBytes / 1_048_576L).toInt(),
-)
+    /**
+     * When true the model is shown in the catalog but flagged with a warning.
+     * Reasons: too large for 6 GB RAM, unstable at mobile quant, etc.
+     * The user can still download and activate it — this is advisory only.
+     */
+    val notRecommended: Boolean = false,
+) {
+    /** True when this model has no vision projector and runs in text-only mode. */
+    val isTextOnly: Boolean get() = mmprojFilename == null && mmprojUrl == null
+}
 
 object ModelCatalog {
 
@@ -120,11 +142,147 @@ object ModelCatalog {
                             "Qwen2.5-VL-3B-Instruct-mmproj-f16.gguf",
     )
 
+    // ── Llama 3.2 1B Instruct (text-only, fastest text LLM) ───────────────────
+    // Repo:    bartowski/Llama-3.2-1B-Instruct-GGUF
+    // Params:  ~1B    │  Q4_K_M ≈ 773 MB
+    // RAM:     ~1.2 GB — runs on any Android phone, very fast inference
+    // Note:    Text-only. SmolVLM helper handles vision if downloaded.
+
+    val LLAMA32_1B = CatalogModel(
+        id                = "llama3.2-1b",
+        displayName       = "Llama 3.2 1B",
+        description       = "Meta's fastest on-device text model. Excellent at instruction following and action planning. Pairs automatically with SmolVLM for screen vision. ~773 MB.",
+        filename          = "llama-3.2-1b-instruct-q4_k_m.gguf",
+        url               = "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/" +
+                            "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+        expectedSizeBytes = 700_000_000L,
+        displaySizeMb     = 773,
+        // mmprojFilename / mmprojUrl intentionally null — text-only model
+    )
+
+    // ── Llama 3.2 3B Instruct (text-only, best text quality) ──────────────────
+    // Repo:    bartowski/Llama-3.2-3B-Instruct-GGUF
+    // Params:  ~3B    │  Q4_K_M ≈ 2.0 GB
+    // RAM:     ~2.5 GB — comfortable on 6 GB devices
+
+    val LLAMA32_3B = CatalogModel(
+        id                = "llama3.2-3b",
+        displayName       = "Llama 3.2 3B",
+        description       = "Meta's strongest on-device text model. Better reasoning and fewer hallucinations than 1B. Pairs automatically with SmolVLM for screen vision. ~2.0 GB.",
+        filename          = "llama-3.2-3b-instruct-q4_k_m.gguf",
+        url               = "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/" +
+                            "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+        expectedSizeBytes = 1_900_000_000L,
+        displaySizeMb     = 2020,
+    )
+
+    // ── Gemma 3 1B Instruct (text-only, Google) ───────────────────────────────
+    // Repo:    ggml-org/gemma-3-1b-it-GGUF
+    // Params:  ~1B    │  Q4_K_M ≈ 670 MB
+    // RAM:     ~1.1 GB — fastest possible inference, great for older phones
+
+    val GEMMA3_1B = CatalogModel(
+        id                = "gemma3-1b",
+        displayName       = "Gemma 3 1B",
+        description       = "Google's ultra-fast 1B instruction model. Excellent at structured JSON output — ideal for ARIA's action format. Text-only, pairs with SmolVLM. ~670 MB.",
+        filename          = "gemma-3-1b-it-q4_k_m.gguf",
+        url               = "https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF/resolve/main/" +
+                            "gemma-3-1b-it-Q4_K_M.gguf",
+        expectedSizeBytes = 600_000_000L,
+        displaySizeMb     = 670,
+    )
+
+    // ── Gemma 3 4B Instruct (text-only, Google) ───────────────────────────────
+    // Repo:    ggml-org/gemma-3-4b-it-GGUF
+    // Params:  ~4B    │  Q4_K_M ≈ 2.5 GB
+    // RAM:     ~3.0 GB — fits 6 GB devices, slightly tight on concurrent app use
+
+    val GEMMA3_4B = CatalogModel(
+        id                = "gemma3-4b",
+        displayName       = "Gemma 3 4B",
+        description       = "Google's dense 4B model — very high quality reasoning for its size. Text-only, pairs with SmolVLM for vision. ~2.5 GB. May feel tight on 6 GB phones during heavy app use.",
+        filename          = "gemma-3-4b-it-q4_k_m.gguf",
+        url               = "https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/" +
+                            "gemma-3-4b-it-Q4_K_M.gguf",
+        expectedSizeBytes = 2_200_000_000L,
+        displaySizeMb     = 2500,
+    )
+
+    // ── Qwen2.5 1.5B Instruct (text-only, Alibaba) ────────────────────────────
+    // Repo:    ggml-org/Qwen2.5-1.5B-Instruct-GGUF
+    // Params:  ~1.5B  │  Q4_K_M ≈ 970 MB
+    // RAM:     ~1.5 GB — fast and very capable at instruction following
+
+    val QWEN25_1B5 = CatalogModel(
+        id                = "qwen2.5-1.5b",
+        displayName       = "Qwen2.5 1.5B",
+        description       = "Alibaba's 1.5B instruction model — surprisingly capable at tool-use and structured output. Text-only, pairs with SmolVLM. ~970 MB.",
+        filename          = "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        url               = "https://huggingface.co/ggml-org/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/" +
+                            "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
+        expectedSizeBytes = 850_000_000L,
+        displaySizeMb     = 970,
+    )
+
+    // ── MiniCPM-V 2.6 Q4_0 (multimodal, 8B — best vision on mobile) ──────────
+    // Repo:    openbmb/MiniCPM-V-2_6-gguf
+    // Params:  ~8B    │  Q4_0 ≈ 4.5 GB base + ~450 MB mmproj
+    // RAM:     ~5.5 GB — very tight on 6 GB phones, use Q4_0 only
+    // Note:    Rivals GPT-4V on some vision tasks. Use Q4_0 (not Q4_K_M) for stability.
+
+    val MINICPM_V26 = CatalogModel(
+        id                = "minicpm-v2.6",
+        displayName       = "MiniCPM-V 2.6",
+        description       = "8B multimodal powerhouse — rivals GPT-4V on vision benchmarks. Q4_0 quantization for stability on 6 GB phones. Excellent at reading dense UI and complex screens. ~5.0 GB total.",
+        filename          = "minicpm-v2.6-q4_0.gguf",
+        url               = "https://huggingface.co/openbmb/MiniCPM-V-2_6-gguf/resolve/main/" +
+                            "ggml-model-Q4_0.gguf",
+        expectedSizeBytes = 4_000_000_000L,
+        displaySizeMb     = 5000,
+        mmprojFilename    = "minicpm-v2.6-mmproj-f16.gguf",
+        mmprojUrl         = "https://huggingface.co/openbmb/MiniCPM-V-2_6-gguf/resolve/main/" +
+                            "mmproj-model-f16.gguf",
+    )
+
+    // ── Llama 3.2 Vision 11B (NOT RECOMMENDED for 6 GB phones) ───────────────
+    // Repo:    ggml-org/Llama-3.2-11B-Vision-Instruct-GGUF
+    // Params:  ~11B   │  Q4_K_M ≈ 7.0 GB base — exceeds 6 GB phone RAM
+    // RAM:     8 GB+ required — will crash or run at <1 token/sec on 6 GB devices
+
+    val LLAMA32_VISION_11B = CatalogModel(
+        id                = "llama3.2-vision-11b",
+        displayName       = "Llama 3.2 Vision 11B",
+        description       = "⚠ NOT RECOMMENDED for 6 GB phones. 11B parameters require 8 GB+ RAM — will crash or run below 1 token/sec on most Android devices. Use Qwen2.5-VL-3B or MiniCPM-V 2.6 instead.",
+        filename          = "llama-3.2-11b-vision-instruct-q4_k_m.gguf",
+        url               = "https://huggingface.co/ggml-org/Llama-3.2-11B-Vision-Instruct-GGUF/resolve/main/" +
+                            "Llama-3.2-11B-Vision-Instruct-Q4_K_M.gguf",
+        expectedSizeBytes = 6_500_000_000L,
+        displaySizeMb     = 8000,
+        mmprojFilename    = "llama-3.2-11b-vision-mmproj-f16.gguf",
+        mmprojUrl         = "https://huggingface.co/ggml-org/Llama-3.2-11B-Vision-Instruct-GGUF/resolve/main/" +
+                            "mmproj-Llama-3.2-11B-Vision-Instruct-f16.gguf",
+        notRecommended    = true,
+    )
+
     // ── Registry ──────────────────────────────────────────────────────────────
 
-    val ALL: List<CatalogModel> = listOf(SMOLVLM_256M, SMOLVLM_500M, MOONDREAM2, QWEN25_VL_3B)
+    val ALL: List<CatalogModel> = listOf(
+        // ── Multimodal (vision + text) ────────────────────────────────────────
+        SMOLVLM_256M,           // 256M  — default, any phone
+        SMOLVLM_500M,           // 500M  — better vision, still low RAM
+        MOONDREAM2,             // 1.86B — compact VLM
+        QWEN25_VL_3B,           // 3B    — best vision/text balance
+        MINICPM_V26,            // 8B    — GPT-4V quality, tight on 6 GB
+        LLAMA32_VISION_11B,     // 11B   — not recommended for 6 GB phones
+        // ── Text-only (pair with SmolVLM for screen understanding) ────────────
+        LLAMA32_1B,             // 1B    — fastest text LLM
+        GEMMA3_1B,              // 1B    — Google, great structured output
+        QWEN25_1B5,             // 1.5B  — Alibaba, strong tool-use
+        LLAMA32_3B,             // 3B    — best text quality / RAM balance
+        GEMMA3_4B,              // 4B    — dense, high quality, ~3 GB RAM
+    )
 
-    /** Default is the smallest model — works on any device, fast first-boot. */
+    /** Default is the smallest multimodal model — works on any device, fast first-boot. */
     const val DEFAULT_ID = "smolvlm-256m"
 
     fun findById(id: String): CatalogModel? = ALL.find { it.id == id }

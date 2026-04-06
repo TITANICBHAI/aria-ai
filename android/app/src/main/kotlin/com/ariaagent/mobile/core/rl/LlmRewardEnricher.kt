@@ -95,24 +95,27 @@ object LlmRewardEnricher {
     }
 
     /**
-     * Scoring prompt using Llama 3.2 Instruct chat template.
-     * Concise by design — the answer is a single decimal number.
-     * System instruction is direct: no CoT, no explanation.
+     * Model-agnostic scoring prompt — works with any instruction-tuned model
+     * (Llama, Gemma, Qwen, SmolVLM, MiniCPM, etc.).
+     *
+     * No model-specific special tokens. Plain imperative text understood by all
+     * instruction-tuned models. The model only needs to emit a decimal number,
+     * which parseScore() extracts robustly regardless of surrounding whitespace.
      */
     private fun buildScoringPrompt(
         goal: String,
         screen: String,
         action: String,
         result: String
-    ): String = """<|begin_of_text|><|start_header_id|>system<|end_header_id|>
-You are a reward scorer for an Android UI agent. Rate action quality 0.0–1.0.
-Reply with only one decimal number. No words.<|eot_id|>
-<|start_header_id|>user<|end_header_id|>
+    ): String = """Rate the quality of this Android agent action from 0.0 to 1.0.
+Reply with ONLY a single decimal number. No words, no explanation.
+
 Goal: $goal
 Screen: $screen
 Action: $action
 Result: $result
-<|eot_id|><|start_header_id|>assistant<|end_header_id|>"""
+
+Score:""".trimIndent()
 
     /**
      * Extract the first valid float in [0.0, 1.0] from the LLM's raw output.
