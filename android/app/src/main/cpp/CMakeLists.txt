@@ -51,7 +51,7 @@ set(GGML_NATIVE OFF CACHE BOOL "Cross-compiling for arm64-v8a" FORCE)
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}")
 
 set(GGML_OPENCL_EMBED_KERNELS    ON  CACHE BOOL   "Embed .cl kernels as C strings (no runtime file I/O on Android)" FORCE)
-set(GGML_OPENCL_TARGET_VERSION   "200" CACHE STRING "OpenCL C target version (200 = OpenCL 2.0)" FORCE)
+set(GGML_OPENCL_TARGET_VERSION   "300" CACHE STRING "OpenCL host-API target version (300 = OpenCL 3.0 headers; Mali-G72 is 2.0 at runtime)" FORCE)
 set(GGML_OPENCL_USE_ADRENO_KERNELS OFF CACHE BOOL "Adreno-specific matmul kernels — disable for Mali" FORCE)
 set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
