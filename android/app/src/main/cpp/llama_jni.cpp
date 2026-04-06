@@ -53,45 +53,47 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeLoadModel(
     jstring path_jstr,
     jint    ctx_size,
     jint    n_gpu_layers,
-    jstring gpu_backend_jstr
+    jstring gpu_backend_jstr,
+    jstring memory_mapping_jstr   // "auto" | "heap" | "mmap" — from user Settings
 ) {
-    const char* path        = env->GetStringUTFChars(path_jstr,        nullptr);
-    const char* gpu_backend = env->GetStringUTFChars(gpu_backend_jstr, nullptr);
+    const char* path           = env->GetStringUTFChars(path_jstr,           nullptr);
+    const char* gpu_backend    = env->GetStringUTFChars(gpu_backend_jstr,    nullptr);
+    const char* memory_mapping = env->GetStringUTFChars(memory_mapping_jstr, nullptr);
 
     llama_model_params mparams = llama_model_default_params();
     mparams.n_gpu_layers = n_gpu_layers;
 
-    // ── mmap vs heap decision ─────────────────────────────────────────────────
-    // Android's kernel can silently reclaim file-backed mmap pages under any
-    // memory pressure even while the app is in the foreground (file-backed pages
-    // are cheap to evict — the kernel just re-reads them on next access).
-    // When that happens EVERY weight access faults back to eMMC random I/O,
-    // turning a <2 min inference into 20+ minutes.  mlock() requires CAP_IPC_LOCK
-    // which regular Android apps don't hold, so it fails silently (EPERM).
-    //
-    // Fix: for models ≤ 2 GB load into the process heap (use_mmap = false).
-    //   • Heap pages (anonymous memory) cannot be reclaimed without OOM-killing
-    //     the whole process — inference speed is consistent at all times.
-    //   • Slightly slower first load (~870 MB reads from eMMC once at startup),
-    //     but all subsequent inference calls run at full RAM speed.
-    //
-    // For models > 2 GB (e.g. MiniCPM-V 2.6 @ 4.5 GB + mmproj) we fall back to
-    // mmap because loading 4.5 GB into heap on a 6 GB phone causes OOM. We also
-    // attempt mlock — it may partially succeed on some OEM kernels.
+    // ── Memory mapping policy (user-configurable) ─────────────────────────────
+    // "heap"  — load into anonymous RAM; Android cannot page-evict heap without
+    //           OOM-killing the process → inference speed is always consistent.
+    //           Penalty: ~5 s cold-start; model fully copied from eMMC on launch.
+    // "mmap"  — file-backed mapping + mlock attempt.  Fastest cold-start; mlock
+    //           may silently fail with EPERM on non-root stock Android kernels,
+    //           leaving pages vulnerable to eviction under memory pressure.
+    // "auto"  — pick based on file size: ≤ 2 GB → heap (safe),
+    //                                    > 2 GB → mmap + mlock attempt (avoids OOM).
     {
-        struct stat st;
-        const bool large_model =
-            (stat(path, &st) == 0) && (st.st_size > 2LL * 1024 * 1024 * 1024);
-        if (large_model) {
-            mparams.use_mmap  = true;
-            mparams.use_mlock = true;   // attempt mlock; may fail with EPERM on non-root
-            LOGI("Large model (>2 GB) — using mmap + mlock attempt");
+        bool use_mmap, use_mlock;
+        if (strcmp(memory_mapping, "heap") == 0) {
+            use_mmap = false; use_mlock = false;
+            LOGI("Memory mapping: heap (user override)");
+        } else if (strcmp(memory_mapping, "mmap") == 0) {
+            use_mmap = true; use_mlock = true;
+            LOGI("Memory mapping: mmap + mlock attempt (user override)");
         } else {
-            mparams.use_mmap  = false;  // load fully into heap — immune to page eviction
-            mparams.use_mlock = false;  // not needed when not using mmap
-            LOGI("Small/medium model (≤2 GB) — loading into heap for consistent inference speed");
+            // "auto": pick based on model file size
+            struct stat st;
+            const bool large_model =
+                (stat(path, &st) == 0) && (st.st_size > 2LL * 1024 * 1024 * 1024);
+            use_mmap  = large_model;
+            use_mlock = large_model;
+            LOGI("Memory mapping: auto → %s",
+                 large_model ? "mmap + mlock attempt" : "heap (≤2 GB model)");
         }
+        mparams.use_mmap  = use_mmap;
+        mparams.use_mlock = use_mlock;
     }
+    env->ReleaseStringUTFChars(memory_mapping_jstr, memory_mapping);
 
     // ── Backend device selection ──────────────────────────────────────────────
     // Both Vulkan and OpenCL are registered in GGML's backend registry when both
@@ -161,7 +163,8 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeCreateContext(
     jlong    model_handle,
     jint     ctx_size,
     jboolean flash_attn,
-    jboolean kv_quant
+    jboolean kv_quant,
+    jint     gpu_ubatch    // OpenCL/Vulkan micro-batch size; 0 = use default (512)
 ) {
     auto* model = reinterpret_cast<llama_model*>(model_handle);
     if (!model) return 0L;
@@ -178,10 +181,15 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeCreateContext(
     // a 2048-token prompt into 4 sequential chunks, each requiring a full weight
     // sweep — multiplying prefill time by 4 on CPU paths.
     cparams.n_batch         = (uint32_t)n_ctx;
-    // n_ubatch: micro-batch size used for GPU dispatch.  512 is the sweet spot for
-    // Mali-G72 MP3 — large enough to fill the GPU pipeline, small enough to avoid
-    // VRAM pressure.  n_ubatch <= n_batch is required.
-    cparams.n_ubatch        = 512;
+    // n_ubatch: micro-batch size for OpenCL/Vulkan kernel dispatch.
+    // Larger = better GPU pipeline fill; smaller = lower VRAM pressure.
+    // Mali-G72 MP3 sweet spot: 512.  User-configurable; clamped to [64, n_ctx].
+    {
+        uint32_t ubatch = (gpu_ubatch > 0) ? (uint32_t)gpu_ubatch : 512u;
+        if (ubatch < 64u)  ubatch = 64u;
+        if (ubatch > (uint32_t)n_ctx) ubatch = (uint32_t)n_ctx;
+        cparams.n_ubatch = ubatch;
+    }
     // 6 threads: 4 big Cortex-A73 + 2 Cortex-A53 LITTLE cores.
     // Inference is memory-bandwidth-bound so LITTLE cores still contribute.
     // Using 8 can cause thermal throttling; 6 is the stable balance on the M31.
@@ -208,8 +216,8 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeCreateContext(
     }
 
     g_ctx = ctx;  // cache for LoRA cleanup in nativeFreeModel
-    LOGI("Context created — n_ctx=%d flash_attn=%d kv_quant=%d n_batch=%d n_ubatch=512",
-         (int)n_ctx, (int)flash_attn, (int)kv_quant, (int)n_ctx);
+    LOGI("Context created — n_ctx=%d flash_attn=%d kv_quant=%d n_batch=%d n_ubatch=%d",
+         (int)n_ctx, (int)flash_attn, (int)kv_quant, (int)n_ctx, (int)cparams.n_ubatch);
     return reinterpret_cast<jlong>(ctx);
 }
 

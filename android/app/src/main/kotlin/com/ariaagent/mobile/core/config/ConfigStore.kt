@@ -48,16 +48,28 @@ data class AriaConfig(
     val temperatureX100: Int    = 70,
     val nGpuLayers: Int         = 32,
     /** Which GPU backend to use for inference. "vulkan" | "opencl" | "cpu".
-     *  Both Vulkan and OpenCL are compiled into the same .so; this selects at load time. */
-    val gpuBackend: String      = "vulkan",
-    /** Enable Flash Attention in the LLM context (LLAMA_FLASH_ATTN_TYPE_AUTO).
-     *  Reduces KV-cache memory bandwidth. Requires the GPU driver to support it;
-     *  llama.cpp falls back silently if the backend doesn't (AUTO mode). Default off. */
+     *  Both are compiled into the same .so and selected at load time.
+     *  OpenCL is the recommended backend for Mali-G72 MP3 — more stable than Vulkan
+     *  on Samsung Exynos stock kernels; OpenCL kernels compile on-device at first run,
+     *  ~8–15 tok/s vs Vulkan's 15–30 tok/s (but Vulkan can be unstable / crash on some builds). */
+    val gpuBackend: String      = "opencl",
+    /** Enable Flash Attention (LLAMA_FLASH_ATTN_TYPE_AUTO).
+     *  Reduces KV-cache memory bandwidth. AUTO mode: llama.cpp falls back silently if
+     *  the GPU driver doesn't support it. Default off — safe baseline. */
     val flashAttn: Boolean      = false,
-    /** Quantize the KV cache to Q8_0 (halves KV memory, ~1% quality loss).
-     *  Significant on M31 where 2048-token F16 KV uses ~256 MB; Q8_0 cuts it to ~128 MB.
-     *  Applied at context-creation time — requires model reload to take effect. */
+    /** Quantize KV cache to Q8_0 (halves KV memory, ~1% quality loss).
+     *  At ctx 2048 F16 KV = ~256 MB; Q8_0 cuts to ~128 MB — meaningful on 6 GB M31.
+     *  Context-creation time setting — requires model reload. */
     val kvCacheQuantization: Boolean = false,
+    /** GPU micro-batch size (n_ubatch) for OpenCL / Vulkan kernel dispatch.
+     *  Larger batches fill the GPU pipeline better; smaller batches reduce VRAM pressure.
+     *  Mali-G72 MP3 sweet spot: 512.  Tune lower (256/128) if you see GPU OOMs. */
+    val gpuUbatch: Int          = 512,
+    /** Memory mapping strategy for model weight loading.
+     *  "auto" — auto-selects: ≤ 2 GB → heap (immune to eviction), > 2 GB → mmap + mlock.
+     *  "heap" — always load into anonymous heap memory (safest; 5 s cold-start penalty).
+     *  "mmap" — always mmap + mlock attempt (fastest cold-start; mlock may fail silently). */
+    val memoryMapping: String   = "auto",
     val loraAdapterPath: String = "",
     val rlEnabled: Boolean      = true,
     val learningRate: Double    = 1e-4,
@@ -78,6 +90,8 @@ object ConfigStore {
     private val KEY_LEARNING_RATE = doublePreferencesKey("learningRate")
     private val KEY_FLASH_ATTN   = booleanPreferencesKey("flashAttn")
     private val KEY_KV_QUANT     = booleanPreferencesKey("kvCacheQuantization")
+    private val KEY_GPU_UBATCH   = intPreferencesKey("gpuUbatch")
+    private val KEY_MEM_MAPPING  = stringPreferencesKey("memoryMapping")
 
     // ─── Read — reactive Flow ─────────────────────────────────────────────────
 
@@ -111,6 +125,8 @@ object ConfigStore {
             prefs[KEY_LEARNING_RATE] = config.learningRate
             prefs[KEY_FLASH_ATTN]    = config.flashAttn
             prefs[KEY_KV_QUANT]      = config.kvCacheQuantization
+            prefs[KEY_GPU_UBATCH]    = config.gpuUbatch
+            prefs[KEY_MEM_MAPPING]   = config.memoryMapping
         }
     }
 
@@ -128,7 +144,9 @@ object ConfigStore {
             maxTokensPerTurn = legacy.getInt("maxTokensPerTurn", 512),
             temperatureX100  = legacy.getInt("temperatureX100", 70),
             nGpuLayers       = legacy.getInt("nGpuLayers", 32),
-            gpuBackend       = legacy.getString("gpuBackend", "vulkan") ?: "vulkan",
+            gpuBackend       = legacy.getString("gpuBackend", "opencl") ?: "opencl",
+            gpuUbatch        = legacy.getInt("gpuUbatch", 512),
+            memoryMapping    = legacy.getString("memoryMapping", "auto") ?: "auto",
             loraAdapterPath  = legacy.getString("loraAdapterPath", LoraTrainer.latestAdapterPath(context) ?: "") ?: "",
             rlEnabled        = legacy.getBoolean("rlEnabled", true),
             learningRate     = legacy.getFloat("learningRate", 1e-4.toFloat()).toDouble(),
@@ -161,5 +179,7 @@ object ConfigStore {
         learningRate         = prefs[KEY_LEARNING_RATE] ?: 1e-4,
         flashAttn            = prefs[KEY_FLASH_ATTN]    ?: false,
         kvCacheQuantization  = prefs[KEY_KV_QUANT]      ?: false,
+        gpuUbatch            = prefs[KEY_GPU_UBATCH]    ?: 512,
+        memoryMapping        = prefs[KEY_MEM_MAPPING]   ?: "auto",
     )
 }
