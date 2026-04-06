@@ -33,19 +33,44 @@ if(ANDROID)
             "Then rebuild.")
     endif()
 
+    # ── Link-time stub libOpenCL.so ─────────────────────────────────────────────
+    # The NDK sysroot does NOT ship libOpenCL.so — it is a vendor library present
+    # only on the device (/vendor/lib64/libOpenCL.so on Mali devices like the M31).
+    # lld refuses "-lOpenCL" when it cannot find the file anywhere in its search
+    # paths, even with --allow-shlib-undefined (that flag only relaxes symbol
+    # resolution, not library file lookup).
+    #
+    # Solution: compile a minimal empty stub shared library named libOpenCL.so
+    # using the NDK toolchain that is already in use for the cross-compile. The
+    # linker finds and records the SONAME. The stub is then EXCLUDED from the APK
+    # (see packagingOptions in build.gradle) so that at runtime the device's real
+    # Mali vendor libOpenCL.so is used instead.
+    if(NOT TARGET OpenCLStub)
+        set(_OCL_STUB_SRC "${CMAKE_BINARY_DIR}/opencl_stub.c")
+        file(WRITE "${_OCL_STUB_SRC}"
+            "/* OpenCL link-time stub\n"
+            " * Compiled for arm64-v8a cross-build only.\n"
+            " * Excluded from APK — the Mali vendor libOpenCL.so is used at runtime.\n"
+            " */\n"
+            "void __opencl_link_stub_unused__(void) {}\n"
+        )
+        add_library(OpenCLStub SHARED "${_OCL_STUB_SRC}")
+        set_target_properties(OpenCLStub PROPERTIES
+            OUTPUT_NAME "OpenCL"
+            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/opencl_stub_dir"
+        )
+    endif()
+
     # ── INTERFACE target ────────────────────────────────────────────────────────
     # OpenCL::OpenCL is the canonical modern CMake target — ggml-opencl links against it.
     if(NOT TARGET OpenCL::OpenCL)
         add_library(OpenCL::OpenCL INTERFACE IMPORTED GLOBAL)
         target_include_directories(OpenCL::OpenCL INTERFACE "${_OCL_INCLUDE_DIR}")
-        # -lOpenCL: NDK linker records the SONAME; device driver resolves it at runtime.
-        # -Wl,--allow-shlib-undefined: lets lld proceed even though libOpenCL.so is not
-        #   in the NDK sysroot — identical to how -llog / -landroid are handled for
-        #   optional system/vendor libraries.
-        target_link_options(OpenCL::OpenCL INTERFACE
-            -lOpenCL
-            -Wl,--allow-shlib-undefined
-        )
+        # Link against the stub target (full path). CMake resolves this to the
+        # actual libOpenCL.so binary so lld never sees a bare "-lOpenCL".
+        # The resulting libggml-opencl.so records DT_NEEDED: libOpenCL.so and the
+        # device dynamic linker satisfies this from the vendor partition at runtime.
+        target_link_libraries(OpenCL::OpenCL INTERFACE OpenCLStub)
     endif()
 
     # ── Variables expected by FindOpenCL consumers ──────────────────────────────
@@ -60,7 +85,7 @@ if(ANDROID)
 
     mark_as_advanced(OpenCL_INCLUDE_DIR OpenCL_LIBRARY)
 
-    message(STATUS "ARIA FindOpenCL: Android — using vendored Khronos headers + runtime -lOpenCL (Mali-G72)")
+    message(STATUS "ARIA FindOpenCL: Android — vendored Khronos headers + link-time stub libOpenCL.so (runtime: Mali vendor driver)")
 
 else()
     # ── Non-Android: delegate to CMake's built-in FindOpenCL.cmake ─────────────
