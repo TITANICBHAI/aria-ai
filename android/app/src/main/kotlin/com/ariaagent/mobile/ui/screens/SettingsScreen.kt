@@ -87,6 +87,8 @@ fun SettingsScreen(
     var contextWindow   by remember(config.contextWindow)    { mutableStateOf(config.contextWindow) }
     var nGpuLayers      by remember(config.nGpuLayers)       { mutableStateOf(config.nGpuLayers) }
     var gpuBackend      by remember(config.gpuBackend)       { mutableStateOf(config.gpuBackend) }
+    var gpuUbatch       by remember(config.gpuUbatch)        { mutableStateOf(config.gpuUbatch) }
+    var memoryMapping   by remember(config.memoryMapping)    { mutableStateOf(config.memoryMapping) }
     var temperatureX100 by remember(config.temperatureX100)          { mutableStateOf(config.temperatureX100) }
     var flashAttn       by remember(config.flashAttn)                { mutableStateOf(config.flashAttn) }
     var kvCacheQuant    by remember(config.kvCacheQuantization)      { mutableStateOf(config.kvCacheQuantization) }
@@ -510,14 +512,17 @@ fun SettingsScreen(
 
             CardDivider()
 
-            // GPU backend chip selector — Vulkan / OpenCL / CPU
-            // Both Vulkan and OpenCL are compiled into the same .so; this selects at load time.
-            //   Vulkan  (~15–30 tok/s on Mali-G72 MP3) — preferred; requires glslc at build time
-            //   OpenCL  (~8–15 tok/s on Mali-G72 MP3)  — fallback; kernels compile on-device
-            //   CPU     (~2–5  tok/s)                   — 0 GPU layers must be set alongside
+            // GPU backend chip selector — OpenCL / Vulkan / CPU
+            // Both are compiled into the same .so; selection takes effect on next model load.
+            //   OpenCL  — RECOMMENDED for Mali-G72 MP3. More stable on Samsung Exynos stock
+            //             kernels. Kernels compile on-device on first run (~3 s one-time cost).
+            //             ~8–15 tok/s typical on Q4_K_M 1B.
+            //   Vulkan  — Faster peak (~15–30 tok/s) but can crash / stall on some Mali
+            //             driver versions. Try if OpenCL is slow.
+            //   CPU     — No GPU offload; set GPU Layers to 0 alongside.
             FieldLabel("GPU Backend")
             Text(
-                "Vulkan recommended for Mali-G72  ·  both compiled in  ·  takes effect on next model load",
+                "OpenCL recommended for Mali-G72 MP3  ·  both compiled in  ·  takes effect on model reload",
                 style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)
             )
             Spacer(Modifier.height(6.dp))
@@ -525,11 +530,60 @@ fun SettingsScreen(
                 modifier              = Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf("vulkan", "opencl", "cpu").forEach { backend ->
+                listOf("opencl", "vulkan", "cpu").forEach { backend ->
                     SelectableChip(
                         label    = backend.uppercase(),
                         selected = gpuBackend == backend,
                         onClick  = { gpuBackend = backend }
+                    )
+                }
+            }
+
+            CardDivider()
+
+            // Memory Mapping policy — controls how model weights are loaded into RAM.
+            // Heap  : safest for ≤ 2 GB models; immune to Android page eviction.
+            // mmap  : fastest cold-start; mlock may fail silently (EPERM) on stock kernels.
+            // Auto  : picks heap for ≤ 2 GB, mmap + mlock for larger models.
+            FieldLabel("Memory Mapping")
+            Text(
+                "heap = safest (immune to eviction)  ·  mmap = fastest cold-start  ·  auto = size-based",
+                style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(
+                modifier              = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf("auto", "heap", "mmap").forEach { mode ->
+                    SelectableChip(
+                        label    = mode.uppercase(),
+                        selected = memoryMapping == mode,
+                        onClick  = { memoryMapping = mode }
+                    )
+                }
+            }
+
+            CardDivider()
+
+            // GPU micro-batch (n_ubatch) — kernel dispatch batch size for OpenCL / Vulkan.
+            // Larger fills GPU pipeline better; smaller = lower GPU RAM pressure.
+            // Mali-G72 sweet spot: 512. Try 256 if you see GPU OOMs or hangs.
+            FieldLabel("GPU μBatch (n_ubatch)")
+            Text(
+                "OpenCL dispatch batch size  ·  Mali-G72 sweet spot: 512  ·  lower if GPU OOMs",
+                style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(
+                modifier              = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(64, 128, 256, 512, 1024).forEach { n ->
+                    SelectableChip(
+                        label    = "$n",
+                        selected = gpuUbatch == n,
+                        onClick  = { gpuUbatch = n }
                     )
                 }
             }
@@ -828,7 +882,9 @@ fun SettingsScreen(
                     quantization  != config.quantization          ||
                     gpuBackend    != config.gpuBackend            ||
                     flashAttn     != config.flashAttn             ||
-                    kvCacheQuant  != config.kvCacheQuantization
+                    kvCacheQuant  != config.kvCacheQuantization   ||
+                    gpuUbatch     != config.gpuUbatch             ||
+                    memoryMapping != config.memoryMapping
                 )
                 vm.saveConfig(
                     AriaConfig(
@@ -841,6 +897,8 @@ fun SettingsScreen(
                         gpuBackend          = gpuBackend,
                         flashAttn           = flashAttn,
                         kvCacheQuantization = kvCacheQuant,
+                        gpuUbatch           = gpuUbatch,
+                        memoryMapping       = memoryMapping,
                         rlEnabled           = rlEnabled,
                         loraAdapterPath     = loraPath.trim(),
                     )
