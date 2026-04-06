@@ -27,7 +27,8 @@ set(LLAMA_DIR ${CMAKE_SOURCE_DIR}/llama.cpp)
 #   • Firebase Studio: pkgs.shaderc is in .idx/dev.nix — glslc auto-installed.
 #   • Android Studio local: sudo apt install glslc
 #                       or  https://vulkan.lunarg.com/sdk/home
-#   • GitHub Actions CI:  add shaderc to the runner image.
+#   • GitHub Actions CI:  NDK's built-in glslc is added to PATH via $GITHUB_PATH
+#                         (see .github/workflows/build-android.yml — Install step).
 #   Runtime: libvulkan.so — standard on Android 7+ (M31 ships Android 10).
 #
 # OpenCL (~8–15 tok/s on Mali-G72 MP3, OpenCL 2.0):

@@ -17,9 +17,9 @@
 // mtmd_helper_bitmap_init_from_buf which handle the full encode-decode pipeline.
 #include "mtmd.h"
 #include "mtmd-helper.h"
-// NOTE: ggml-opt.h is only needed when LLAMA_HAS_TRAINING is defined.
-// That flag is currently disabled pending API verification.
-// #include "ggml-opt.h"          // llama_opt_init / llama_opt_epoch / ggml_opt_dataset_t
+// NOTE: ggml-opt.h is included transitively via llama.h (llama.h line 7: #include "ggml-opt.h").
+// LLAMA_HAS_TRAINING is defined in CMakeLists.txt — the training block below is active.
+// A redundant direct include is NOT needed here; API verified against llama.cpp submodule.
 
 #define TAG "LlamaJNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
