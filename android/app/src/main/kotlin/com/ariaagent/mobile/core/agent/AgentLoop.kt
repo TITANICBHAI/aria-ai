@@ -169,7 +169,10 @@ object AgentLoop {
             // Count consecutive steps where the screen hash did not change AND the
             // action was neither Wait nor Back (the agent is spinning wheels).
             // Thresholds: 3 → inject hint | 5 → force Back | 8 → abort task.
+            // sameHashCount: debounce — require 2 identical consecutive hashes before
+            // incrementing stuckCount, reducing false positives from animated content.
             var stuckCount      = 0
+            var sameHashCount   = 0
             var lastScreenHash  = ""
             var stuckHint       = ""
 
@@ -316,6 +319,27 @@ object AgentLoop {
                         snapshot.bitmap != null && VisionEngine.isVisionModelReady(context)
                     if (snapshot.isEmpty() && !visionAvailableForEmptyScreen) {
                         delay(WAIT_RETRY_DELAY_MS)
+                        continue
+                    }
+
+                    // ── Accessibility sentinel guard ──────────────────────────
+                    // The a11y service sets cachedTree to "(not ready)" on init
+                    // before it has built a real tree. This non-empty placeholder
+                    // would reach the LLM and cause hallucinated node IDs. Pause
+                    // the loop for one tick and re-observe rather than sending it.
+                    if (snapshot.a11yTree == "(not ready)") {
+                        Log.w("AgentLoop", "A11y sentinel detected — skipping step until tree is ready")
+                        state = state.copy(status = Status.PAUSED, lastError = "accessibility_not_ready")
+                        AgentEventBus.emit("agent_status_changed", mapOf(
+                            "status" to "paused",
+                            "currentTask" to state.goal,
+                            "currentApp" to state.appPackage,
+                            "stepCount" to state.stepCount,
+                            "lastAction" to state.lastAction,
+                            "lastError" to "accessibility_not_ready"
+                        ))
+                        delay(A11Y_RETRY_DELAY_MS)
+                        state = state.copy(status = Status.RUNNING, lastError = "")
                         continue
                     }
 
