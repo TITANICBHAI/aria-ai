@@ -71,18 +71,29 @@ set(LLAMA_BUILD_COMMON ON CACHE BOOL "Build llama.cpp common utilities" FORCE)
 # template library (zero architecture-specific code), it is safe to use the
 # host copy when cross-compiling for arm64-v8a.
 #
-# We search /usr/include first.  If found, we prepend it to the system include
-# path so the NDK cross-compiler finds <vulkan/vulkan.hpp>.
-# If not found (local build without libvulkan-dev), we fall back by disabling
-# the Vulkan backend so the rest of the build (OpenCL + CPU) still succeeds.
+# We copy only the Vulkan .hpp files into a build-local directory and add it
+# as a plain user include (-I).  User -I paths are searched before the NDK
+# sysroot, so the cross-compiler reliably finds <vulkan/vulkan.hpp> without
+# polluting the search path with the entire host /usr/include.
+# If vulkan.hpp is absent (local build without libvulkan-dev), we fall back by
+# disabling the Vulkan backend so the rest of the build (OpenCL + CPU) succeeds.
 if(ANDROID)
     # Use if(EXISTS) instead of find_path() — find_path caches its result in
     # CMakeCache.txt and returns the stale "not found" value when the .cxx/
     # directory is restored from a GitHub Actions cache that pre-dates
     # libvulkan-dev being installed.  if(EXISTS) re-evaluates every CMake run.
     if(EXISTS "/usr/include/vulkan/vulkan.hpp")
-        message(STATUS "[ARIA] vulkan.hpp found at /usr/include/vulkan/vulkan.hpp — using host headers for Vulkan C++ API")
-        include_directories(BEFORE SYSTEM "/usr/include")
+        message(STATUS "[ARIA] vulkan.hpp found — staging Vulkan C++ headers into build-local directory")
+        # IMPORTANT: include_directories(BEFORE SYSTEM ...) generates -isystem which
+        # the NDK cross-compiler's --sysroot overrides (NDK sysroot /usr/include is
+        # searched first and it only has vulkan.h, not vulkan.hpp).
+        # Fix: copy ONLY the Vulkan .hpp files to a clean build-local dir and add
+        # it as a plain user include (-I, no SYSTEM keyword).  User -I paths are
+        # always searched before the sysroot, so the cross-compiler finds vulkan.hpp.
+        file(COPY "/usr/include/vulkan/"
+             DESTINATION "${CMAKE_BINARY_DIR}/vulkan_hpp_include/vulkan"
+             FILES_MATCHING PATTERN "*.hpp")
+        include_directories(BEFORE "${CMAKE_BINARY_DIR}/vulkan_hpp_include")
     else()
         message(WARNING "[ARIA] vulkan/vulkan.hpp not found on host — disabling Vulkan backend; run: sudo apt-get install -y libvulkan-dev")
         set(GGML_VULKAN OFF CACHE BOOL "" FORCE)
