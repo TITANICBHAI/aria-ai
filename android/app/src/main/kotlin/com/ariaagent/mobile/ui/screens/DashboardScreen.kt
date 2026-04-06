@@ -51,6 +51,7 @@ fun DashboardScreen(vm: AgentViewModel = viewModel()) {
     val chainedTask        by vm.chainedTask.collectAsStateWithLifecycle()
     val gameLoopState      by vm.gameLoopState.collectAsStateWithLifecycle()
     val pendingSuggestions by vm.pendingSuggestions.collectAsStateWithLifecycle()
+    val hwStats            by vm.hardwareStats.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { vm.refreshPendingSuggestions() }
 
@@ -189,6 +190,11 @@ fun DashboardScreen(vm: AgentViewModel = viewModel()) {
                 Spacer(Modifier.height(12.dp))
                 StepActivityBar(activity = stepState.activity, stepNumber = stepState.stepNumber)
             }
+        }
+
+        // ── Hardware meters ───────────────────────────────────────────────────
+        ARIACard {
+            HardwareMeterRow(stats = hwStats)
         }
 
         // ── Live token stream ─────────────────────────────────────────────────

@@ -61,6 +61,7 @@ fun ChatScreen(vm: AgentViewModel) {
     val appSkills    by vm.appSkills.collectAsState()
     val messages     by vm.chatMessages.collectAsState()
     val thinking     by vm.chatThinking.collectAsState()
+    val hwStats      by vm.hardwareStats.collectAsState()
 
     var input by remember { mutableStateOf("") }
     var showClearDialog by remember { mutableStateOf(false) }
@@ -115,6 +116,11 @@ fun ChatScreen(vm: AgentViewModel) {
         )
 
         ContextTagBar(taskQueueCount = taskQueue.size, appSkillsCount = appSkills.size)
+
+        HardwareMeterRow(
+            stats    = hwStats,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+        )
 
         LazyColumn(
             state                   = listState,

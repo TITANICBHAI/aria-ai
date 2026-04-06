@@ -78,6 +78,7 @@ fun ControlScreen(
     val taskQueue    by vm.taskQueue.collectAsStateWithLifecycle()
     val chainedTask  by vm.chainedTask.collectAsStateWithLifecycle()
     val loadedLlms   by vm.loadedLlms.collectAsStateWithLifecycle()
+    val hwStats      by vm.hardwareStats.collectAsStateWithLifecycle()
     val focusManager = LocalFocusManager.current
     val activeModel  = remember { ModelManager.activeEntry(context) }
     val loadedCount  = loadedLlms.values.count { it.isLoaded }
@@ -157,6 +158,11 @@ fun ControlScreen(
                     style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)
                 )
             }
+        }
+
+        // ── Hardware meters ───────────────────────────────────────────────────
+        ARIACard {
+            HardwareMeterRow(stats = hwStats)
         }
 
         // ── Chained task notification banner ───────────────────────────────────

@@ -38,6 +38,8 @@ import com.ariaagent.mobile.system.screen.ScreenCaptureService
 import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withTimeout
+import com.ariaagent.mobile.core.system.HardwareMonitor
+import com.ariaagent.mobile.core.system.HardwareMonitor.HardwareStats
 import com.ariaagent.mobile.core.triggers.TriggerItem
 import com.ariaagent.mobile.core.triggers.TriggerStore
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -559,6 +561,11 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     /** Config — reactive DataStore flow, auto-updates on any config change. */
     val config: StateFlow<AriaConfig> = ConfigStore.flow(context)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), AriaConfig())
+
+    /** Live CPU / RAM / GPU utilisation — updated every ~1.5 s on IO dispatcher. */
+    val hardwareStats: StateFlow<HardwareStats> =
+        HardwareMonitor.statsFlow(context)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), HardwareStats())
 
     // ─── Init ─────────────────────────────────────────────────────────────────
 

@@ -19,11 +19,14 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ariaagent.mobile.core.events.AgentEventBus
+import com.ariaagent.mobile.core.system.HardwareMonitor
+import com.ariaagent.mobile.ui.screens.HardwareMiniStrip
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.mapNotNull
 
@@ -79,6 +82,12 @@ fun FloatingChatOverlay(
     var stepCount    by remember { mutableStateOf(0) }
     var gestureHint  by remember { mutableStateOf("") }
     var gestureStart by remember { mutableStateOf(Offset.Zero) }
+
+    // Live hardware stats — collected directly (no ViewModel in overlay)
+    val context  = LocalContext.current
+    val hwStats  by HardwareMonitor.statsFlow(context).collectAsState(
+        initial = HardwareMonitor.HardwareStats()
+    )
 
     // Subscribe to AgentEventBus for live step updates
     LaunchedEffect(Unit) {
@@ -208,6 +217,12 @@ fun FloatingChatOverlay(
                     modifier            = Modifier.padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    // Hardware mini strip (CPU / GPU / RAM chips)
+                    HardwareMiniStrip(
+                        stats    = hwStats,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
                     // Live action card
                     Column(
                         modifier = Modifier
