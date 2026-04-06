@@ -43,7 +43,7 @@ private val Context.ariaDataStore: DataStore<Preferences> by preferencesDataStor
 data class AriaConfig(
     val modelPath: String       = "",
     val quantization: String    = "Q4_K_M",
-    val contextWindow: Int      = 4096,
+    val contextWindow: Int      = 2048,
     val maxTokensPerTurn: Int   = 512,
     val temperatureX100: Int    = 70,
     val nGpuLayers: Int         = 0,

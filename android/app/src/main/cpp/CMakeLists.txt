@@ -12,18 +12,35 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(LLAMA_DIR ${CMAKE_SOURCE_DIR}/llama.cpp)
 
 # ─── Hardware flags for Exynos 9611 (Samsung Galaxy M31) ─────────────────────
-# ARM Cortex-A73 big cores → use 4 threads (arm64-v8a, neon enabled by default)
-# No dedicated NPU → CPU only (see Vulkan note below)
+# ARM Cortex-A73 × 4 (big) + Cortex-A53 × 4 (LITTLE) → arm64-v8a, NEON always on
+# Mali-G72 MP3 → Vulkan 1.1 + OpenCL 2.0
+# No dedicated NPU
 #
-# NOTE: Vulkan (Mali-G72 MP3) is intentionally DISABLED.
-# ggml-vulkan requires glslc (Vulkan SDK shader compiler) present on the build
-# machine at CMake configuration time — it calls find_package(Vulkan COMPONENTS
-# glslc REQUIRED) which is a hard failure. EAS cloud build servers do not have
-# glslc installed, so enabling GGML_VULKAN aborts the build before any C++ is
-# compiled. CPU-only inference with Q4_K_M on a 1B model is fast enough for
-# on-device ARIA use. Re-enable once EAS custom build images supply glslc.
+# ── GPU acceleration options ─────────────────────────────────────────────────
+#
+# OPTION A — Vulkan (preferred, 10–30× faster than CPU):
+#   Requires glslc (Vulkan SDK shader compiler) on the BUILD machine.
+#   To enable on a local machine that has the Vulkan SDK:
+#     1. Install: https://vulkan.lunarg.com/sdk/home  (or: sudo apt install glslc)
+#     2. Change the line below to: set(GGML_VULKAN ON ...)
+#     3. Rebuild with ./gradlew assembleDebug
+#   Why it's currently OFF: EAS / CI build servers do not ship glslc, so enabling
+#   it aborts the CMake configure step before any C++ is compiled.
+#
+# OPTION B — OpenCL (Mali-G72 supports OpenCL 2.0, no build-time compiler needed):
+#   Requires Khronos OpenCL headers vendored in the project:
+#     git clone https://github.com/KhronosGroup/OpenCL-Headers \
+#               android/app/src/main/cpp/opencl-headers
+#   Then set GGML_OPENCL ON below and add to target_include_directories:
+#     ${CMAKE_CURRENT_SOURCE_DIR}/opencl-headers
+#   OpenCL compiles shaders at runtime on the device — no glslc needed.
+#
+# CURRENT STATE — CPU only:
+#   mlock=true + n_threads=6/8 are the primary fixes for the 25-minute inference
+#   problem (model was paging out to eMMC between calls).
+#   CPU-only speed with these fixes: ~2–5 tok/s. With GPU: ~8–15 tok/s.
 
-set(GGML_VULKAN OFF CACHE BOOL "Vulkan disabled — glslc not available on EAS servers" FORCE)
+set(GGML_VULKAN OFF CACHE BOOL "Vulkan disabled — glslc not on CI. See comment above to enable locally." FORCE)
 set(GGML_METAL OFF CACHE BOOL "Metal is iOS only" FORCE)
 set(GGML_CUDA OFF CACHE BOOL "No CUDA on Android" FORCE)
 set(GGML_BLAS OFF CACHE BOOL "No external BLAS needed for Q4_K_M" FORCE)

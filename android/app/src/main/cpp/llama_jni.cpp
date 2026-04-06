@@ -51,9 +51,14 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeLoadModel(
     const char* path = env->GetStringUTFChars(path_jstr, nullptr);
 
     llama_model_params mparams = llama_model_default_params();
-    mparams.n_gpu_layers = n_gpu_layers;   // offload to Mali-G72 Vulkan
+    mparams.n_gpu_layers = n_gpu_layers;   // offload to Mali-G72 (Vulkan/OpenCL when enabled)
     mparams.use_mmap     = true;           // CRITICAL: mmap keeps RSS low on M31
-    mparams.use_mlock    = false;          // do NOT lock pages (would OOM the device)
+    // mlock=true pins model pages in RAM so the OS cannot evict them between inference
+    // calls. Without this, each call causes hundreds of random page faults re-reading
+    // 870MB from eMMC, turning a ~30s inference into 25+ minutes. The 1B Q4_K_M model
+    // (~870MB locked) is safe on M31's 6GB — system RAM + OS + foreground service
+    // overhead leaves ~2.5–3GB free, well above the lock requirement.
+    mparams.use_mlock    = true;
 
     llama_model* model = llama_model_load_from_file(path, mparams);
     env->ReleaseStringUTFChars(path_jstr, path);
@@ -72,30 +77,43 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeLoadModel(
 
 // ─── nativeCreateContext ──────────────────────────────────────────────────────
 // Creates the KV cache + compute graph for inference.
-// n_ctx=4096 is the practical limit for M31 without OOM with Q4_K_M.
+// ctx_size is passed from Kotlin (LlamaEngine.load / loadVision) so the caller
+// controls context length — previously this was hardcoded to 4096 and the
+// Kotlin-side contextSize parameter was silently ignored.
 JNIEXPORT jlong JNICALL
 Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeCreateContext(
     JNIEnv* /* env */,
     jobject /* thiz */,
-    jlong   model_handle
+    jlong   model_handle,
+    jint    ctx_size
 ) {
     auto* model = reinterpret_cast<llama_model*>(model_handle);
     if (!model) return 0L;
 
+    // Clamp to a safe range: minimum 512 (< 512 is useless), max 4096 (OOM risk on M31)
+    int32_t n_ctx = (ctx_size > 0) ? ctx_size : 2048;
+    if (n_ctx < 512)  n_ctx = 512;
+    if (n_ctx > 4096) n_ctx = 4096;
+
     llama_context_params cparams = llama_context_default_params();
-    cparams.n_ctx       = 4096;  // M31 safe limit — 128K causes quadratic OOM
-    cparams.n_threads   = 4;     // Cortex-A73 big cores (4 big + 4 little on 9611)
-    cparams.n_threads_batch = 4;
+    cparams.n_ctx           = (uint32_t)n_ctx;
+    // 6 threads: 4 big Cortex-A73 + 2 Cortex-A53 LITTLE cores.
+    // Inference is memory-bandwidth-bound so LITTLE cores still contribute.
+    // Using 8 can cause thermal throttling; 6 is the stable balance on the M31.
+    cparams.n_threads       = 6;
+    // n_threads_batch controls prompt-evaluation (prefill) parallelism.
+    // Prefill is more compute-bound than decode so all 8 cores help here.
+    cparams.n_threads_batch = 8;
     cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED; // not available on all Mali drivers
 
     llama_context* ctx = llama_init_from_model(model, cparams);
     if (!ctx) {
-        LOGE("Failed to create context");
+        LOGE("Failed to create context (n_ctx=%d)", (int)n_ctx);
         return 0L;
     }
 
     g_ctx = ctx;  // cache for LoRA cleanup in nativeFreeModel
-    LOGI("Context created — n_ctx=4096 n_threads=4");
+    LOGI("Context created — n_ctx=%d n_threads=6 n_threads_batch=8 mlock=true", (int)n_ctx);
     return reinterpret_cast<jlong>(ctx);
 }
 
@@ -140,8 +158,11 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeRunInference(
     }
     tokens.resize(filled);
 
-    if ((int)tokens.size() >= 4096) {
-        LOGE("Prompt too long: %zu tokens", tokens.size());
+    // Use the actual context size (not hardcoded 4096) so this check is correct
+    // regardless of what contextSize was passed at load time.
+    const int32_t n_ctx = (int32_t)llama_n_ctx(ctx);
+    if ((int32_t)tokens.size() >= n_ctx) {
+        LOGE("Prompt too long: %zu tokens (n_ctx=%d)", tokens.size(), (int)n_ctx);
         return env->NewStringUTF("{\"error\":\"prompt_too_long\"}");
     }
 

@@ -54,11 +54,19 @@ import com.ariaagent.mobile.core.perception.ScreenObserver
 object PromptBuilder {
 
     /**
-     * Approximate char budget for the user section of the prompt.
-     * 4096 tokens − 500 system tokens − 200 response tokens = 3396 user tokens ≈ 13 584 chars.
-     * We cap at 12 000 to leave headroom for template markers.
+     * Compute the approximate char budget for the user section of a prompt given
+     * the configured context window.
+     *
+     * Budget formula:
+     *   (contextTokens - 500 system overhead - 200 response reserve) * 4 chars/token * 0.85 safety margin
+     *
+     * Examples:
+     *   2048 ctx → (2048 - 700) * 4 * 0.85 ≈  4 590 chars
+     *   3072 ctx → (3072 - 700) * 4 * 0.85 ≈  8 062 chars
+     *   4096 ctx → (4096 - 700) * 4 * 0.85 ≈ 11 560 chars  (≈ old 12 000 cap)
      */
-    private const val USER_CHAR_BUDGET = 12_000
+    fun userCharBudget(contextWindow: Int): Int =
+        ((contextWindow - 700) * 4 * 0.85).toInt().coerceIn(1_500, 12_000)
 
     private const val SYSTEM_PROMPT = """You are ARIA — an autonomous Android UI agent running on-device.
 
@@ -110,6 +118,9 @@ RULES:
      * @param goalPlan           Full task plan with checkmarks from TaskDecomposer (Phase 19).
      *                           Shows the agent the full multi-step plan and which step is current.
      *                           Empty string when goal has only one step (no overhead).
+     * @param contextWindow      Configured LLM context size (tokens) — used to compute the safe
+     *                           character budget for the node tree. Defaults to 2048; pass
+     *                           cfg.contextWindow to respect the user's Settings selection.
      */
     fun build(
         snapshot: ScreenObserver.ScreenSnapshot,
@@ -124,6 +135,7 @@ RULES:
         samRegions: List<String> = emptyList(),
         stuckHint: String = "",
         goalPlan: String = "",
+        contextWindow: Int = 2048,
     ): String {
         val sb = StringBuilder()
 
@@ -206,10 +218,10 @@ RULES:
         }
 
         // ── Accessibility node tree — trimmed to token budget ─────────────────
-        // The node tree is by far the largest section. If we are already near the
-        // character budget, trim it so we don't silently overflow the 4096-token context.
+        // The node tree is by far the largest section. Trim it to the dynamic
+        // budget so we don't silently overflow the configured context window.
         val usedSoFar = sb.length
-        val remaining = USER_CHAR_BUDGET - usedSoFar
+        val remaining = userCharBudget(contextWindow) - usedSoFar
         val nodeTree  = snapshot.toLlmString()
         sb.append(
             if (nodeTree.length > remaining && remaining > 200) {

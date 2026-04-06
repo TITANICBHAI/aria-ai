@@ -15,15 +15,16 @@ import kotlinx.coroutines.sync.withLock
  *   Then run: ./gradlew assembleDebug (from android/)
  *
  * Hardware target: Samsung Galaxy M31 (Exynos 9611)
- *   - Mali-G72 MP3 → Vulkan 1.1 → n_gpu_layers = 32 (all layers offloaded)
- *   - Cortex-A73 big cores → n_threads = 4
- *   - mmap = true → CRITICAL: keeps RSS ~1700MB instead of ~2.5GB
- *   - mlock = false → do NOT lock pages (would cause OOM on 6GB device)
+ *   - Mali-G72 MP3 → Vulkan/OpenCL → n_gpu_layers = 32 (all layers offloaded when GPU active)
+ *   - Cortex-A73 big cores + A53 LITTLE → n_threads = 6 (decode), n_threads_batch = 8 (prefill)
+ *   - mmap = true  → keeps RSS ~1400MB instead of ~2.5GB
+ *   - mlock = true → pins model pages in RAM, prevents eMMC page-fault thrashing
+ *                    (this was the primary cause of 25-minute inference times)
  *
  * Model: Llama-3.2-1B-Instruct-Q4_K_M.gguf
- *   - Disk: ~870MB
- *   - RAM (RSS): ~1500–1900MB with mmap
- *   - Speed: 8–15 tok/s on Exynos 9611 with Vulkan offload
+ *   - Disk: ~870MB (locked in RAM after first load)
+ *   - RAM (RSS): ~1200–1500MB with mmap + 2048 ctx (was ~1900MB at 4096 ctx)
+ *   - Speed (CPU-only): ~2–5 tok/s with mlock; ~8–15 tok/s with GPU offload enabled
  *
  * Token callback interface (streamed to ChatScreen / AgentViewModel):
  *   interface TokenCallback { fun onToken(token: String) }
@@ -37,7 +38,7 @@ object LlamaEngine {
 
     // Track last-used load params so GGUF hot-reload can reload with same settings
     private var lastModelPath: String = ""
-    private var lastContextSize: Int = 4096
+    private var lastContextSize: Int = 2048
     private var lastNGpuLayers: Int = 32
 
     var lastToksPerSec: Double = 0.0
@@ -55,16 +56,17 @@ object LlamaEngine {
      * Calls nativeLoadModel() → nativeCreateContext() via JNI.
      *
      * @param path        Absolute path to the .gguf file in internal storage
-     * @param contextSize Token context window (4096 for M31 — 128K causes OOM)
+     * @param contextSize Token context window (2048 default — halves KV-cache RAM vs 4096,
+     *                    reducing swap pressure. Raise to 3072 only if long sessions truncate.)
      * @param nGpuLayers  Layers to offload to GPU (32 = all layers for Q4_K_M 1B)
      */
-    fun load(path: String, contextSize: Int = 4096, nGpuLayers: Int = 32) {
+    fun load(path: String, contextSize: Int = 2048, nGpuLayers: Int = 32) {
         lastModelPath    = path
         lastContextSize  = contextSize
         lastNGpuLayers   = nGpuLayers
         if (jniAvailable) {
             modelHandle   = nativeLoadModel(path, contextSize, nGpuLayers)
-            contextHandle = if (modelHandle != 0L) nativeCreateContext(modelHandle) else 0L
+            contextHandle = if (modelHandle != 0L) nativeCreateContext(modelHandle, contextSize) else 0L
             memoryMb      = if (isLoaded()) nativeGetMemoryMb() else 0.0
         } else {
             // Stub active when llama.cpp submodule not yet compiled
@@ -148,7 +150,7 @@ object LlamaEngine {
     // System.loadLibrary() is called in companion object init.
 
     private external fun nativeLoadModel(path: String, ctxSize: Int, nGpuLayers: Int): Long
-    private external fun nativeCreateContext(modelHandle: Long): Long
+    private external fun nativeCreateContext(modelHandle: Long, contextSize: Int): Long
     private external fun nativeRunInference(
         ctxHandle:     Long,
         prompt:        String,
@@ -232,7 +234,7 @@ object LlamaEngine {
             android.util.Log.e("LlamaEngine", "loadVision: failed to load vision base model")
             return false
         }
-        visionCtxHandle = nativeCreateContext(visionModelHandle)
+        visionCtxHandle = nativeCreateContext(visionModelHandle, contextSize)
         if (visionCtxHandle == 0L) {
             android.util.Log.e("LlamaEngine", "loadVision: failed to create vision context")
             nativeFreeModel(visionModelHandle); visionModelHandle = 0L
@@ -283,14 +285,15 @@ object LlamaEngine {
      *
      * @param modelPath   Absolute path to the VLM base GGUF
      * @param mmProjPath  Absolute path to the matching mmproj GGUF (F16)
-     * @param contextSize KV-cache size (4096 is sufficient for action-sized outputs)
+     * @param contextSize KV-cache size (2048 default — sufficient for agent action outputs;
+     *                    raise to 3072 only if long reasoning chains are being truncated)
      * @param nGpuLayers  GPU offload layers; 0 = CPU-only (safe default for Mali-G72)
      * @return true if both model + mmproj loaded successfully
      */
     fun loadUnified(
         modelPath:   String,
         mmProjPath:  String,
-        contextSize: Int = 4096,
+        contextSize: Int = 2048,
         nGpuLayers:  Int = 0
     ): Boolean {
         unload()
