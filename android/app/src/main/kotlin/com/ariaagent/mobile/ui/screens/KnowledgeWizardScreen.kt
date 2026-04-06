@@ -65,7 +65,10 @@ import com.ariaagent.mobile.ui.theme.ARIAColors
  *  18  How All Three Models See Your Screen
  *  19  Annotating Frames — Teaching Like a Sensei
  *  20  Model Size Tradeoffs on Mobile Hardware
- *  21  When ARIA Fails and How to Fix It
+ *  21  Model Types: Text-Only, Vision & Multimodal
+ *  22  Which Model for Samsung M31? (Device Guide)
+ *  23  Text-Only + SmolVLM: The Hidden Superpower
+ *  24  When ARIA Fails and How to Fix It
  */
 
 private data class KnowledgePage(
@@ -393,6 +396,57 @@ fun KnowledgeWizardScreen(onBack: () -> Unit) {
             ),
             callout   = "If you have a newer high-RAM device (8 GB+), try switching to 3B. The reasoning improvement is significant for complex multi-app workflows.",
             calloutColor = ARIAColors.Warning,
+        ),
+
+        // ── Page 21 ───────────────────────────────────────────────────────────
+
+        KnowledgePage(
+            icon      = Icons.Default.Category,
+            iconTint  = ARIAColors.Primary,
+            title     = "Model Types: Text, Vision & Multimodal",
+            body      = "ARIA now supports three model categories. Each has a different way of understanding your screen:\n\nMULTIMODAL (Vision + Text — built-in)\n  One model does everything: it sees the screenshot AND reasons about what to do. The vision encoder (mmproj) is baked in. Examples: SmolVLM 256M/500M, Qwen2.5-VL 3B, MiniCPM-V 2.6.\n  Best for: apps with poor accessibility trees (games, Flutter, WebViews).\n  RAM cost: base model + mmproj loaded together.\n\nTEXT-ONLY (Reasoning only)\n  The model reasons and plans actions but cannot see the screen directly. It relies on the accessibility tree, OCR text, and — if downloaded — the SmolVLM helper for visual understanding. Examples: Llama 3.2 1B/3B, Gemma 3 1B/4B, Qwen2.5 1.5B.\n  Best for: standard Android apps with full accessibility trees.\n  RAM cost: model only. SmolVLM helper adds ~200 MB if enabled.\n\nAll types share the same training pipeline. Switching from a multimodal model to a text-only one — or back — does NOT discard accumulated experience. ARIA reuses every recorded episode regardless of which model collected it.",
+            bullets   = listOf(
+                Icons.Default.RemoveRedEye  to "Multimodal: sees screenshot natively via CLIP vision encoder",
+                Icons.Default.TextFields    to "Text-only: reads accessibility tree + OCR; optionally SmolVLM",
+                Icons.Default.SyncAlt       to "Training data is shared across all model types — zero loss on switch",
+                Icons.Default.Memory        to "Each model keeps its own LoRA adapter — no cross-contamination",
+            ),
+            callout   = "ARIA automatically detects whether an active model is multimodal or text-only and loads the correct engine mode — you don't need to configure this manually.",
+            calloutColor = ARIAColors.Primary,
+        ),
+
+        // ── Page 22 ───────────────────────────────────────────────────────────
+
+        KnowledgePage(
+            icon      = Icons.Default.PhoneAndroid,
+            iconTint  = ARIAColors.Accent,
+            title     = "Which Model for Samsung M31?",
+            body      = "The Samsung Galaxy M31 has 6 GB RAM and an Exynos 9611 (8 cores, no dedicated NPU). Here is how every catalog model maps to that hardware:\n\nSAFE — fits comfortably, full speed:\n  SmolVLM 256M   │ <1 GB   │ >20 tok/s  │ Vision built-in\n  SmolVLM 500M   │ ~1.2 GB │ ~15 tok/s  │ Better vision quality\n  Llama 3.2 1B   │ ~1.2 GB │ 10–15 tok/s│ Best text reasoning for size\n  Gemma 3 1B     │ ~1.1 GB │ 12–16 tok/s│ Best JSON output\n  Qwen2.5 1.5B   │ ~1.5 GB │ 8–12 tok/s │ Strong tool-use\n  Moondream2     │ ~2 GB   │ ~8 tok/s   │ Compact VLM\n\nFITS — tight, watch for OOM during concurrent app use:\n  Qwen2.5-VL 3B  │ ~3 GB   │ ~5 tok/s   │ Best vision+text balance\n  Llama 3.2 3B   │ ~2.5 GB │ ~5 tok/s   │ Best text quality\n  Gemma 3 4B     │ ~3 GB   │ ~4 tok/s   │ Dense, high quality\n\nRISKY — 5–6 GB, may crash if other apps are open:\n  MiniCPM-V 2.6  │ ~5.5 GB │ ~2 tok/s   │ GPT-4V quality vision\n\nNOT RECOMMENDED for M31:\n  Llama 3.2 V 11B│ 8 GB+   │ <1 tok/s   │ Exceeds M31 RAM limit",
+            bullets   = listOf(
+                Icons.Default.CheckCircle   to "Best overall pick: SmolVLM 256M (safe, fast, vision built-in)",
+                Icons.Default.AutoAwesome   to "Best text reasoning: Llama 3.2 1B — pairs with SmolVLM helper",
+                Icons.Default.Videocam      to "Best vision quality safe on M31: Qwen2.5-VL 3B (tight but works)",
+                Icons.Default.Warning       to "MiniCPM-V 2.6 and 11B models risk OOM on M31 — use with caution",
+            ),
+            callout   = "Rule of thumb for 6 GB phones: stay at or below 3 GB model RAM. Add SmolVLM helper (~200 MB) if you need vision with a text-only model.",
+            calloutColor = ARIAColors.Accent,
+        ),
+
+        // ── Page 23 ───────────────────────────────────────────────────────────
+
+        KnowledgePage(
+            icon      = Icons.Default.CallSplit,
+            iconTint  = ARIAColors.Success,
+            title     = "Text-Only + SmolVLM: The Power Pair",
+            body      = "When you activate a text-only model (e.g. Llama 3.2 1B), ARIA doesn't lose its ability to understand the screen — it automatically delegates vision to the SmolVLM 256M helper if it's downloaded.\n\nHow the pairing works:\n  1. AgentLoop captures a screenshot each step\n  2. If SmolVLM is loaded, it produces a text description of the screen\n  3. That description is fed into Llama's prompt — Llama uses it to reason and decide\n  4. The split means each model can be the best at its specialty\n\nWhy you might prefer this over a pure VLM:\n  • Better text reasoning: Llama 3.2 1B is a pure language model trained for instruction following — it often reasons better than a 1B VLM that had to split capacity between seeing and thinking\n  • More flexibility: swap the reasoning model without losing vision; update SmolVLM independently\n  • RAM efficiency: SmolVLM 256M uses only ~200 MB extra — leaving more RAM for the reasoning model\n\nFall-back chain (in order):\n  1. SmolVLM helper (if downloaded) — visual description\n  2. OCR (Tesseract) — raw text from screenshot\n  3. Accessibility tree — UI node names and labels\n\nARIA always uses all three sources and combines them into a single structured observation.",
+            bullets   = listOf(
+                Icons.Default.Psychology    to "Llama reasons; SmolVLM sees — each at full capacity",
+                Icons.Default.Memory        to "Total RAM: ~1.2 GB (Llama 1B) + ~200 MB (SmolVLM) = ~1.4 GB",
+                Icons.Default.AutoMode      to "Pairing is automatic — no settings to configure manually",
+                Icons.Default.SdCard        to "Download SmolVLM once; it pairs with any future text model",
+            ),
+            callout   = "This is ARIA's most RAM-efficient high-capability setup on M31: Llama 3.2 1B + SmolVLM 256M helper. Only ~1.4 GB combined, full vision, best-in-class text reasoning.",
+            calloutColor = ARIAColors.Success,
         ),
 
         KnowledgePage(

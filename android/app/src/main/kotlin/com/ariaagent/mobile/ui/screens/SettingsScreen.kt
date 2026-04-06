@@ -309,22 +309,51 @@ fun SettingsScreen(
                             )
                         )
                         Spacer(Modifier.height(4.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // ── Type badge + status chips ─────────────────────────
+                        androidx.compose.foundation.layout.FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement   = Arrangement.spacedBy(4.dp),
+                        ) {
                             Text(
                                 "~${model.displaySizeMb} MB",
                                 style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Muted)
                             )
-                            if (model.mmprojFilename != null) {
+                            // Vision type chip
+                            if (model.isTextOnly) {
+                                Text(
+                                    "• Text-only",
+                                    style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Primary)
+                                )
+                            } else {
                                 Text(
                                     "• Vision",
                                     style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Accent)
                                 )
                             }
+                            // On-device indicator
                             if (isDownloaded) {
                                 Text(
                                     "• On device",
                                     style = MaterialTheme.typography.labelSmall.copy(color = ARIAColors.Success)
                                 )
+                            }
+                            // Not-recommended warning chip (e.g. 11B on 6 GB phones)
+                            if (model.notRecommended) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(ARIAColors.Warning.copy(alpha = 0.15f))
+                                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        "⚠ 8 GB+ RAM",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            color      = ARIAColors.Warning,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize   = 9.sp
+                                        )
+                                    )
+                                }
                             }
                         }
                     }
