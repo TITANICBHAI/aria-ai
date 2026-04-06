@@ -86,6 +86,7 @@ fun SettingsScreen(
     var quantization    by remember(config.quantization)     { mutableStateOf(config.quantization) }
     var contextWindow   by remember(config.contextWindow)    { mutableStateOf(config.contextWindow) }
     var nGpuLayers      by remember(config.nGpuLayers)       { mutableStateOf(config.nGpuLayers) }
+    var gpuBackend      by remember(config.gpuBackend)       { mutableStateOf(config.gpuBackend) }
     var temperatureX100 by remember(config.temperatureX100)  { mutableStateOf(config.temperatureX100) }
     var rlEnabled       by remember(config.rlEnabled)        { mutableStateOf(config.rlEnabled) }
     var loraPath        by remember(config.loraAdapterPath)  { mutableStateOf(config.loraAdapterPath ?: "") }
@@ -507,6 +508,32 @@ fun SettingsScreen(
 
             CardDivider()
 
+            // GPU backend chip selector — Vulkan / OpenCL / CPU
+            // Both Vulkan and OpenCL are compiled into the same .so; this selects at load time.
+            //   Vulkan  (~15–30 tok/s on Mali-G72 MP3) — preferred; requires glslc at build time
+            //   OpenCL  (~8–15 tok/s on Mali-G72 MP3)  — fallback; kernels compile on-device
+            //   CPU     (~2–5  tok/s)                   — 0 GPU layers must be set alongside
+            FieldLabel("GPU Backend")
+            Text(
+                "Vulkan recommended for Mali-G72  ·  both compiled in  ·  takes effect on next model load",
+                style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(
+                modifier              = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf("vulkan", "opencl", "cpu").forEach { backend ->
+                    SelectableChip(
+                        label    = backend.uppercase(),
+                        selected = gpuBackend == backend,
+                        onClick  = { gpuBackend = backend }
+                    )
+                }
+            }
+
+            CardDivider()
+
             // Temperature preset buttons
             Row(
                 modifier              = Modifier.fillMaxWidth(),
@@ -742,7 +769,8 @@ fun SettingsScreen(
                 val engineParamsChanged = LlamaEngine.isLoaded() && (
                     nGpuLayers    != config.nGpuLayers    ||
                     contextWindow != config.contextWindow ||
-                    quantization  != config.quantization
+                    quantization  != config.quantization  ||
+                    gpuBackend    != config.gpuBackend
                 )
                 vm.saveConfig(
                     AriaConfig(
@@ -752,6 +780,7 @@ fun SettingsScreen(
                         maxTokensPerTurn = config.maxTokensPerTurn,
                         temperatureX100  = temperatureX100,
                         nGpuLayers       = nGpuLayers,
+                        gpuBackend       = gpuBackend,
                         rlEnabled        = rlEnabled,
                         loraAdapterPath  = loraPath.trim(),
                     )

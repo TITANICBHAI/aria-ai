@@ -1074,12 +1074,14 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                         mmProjPath  = mmProjPath,
                         contextSize = cfg.contextWindow,
                         nGpuLayers  = cfg.nGpuLayers,
+                        gpuBackend  = cfg.gpuBackend,
                     )
                 } else {
                     LlamaEngine.load(
                         path        = ModelManager.modelPath(context).absolutePath,
                         contextSize = cfg.contextWindow,
                         nGpuLayers  = cfg.nGpuLayers,
+                        gpuBackend  = cfg.gpuBackend,
                     )
                 }
             }
@@ -1645,12 +1647,14 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                         mmProjPath  = mmProjPath,
                         contextSize = cfg.contextWindow,
                         nGpuLayers  = cfg.nGpuLayers,
+                        gpuBackend  = cfg.gpuBackend,
                     )
                 } else {
                     LlamaEngine.load(
                         path        = cfg.modelPath,
                         contextSize = cfg.contextWindow,
                         nGpuLayers  = cfg.nGpuLayers,
+                        gpuBackend  = cfg.gpuBackend,
                     )
                 }
             }
