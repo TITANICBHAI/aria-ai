@@ -1070,18 +1070,22 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
 
                 if (mmProjPath != null) {
                     LlamaEngine.loadUnified(
-                        modelPath   = ModelManager.modelPath(context).absolutePath,
-                        mmProjPath  = mmProjPath,
-                        contextSize = cfg.contextWindow,
-                        nGpuLayers  = cfg.nGpuLayers,
-                        gpuBackend  = cfg.gpuBackend,
+                        modelPath    = ModelManager.modelPath(context).absolutePath,
+                        mmProjPath   = mmProjPath,
+                        contextSize  = cfg.contextWindow,
+                        nGpuLayers   = cfg.nGpuLayers,
+                        gpuBackend   = cfg.gpuBackend,
+                        flashAttn    = cfg.flashAttn,
+                        kvCacheQuant = cfg.kvCacheQuantization,
                     )
                 } else {
                     LlamaEngine.load(
-                        path        = ModelManager.modelPath(context).absolutePath,
-                        contextSize = cfg.contextWindow,
-                        nGpuLayers  = cfg.nGpuLayers,
-                        gpuBackend  = cfg.gpuBackend,
+                        path         = ModelManager.modelPath(context).absolutePath,
+                        contextSize  = cfg.contextWindow,
+                        nGpuLayers   = cfg.nGpuLayers,
+                        gpuBackend   = cfg.gpuBackend,
+                        flashAttn    = cfg.flashAttn,
+                        kvCacheQuant = cfg.kvCacheQuantization,
                     )
                 }
             }
@@ -1643,18 +1647,22 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                     java.io.File(mmProjPath).length() > 0
                 ) {
                     LlamaEngine.loadUnified(
-                        modelPath   = cfg.modelPath,
-                        mmProjPath  = mmProjPath,
-                        contextSize = cfg.contextWindow,
-                        nGpuLayers  = cfg.nGpuLayers,
-                        gpuBackend  = cfg.gpuBackend,
+                        modelPath    = cfg.modelPath,
+                        mmProjPath   = mmProjPath,
+                        contextSize  = cfg.contextWindow,
+                        nGpuLayers   = cfg.nGpuLayers,
+                        gpuBackend   = cfg.gpuBackend,
+                        flashAttn    = cfg.flashAttn,
+                        kvCacheQuant = cfg.kvCacheQuantization,
                     )
                 } else {
                     LlamaEngine.load(
-                        path        = cfg.modelPath,
-                        contextSize = cfg.contextWindow,
-                        nGpuLayers  = cfg.nGpuLayers,
-                        gpuBackend  = cfg.gpuBackend,
+                        path         = cfg.modelPath,
+                        contextSize  = cfg.contextWindow,
+                        nGpuLayers   = cfg.nGpuLayers,
+                        gpuBackend   = cfg.gpuBackend,
+                        flashAttn    = cfg.flashAttn,
+                        kvCacheQuant = cfg.kvCacheQuantization,
                     )
                 }
             }

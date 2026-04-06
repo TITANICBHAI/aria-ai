@@ -43,6 +43,8 @@ object LlamaEngine {
     private var lastContextSize: Int = 2048
     private var lastNGpuLayers: Int = 32
     private var lastGpuBackend: String = "vulkan"
+    private var lastFlashAttn: Boolean = false
+    private var lastKvCacheQuant: Boolean = false
 
     var lastToksPerSec: Double = 0.0
         private set
@@ -63,14 +65,24 @@ object LlamaEngine {
      *                    reducing swap pressure. Raise to 3072 only if long sessions truncate.)
      * @param nGpuLayers  Layers to offload to GPU (32 = all layers for Q4_K_M 1B)
      */
-    fun load(path: String, contextSize: Int = 2048, nGpuLayers: Int = 32, gpuBackend: String = "vulkan") {
+    fun load(
+        path: String,
+        contextSize: Int = 2048,
+        nGpuLayers: Int = 32,
+        gpuBackend: String = "vulkan",
+        flashAttn: Boolean = false,
+        kvCacheQuant: Boolean = false
+    ) {
         lastModelPath    = path
         lastContextSize  = contextSize
         lastNGpuLayers   = nGpuLayers
         lastGpuBackend   = gpuBackend
+        lastFlashAttn    = flashAttn
+        lastKvCacheQuant = kvCacheQuant
         if (jniAvailable) {
             modelHandle   = nativeLoadModel(path, contextSize, nGpuLayers, gpuBackend)
-            contextHandle = if (modelHandle != 0L) nativeCreateContext(modelHandle, contextSize) else 0L
+            contextHandle = if (modelHandle != 0L)
+                nativeCreateContext(modelHandle, contextSize, flashAttn, kvCacheQuant) else 0L
             memoryMb      = if (isLoaded()) nativeGetMemoryMb() else 0.0
         } else {
             // Stub active when llama.cpp submodule not yet compiled
@@ -155,7 +167,7 @@ object LlamaEngine {
     // System.loadLibrary() is called in companion object init.
 
     private external fun nativeLoadModel(path: String, ctxSize: Int, nGpuLayers: Int, gpuBackend: String): Long
-    private external fun nativeCreateContext(modelHandle: Long, contextSize: Int): Long
+    private external fun nativeCreateContext(modelHandle: Long, contextSize: Int, flashAttn: Boolean, kvCacheQuant: Boolean): Long
     private external fun nativeRunInference(
         ctxHandle:     Long,
         prompt:        String,
@@ -226,7 +238,9 @@ object LlamaEngine {
         mmProjPath: String,
         contextSize: Int = 2048,
         nGpuLayers: Int = 32,
-        gpuBackend: String = "vulkan"
+        gpuBackend: String = "vulkan",
+        flashAttn: Boolean = false,
+        kvCacheQuant: Boolean = false
     ): Boolean {
         if (!jniAvailable) {
             android.util.Log.w("LlamaEngine", "loadVision: stub mode — JNI not compiled")
@@ -241,13 +255,13 @@ object LlamaEngine {
             android.util.Log.e("LlamaEngine", "loadVision: failed to load vision base model")
             return false
         }
-        visionCtxHandle = nativeCreateContext(visionModelHandle, contextSize)
+        visionCtxHandle = nativeCreateContext(visionModelHandle, contextSize, flashAttn, kvCacheQuant)
         if (visionCtxHandle == 0L) {
             android.util.Log.e("LlamaEngine", "loadVision: failed to create vision context")
             nativeFreeModel(visionModelHandle); visionModelHandle = 0L
             return false
         }
-        visionHandle = nativeInitVision(mmProjPath, visionModelHandle)
+        visionHandle = nativeInitVision(mmProjPath, visionModelHandle, flashAttn)
         if (visionHandle == 0L) {
             android.util.Log.e("LlamaEngine", "loadVision: mmproj init failed")
             nativeFreeContext(visionCtxHandle); visionCtxHandle = 0L
@@ -298,15 +312,17 @@ object LlamaEngine {
      * @return true if both model + mmproj loaded successfully
      */
     fun loadUnified(
-        modelPath:   String,
-        mmProjPath:  String,
-        contextSize: Int = 2048,
-        nGpuLayers:  Int = 32,
-        gpuBackend:  String = "vulkan"
+        modelPath:    String,
+        mmProjPath:   String,
+        contextSize:  Int = 2048,
+        nGpuLayers:   Int = 32,
+        gpuBackend:   String = "vulkan",
+        flashAttn:    Boolean = false,
+        kvCacheQuant: Boolean = false
     ): Boolean {
         unload()
         unloadVision()
-        val ok = loadVision(modelPath, mmProjPath, contextSize, nGpuLayers, gpuBackend)
+        val ok = loadVision(modelPath, mmProjPath, contextSize, nGpuLayers, gpuBackend, flashAttn, kvCacheQuant)
         if (ok) {
             // Alias — no extra RAM cost, no extra JNI calls
             modelHandle   = visionModelHandle
@@ -358,7 +374,7 @@ object LlamaEngine {
 
     // ─── Vision JNI declarations (implemented in llama_jni.cpp) ──────────────
 
-    private external fun nativeInitVision(mmProjPath: String, modelHandle: Long): Long
+    private external fun nativeInitVision(mmProjPath: String, modelHandle: Long, flashAttn: Boolean): Long
     private external fun nativeFreeVision(visionHandle: Long)
     private external fun nativeRunVisionInference(
         ctxHandle:     Long,
@@ -396,7 +412,7 @@ object LlamaEngine {
                 android.util.Log.i("LlamaEngine",
                     "GGUF checkpoint detected — hot-reloading as base model: $adapterPath")
                 unload()
-                load(adapterPath, lastContextSize, lastNGpuLayers, lastGpuBackend)
+                load(adapterPath, lastContextSize, lastNGpuLayers, lastGpuBackend, lastFlashAttn, lastKvCacheQuant)
                 isLoaded()
             } else {
                 // Classic LoRA adapter binary — apply on top of loaded base model

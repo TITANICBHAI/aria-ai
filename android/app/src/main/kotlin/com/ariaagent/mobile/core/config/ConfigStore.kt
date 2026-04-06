@@ -50,6 +50,14 @@ data class AriaConfig(
     /** Which GPU backend to use for inference. "vulkan" | "opencl" | "cpu".
      *  Both Vulkan and OpenCL are compiled into the same .so; this selects at load time. */
     val gpuBackend: String      = "vulkan",
+    /** Enable Flash Attention in the LLM context (LLAMA_FLASH_ATTN_TYPE_AUTO).
+     *  Reduces KV-cache memory bandwidth. Requires the GPU driver to support it;
+     *  llama.cpp falls back silently if the backend doesn't (AUTO mode). Default off. */
+    val flashAttn: Boolean      = false,
+    /** Quantize the KV cache to Q8_0 (halves KV memory, ~1% quality loss).
+     *  Significant on M31 where 2048-token F16 KV uses ~256 MB; Q8_0 cuts it to ~128 MB.
+     *  Applied at context-creation time — requires model reload to take effect. */
+    val kvCacheQuantization: Boolean = false,
     val loraAdapterPath: String = "",
     val rlEnabled: Boolean      = true,
     val learningRate: Double    = 1e-4,
@@ -68,6 +76,8 @@ object ConfigStore {
     private val KEY_LORA_PATH    = stringPreferencesKey("loraAdapterPath")
     private val KEY_RL_ENABLED   = booleanPreferencesKey("rlEnabled")
     private val KEY_LEARNING_RATE = doublePreferencesKey("learningRate")
+    private val KEY_FLASH_ATTN   = booleanPreferencesKey("flashAttn")
+    private val KEY_KV_QUANT     = booleanPreferencesKey("kvCacheQuantization")
 
     // ─── Read — reactive Flow ─────────────────────────────────────────────────
 
@@ -99,6 +109,8 @@ object ConfigStore {
             prefs[KEY_LORA_PATH]     = config.loraAdapterPath
             prefs[KEY_RL_ENABLED]    = config.rlEnabled
             prefs[KEY_LEARNING_RATE] = config.learningRate
+            prefs[KEY_FLASH_ATTN]    = config.flashAttn
+            prefs[KEY_KV_QUANT]      = config.kvCacheQuantization
         }
     }
 
@@ -145,7 +157,9 @@ object ConfigStore {
                 LoraTrainer.latestAdapterPath(context) ?: ""
             }
         },
-        rlEnabled        = prefs[KEY_RL_ENABLED]    ?: true,
-        learningRate     = prefs[KEY_LEARNING_RATE] ?: 1e-4,
+        rlEnabled            = prefs[KEY_RL_ENABLED]    ?: true,
+        learningRate         = prefs[KEY_LEARNING_RATE] ?: 1e-4,
+        flashAttn            = prefs[KEY_FLASH_ATTN]    ?: false,
+        kvCacheQuantization  = prefs[KEY_KV_QUANT]      ?: false,
     )
 }

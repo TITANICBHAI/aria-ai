@@ -158,8 +158,10 @@ JNIEXPORT jlong JNICALL
 Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeCreateContext(
     JNIEnv* /* env */,
     jobject /* thiz */,
-    jlong   model_handle,
-    jint    ctx_size
+    jlong    model_handle,
+    jint     ctx_size,
+    jboolean flash_attn,
+    jboolean kv_quant
 ) {
     auto* model = reinterpret_cast<llama_model*>(model_handle);
     if (!model) return 0L;
@@ -187,7 +189,17 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeCreateContext(
     // n_threads_batch controls prompt-evaluation (prefill) parallelism.
     // Prefill is more compute-bound than decode so all 8 cores help here.
     cparams.n_threads_batch = 8;
-    cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED; // not available on all Mali drivers
+    // Flash Attention: AUTO lets llama.cpp decide per-backend; falls back gracefully
+    // if the Mali driver version doesn't support it.  DISABLED is the safe default.
+    cparams.flash_attn_type = flash_attn
+        ? LLAMA_FLASH_ATTN_TYPE_AUTO
+        : LLAMA_FLASH_ATTN_TYPE_DISABLED;
+    // KV cache quantization: Q8_0 halves KV memory (~256 MB → ~128 MB at 2048 ctx, F16 base).
+    // Negligible quality loss vs F16; avoids swap pressure on 6 GB M31.
+    if (kv_quant) {
+        cparams.type_k = GGML_TYPE_Q8_0;
+        cparams.type_v = GGML_TYPE_Q8_0;
+    }
 
     llama_context* ctx = llama_init_from_model(model, cparams);
     if (!ctx) {
@@ -196,8 +208,8 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeCreateContext(
     }
 
     g_ctx = ctx;  // cache for LoRA cleanup in nativeFreeModel
-    LOGI("Context created — n_ctx=%d n_batch=%d n_ubatch=512 n_threads=6 n_threads_batch=8",
-         (int)n_ctx, (int)n_ctx);
+    LOGI("Context created — n_ctx=%d flash_attn=%d kv_quant=%d n_batch=%d n_ubatch=512",
+         (int)n_ctx, (int)flash_attn, (int)kv_quant, (int)n_ctx);
     return reinterpret_cast<jlong>(ctx);
 }
 
@@ -410,8 +422,9 @@ JNIEXPORT jlong JNICALL
 Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeInitVision(
     JNIEnv* env,
     jobject /* thiz */,
-    jstring mmproj_path_jstr,
-    jlong   model_handle
+    jstring  mmproj_path_jstr,
+    jlong    model_handle,
+    jboolean flash_attn
 ) {
     auto* model = reinterpret_cast<llama_model*>(model_handle);
     if (!model) {
@@ -425,7 +438,9 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeInitVision(
     vparams.use_gpu              = true;   // Vulkan enabled — offload CLIP encoder to Mali-G72
     vparams.n_threads            = 6;      // Cortex-A73 big + 2 A53 LITTLE cores
     vparams.print_timings        = false;
-    vparams.flash_attn_type      = LLAMA_FLASH_ATTN_TYPE_DISABLED;
+    vparams.flash_attn_type      = flash_attn
+                                     ? LLAMA_FLASH_ATTN_TYPE_AUTO
+                                     : LLAMA_FLASH_ATTN_TYPE_DISABLED;
     vparams.warmup               = false;  // skip warmup pass to save cold-start time
 
     mtmd_context* vctx = mtmd_init_from_file(path, model, vparams);

@@ -87,9 +87,11 @@ fun SettingsScreen(
     var contextWindow   by remember(config.contextWindow)    { mutableStateOf(config.contextWindow) }
     var nGpuLayers      by remember(config.nGpuLayers)       { mutableStateOf(config.nGpuLayers) }
     var gpuBackend      by remember(config.gpuBackend)       { mutableStateOf(config.gpuBackend) }
-    var temperatureX100 by remember(config.temperatureX100)  { mutableStateOf(config.temperatureX100) }
-    var rlEnabled       by remember(config.rlEnabled)        { mutableStateOf(config.rlEnabled) }
-    var loraPath        by remember(config.loraAdapterPath)  { mutableStateOf(config.loraAdapterPath ?: "") }
+    var temperatureX100 by remember(config.temperatureX100)          { mutableStateOf(config.temperatureX100) }
+    var flashAttn       by remember(config.flashAttn)                { mutableStateOf(config.flashAttn) }
+    var kvCacheQuant    by remember(config.kvCacheQuantization)      { mutableStateOf(config.kvCacheQuantization) }
+    var rlEnabled       by remember(config.rlEnabled)                { mutableStateOf(config.rlEnabled) }
+    var loraPath        by remember(config.loraAdapterPath)          { mutableStateOf(config.loraAdapterPath ?: "") }
 
     // ── Permission state — checked live via DisposableEffect + moduleState ────
     val accessibilityGranted = moduleState.accessibilityGranted
@@ -534,6 +536,60 @@ fun SettingsScreen(
 
             CardDivider()
 
+            // Flash Attention toggle
+            Row(
+                modifier              = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment     = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    FieldLabel("Flash Attention")
+                    Text(
+                        "AUTO mode — reduces KV bandwidth; falls back if driver unsupported",
+                        style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)
+                    )
+                }
+                Switch(
+                    checked         = flashAttn,
+                    onCheckedChange = { flashAttn = it },
+                    colors          = SwitchDefaults.colors(
+                        checkedThumbColor   = ARIAColors.Background,
+                        checkedTrackColor   = ARIAColors.Primary,
+                        uncheckedThumbColor = ARIAColors.Muted,
+                        uncheckedTrackColor = ARIAColors.Divider,
+                    )
+                )
+            }
+
+            CardDivider()
+
+            // KV Cache Quantization toggle
+            Row(
+                modifier              = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment     = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    FieldLabel("KV Cache Quantization (Q8_0)")
+                    Text(
+                        "Halves KV memory (~128 MB at ctx 2048); requires model reload",
+                        style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)
+                    )
+                }
+                Switch(
+                    checked         = kvCacheQuant,
+                    onCheckedChange = { kvCacheQuant = it },
+                    colors          = SwitchDefaults.colors(
+                        checkedThumbColor   = ARIAColors.Background,
+                        checkedTrackColor   = ARIAColors.Primary,
+                        uncheckedThumbColor = ARIAColors.Muted,
+                        uncheckedTrackColor = ARIAColors.Divider,
+                    )
+                )
+            }
+
+            CardDivider()
+
             // Temperature preset buttons
             Row(
                 modifier              = Modifier.fillMaxWidth(),
@@ -767,22 +823,26 @@ fun SettingsScreen(
                 // Only relevant when LlamaEngine is already loaded — if it is not loaded,
                 // the new params will be picked up automatically at next load() call.
                 val engineParamsChanged = LlamaEngine.isLoaded() && (
-                    nGpuLayers    != config.nGpuLayers    ||
-                    contextWindow != config.contextWindow ||
-                    quantization  != config.quantization  ||
-                    gpuBackend    != config.gpuBackend
+                    nGpuLayers    != config.nGpuLayers           ||
+                    contextWindow != config.contextWindow         ||
+                    quantization  != config.quantization          ||
+                    gpuBackend    != config.gpuBackend            ||
+                    flashAttn     != config.flashAttn             ||
+                    kvCacheQuant  != config.kvCacheQuantization
                 )
                 vm.saveConfig(
                     AriaConfig(
-                        modelPath        = modelPath.trim(),
-                        quantization     = quantization,
-                        contextWindow    = contextWindow,
-                        maxTokensPerTurn = config.maxTokensPerTurn,
-                        temperatureX100  = temperatureX100,
-                        nGpuLayers       = nGpuLayers,
-                        gpuBackend       = gpuBackend,
-                        rlEnabled        = rlEnabled,
-                        loraAdapterPath  = loraPath.trim(),
+                        modelPath           = modelPath.trim(),
+                        quantization        = quantization,
+                        contextWindow       = contextWindow,
+                        maxTokensPerTurn    = config.maxTokensPerTurn,
+                        temperatureX100     = temperatureX100,
+                        nGpuLayers          = nGpuLayers,
+                        gpuBackend          = gpuBackend,
+                        flashAttn           = flashAttn,
+                        kvCacheQuantization = kvCacheQuant,
+                        rlEnabled           = rlEnabled,
+                        loraAdapterPath     = loraPath.trim(),
                     )
                 )
                 saveSuccess = true
