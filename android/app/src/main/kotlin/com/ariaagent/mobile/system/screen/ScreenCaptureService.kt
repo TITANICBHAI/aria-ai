@@ -13,6 +13,8 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import android.os.Handler
+import android.os.HandlerThread
 import java.io.File
 import java.io.FileOutputStream
 
@@ -59,13 +61,21 @@ class ScreenCaptureService : Service() {
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
 
+    // Background thread for image I/O — keeps disk writes off the main thread (Bug #2 fix)
+    private var captureHandlerThread: HandlerThread? = null
+    private var captureHandler: Handler? = null
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
-        isActive = true
+        // isActive is set true only after setupCapture() succeeds (Bug #10 fix)
         createNotificationChannel()
         startForeground(NOTIF_ID, buildNotification())
+        captureHandlerThread = HandlerThread("ARIACaptureIO").also {
+            it.start()
+            captureHandler = Handler(it.looper)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -96,55 +106,67 @@ class ScreenCaptureService : Service() {
 
     private fun setupCapture() {
         val mp = mediaProjection ?: return
+        val handler = captureHandler ?: return
         val metrics = resources.displayMetrics
 
-        imageReader = ImageReader.newInstance(
+        val reader = ImageReader.newInstance(
             CAPTURE_WIDTH, CAPTURE_HEIGHT,
             PixelFormat.RGBA_8888, 2
         )
+        imageReader = reader
 
         virtualDisplay = mp.createVirtualDisplay(
             "ARIACapture",
             CAPTURE_WIDTH, CAPTURE_HEIGHT, metrics.densityDpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            imageReader!!.surface, null, null
+            reader.surface, null, null
         )
 
-        imageReader!!.setOnImageAvailableListener({ reader ->
-            reader.acquireLatestImage()?.use { image ->
+        // Bug #2 fix: pass background handler so image callbacks run on captureHandlerThread,
+        // not on the main thread — prevents ANR from disk I/O in saveImage().
+        reader.setOnImageAvailableListener({ r ->
+            r.acquireLatestImage()?.use { image ->
                 saveImage(image)
             }
-        }, null)
+        }, handler)
+
+        // Bug #10 fix: only mark active after the capture pipeline is fully wired
+        isActive = true
     }
 
     private fun saveImage(image: android.media.Image) {
-        val planes = image.planes
-        val buffer = planes[0].buffer
-        val rowStride = planes[0].rowStride
-        val pixelStride = planes[0].pixelStride
-        val rowPadding = rowStride - pixelStride * CAPTURE_WIDTH
+        // Bug #3 fix: wrap all disk I/O in try-catch so a storage failure can't crash the service
+        try {
+            val planes = image.planes
+            val buffer = planes[0].buffer
+            val rowStride = planes[0].rowStride
+            val pixelStride = planes[0].pixelStride
+            val rowPadding = rowStride - pixelStride * CAPTURE_WIDTH
 
-        val bitmap = Bitmap.createBitmap(
-            CAPTURE_WIDTH + rowPadding / pixelStride,
-            CAPTURE_HEIGHT,
-            Bitmap.Config.ARGB_8888
-        )
-        bitmap.copyPixelsFromBuffer(buffer)
+            val bitmap = Bitmap.createBitmap(
+                CAPTURE_WIDTH + rowPadding / pixelStride,
+                CAPTURE_HEIGHT,
+                Bitmap.Config.ARGB_8888
+            )
+            bitmap.copyPixelsFromBuffer(buffer)
 
-        // Crop to exact size if padding was added
-        val cropped = Bitmap.createBitmap(bitmap, 0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT)
+            // Crop to exact size if padding was added
+            val cropped = Bitmap.createBitmap(bitmap, 0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT)
 
-        val screenshotFile = File(filesDir, "screenshots/latest.jpg").also {
-            it.parentFile?.mkdirs()
+            val screenshotFile = File(filesDir, "screenshots/latest.jpg").also {
+                it.parentFile?.mkdirs()
+            }
+            FileOutputStream(screenshotFile).use { out ->
+                cropped.compress(Bitmap.CompressFormat.JPEG, 85, out)
+            }
+            latestScreenshotPath = screenshotFile.absolutePath
+            // Recycle cropped first (may be the same object as bitmap if no padding),
+            // then recycle bitmap only when it is a distinct allocation.
+            cropped.recycle()
+            if (cropped !== bitmap) bitmap.recycle()
+        } catch (e: Exception) {
+            android.util.Log.e("ScreenCaptureService", "saveImage failed: ${e.message}", e)
         }
-        FileOutputStream(screenshotFile).use { out ->
-            cropped.compress(Bitmap.CompressFormat.JPEG, 85, out)
-        }
-        latestScreenshotPath = screenshotFile.absolutePath
-        // Recycle cropped first (may be the same object as bitmap if no padding),
-        // then recycle bitmap only when it is a distinct allocation.
-        cropped.recycle()
-        if (cropped !== bitmap) bitmap.recycle()
     }
 
     private fun createNotificationChannel() {
@@ -170,5 +192,8 @@ class ScreenCaptureService : Service() {
         virtualDisplay?.release()
         imageReader?.close()
         mediaProjection?.stop()
+        captureHandlerThread?.quitSafely()
+        captureHandlerThread = null
+        captureHandler = null
     }
 }

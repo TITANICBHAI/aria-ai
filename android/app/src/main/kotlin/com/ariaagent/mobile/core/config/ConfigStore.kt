@@ -73,9 +73,13 @@ object ConfigStore {
             .catch { emit(emptyPreferences()) }
             .map { prefs -> fromPrefs(context, prefs) }
 
-    /** Blocking read for bridge/coroutine-scope callers (safe from Dispatchers.IO). */
-    fun getBlocking(context: Context): AriaConfig =
-        runBlocking { flow(context).first() }
+    /** Blocking read for bridge/coroutine-scope callers. Must NOT be called from the main thread. */
+    fun getBlocking(context: Context): AriaConfig {
+        check(android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            "ConfigStore.getBlocking() must not be called on the main thread — use flow() + collectAsState() instead"
+        }
+        return runBlocking(kotlinx.coroutines.Dispatchers.IO) { flow(context).first() }
+    }
 
     // ─── Write — suspend ─────────────────────────────────────────────────────
 

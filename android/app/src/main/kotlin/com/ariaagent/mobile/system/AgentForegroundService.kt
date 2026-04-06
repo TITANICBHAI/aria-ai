@@ -9,7 +9,7 @@ import android.content.Intent
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import com.ariaagent.mobile.MainActivity
+import com.ariaagent.mobile.ui.ComposeMainActivity
 import com.ariaagent.mobile.core.agent.AgentLoop
 import com.ariaagent.mobile.core.events.AgentEventBus
 import com.ariaagent.mobile.core.rl.LearningScheduler
