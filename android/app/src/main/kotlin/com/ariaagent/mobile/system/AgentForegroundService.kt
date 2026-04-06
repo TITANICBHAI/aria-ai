@@ -193,7 +193,12 @@ class AgentForegroundService : Service() {
         when (intent?.action) {
             null -> {
                 // Service was restarted by Android OS after process death (START_STICKY).
-                // Resume the last known goal if available, otherwise just idle.
+                // New instance starts with empty currentGoal — restore from persistent storage.
+                val prefs = getSharedPreferences("aria_service_state", Context.MODE_PRIVATE)
+                if (currentGoal.isBlank()) {
+                    currentGoal       = prefs.getString("currentGoal", "") ?: ""
+                    currentAppPackage = prefs.getString("currentAppPackage", "") ?: ""
+                }
                 if (currentGoal.isNotBlank() && AgentLoop.state.status == AgentLoop.Status.IDLE) {
                     Log.i(TAG, "OS-restart recovery — resuming goal: $currentGoal")
                     updateNotification("Resuming: $currentGoal")
@@ -209,6 +214,11 @@ class AgentForegroundService : Service() {
                 currentAppPackage = appPackage
                 currentStep       = 0
                 autoRetryCount    = 0
+                // Persist goal so OS-restart recovery can resume it (Bug #5 fix)
+                getSharedPreferences("aria_service_state", Context.MODE_PRIVATE).edit()
+                    .putString("currentGoal", goal)
+                    .putString("currentAppPackage", appPackage)
+                    .apply()
 
                 val modeLabel = if (learnOnly) "Learn-only" else "Starting"
                 updateNotification("$modeLabel: $goal")
@@ -219,6 +229,11 @@ class AgentForegroundService : Service() {
                 Log.i(TAG, "Stopping agent loop via service command")
                 autoRetryCount = MAX_AUTO_RETRIES  // prevent watchdog from re-starting
                 AgentLoop.stop()
+                // Clear persisted goal so a future OS restart doesn't resume a cancelled task
+                getSharedPreferences("aria_service_state", Context.MODE_PRIVATE).edit()
+                    .remove("currentGoal")
+                    .remove("currentAppPackage")
+                    .apply()
                 stopSelf()
             }
             ACTION_PAUSE -> {
@@ -258,7 +273,7 @@ class AgentForegroundService : Service() {
     private fun buildNotification(statusText: String) = run {
         val openIntent = PendingIntent.getActivity(
             this, 0,
-            Intent(this, MainActivity::class.java),
+            Intent(this, ComposeMainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE
         )
 

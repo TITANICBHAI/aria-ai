@@ -170,9 +170,12 @@ fun LabelerScreen(
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
         ) {
-            if (capture != null) {
+            // Bug #8 fix: snapshot capture into a stable local val so a concurrent
+            // recomposition can't null it out between the != null check and the !! dereference.
+            val cap = capture
+            if (cap != null) {
                 ScreenshotArea(
-                    imagePath    = capture!!.imagePath,
+                    imagePath    = cap.imagePath,
                     labels       = labels,
                     selectedId   = selectedId,
                     onTap        = { normX, normY ->
@@ -188,7 +191,7 @@ fun LabelerScreen(
                     },
                 )
 
-                StatsBar(labels = labels, ocrText = capture!!.ocrText)
+                StatsBar(labels = labels, ocrText = cap.ocrText)
             } else {
                 LabelerEmptyState(
                     capturing              = capturing,

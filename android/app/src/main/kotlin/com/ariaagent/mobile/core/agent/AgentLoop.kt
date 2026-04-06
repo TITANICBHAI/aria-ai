@@ -582,6 +582,12 @@ object AgentLoop {
                         }
                     }
 
+                    // Bug #4 fix: recycle the step bitmap now — all vision consumers
+                    // (ObjectDetectorEngine, VisionEngine, Sam2Engine, LlamaEngine) have
+                    // finished. hasChanged() only uses screenHash() which doesn't touch
+                    // the bitmap, so previousSnapshot.bitmap being recycled is safe.
+                    snapshot.bitmap?.recycle()
+
                     // ── 4. PARSE ──────────────────────────────────────────────
                     val actionJson = PromptBuilder.parseAction(rawOutput)
                     actionHistory.add(actionJson)

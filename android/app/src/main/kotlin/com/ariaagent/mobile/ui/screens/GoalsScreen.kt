@@ -526,14 +526,16 @@ private fun TriggersTab(vm: AgentViewModel) {
     var dayOfWeek     by remember { mutableIntStateOf(2) }
     var deleteConfirm by remember { mutableStateOf<String?>(null) }
 
-    if (deleteConfirm != null) {
+    // Bug #9 fix: capture a stable local val — dismiss sets deleteConfirm = null and a
+    // concurrent recomposition would crash on the !! dereference inside the dialog lambdas.
+    deleteConfirm?.let { dc ->
         AlertDialog(
             onDismissRequest = { deleteConfirm = null },
             containerColor   = ARIAColors.Surface,
             title = { Text("Delete trigger?", style = MaterialTheme.typography.titleMedium.copy(color = ARIAColors.OnSurface, fontWeight = FontWeight.Bold)) },
             text  = { Text("This trigger will be permanently removed.", style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)) },
             confirmButton = {
-                Button(onClick = { vm.deleteTrigger(deleteConfirm!!); deleteConfirm = null },
+                Button(onClick = { vm.deleteTrigger(dc); deleteConfirm = null },
                     colors = ButtonDefaults.buttonColors(containerColor = ARIAColors.Destructive),
                     shape  = RoundedCornerShape(8.dp)) {
                     Text("Delete", fontWeight = FontWeight.Bold)
@@ -914,14 +916,15 @@ private fun SkillsTab(vm: AgentViewModel) {
         )
     }
 
-    if (deleteConfirm != null) {
+    // Bug #9 fix: same race pattern as TriggersTab — stable local val prevents NPE.
+    deleteConfirm?.let { dc ->
         AlertDialog(
             onDismissRequest = { deleteConfirm = null },
             containerColor   = ARIAColors.Surface,
             title = { Text("Remove skill?", style = MaterialTheme.typography.titleMedium.copy(color = ARIAColors.OnSurface, fontWeight = FontWeight.Bold)) },
-            text  = { Text("ARIA's learned knowledge for ${deleteConfirm!!.substringAfterLast('.')} will be removed.", style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)) },
+            text  = { Text("ARIA's learned knowledge for ${dc.substringAfterLast('.')} will be removed.", style = MaterialTheme.typography.bodySmall.copy(color = ARIAColors.Muted)) },
             confirmButton = {
-                Button(onClick = { vm.deleteAppSkill(deleteConfirm!!); deleteConfirm = null },
+                Button(onClick = { vm.deleteAppSkill(dc); deleteConfirm = null },
                     colors = ButtonDefaults.buttonColors(containerColor = ARIAColors.Destructive),
                     shape  = RoundedCornerShape(8.dp)) {
                     Text("Remove", fontWeight = FontWeight.Bold)

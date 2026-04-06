@@ -276,9 +276,12 @@ private fun RlStatusCard(
             )
         }
 
-        if (!status?.latestAdapterPath.isNullOrBlank()) {
+        // Bug #7 fix: capture stable local val before the null check so a concurrent
+        // recomposition setting status = null can't cause a NullPointerException on !!
+        val adapterPath = status?.latestAdapterPath
+        if (!adapterPath.isNullOrBlank()) {
             Text(
-                text     = status!!.latestAdapterPath.substringAfterLast('/'),
+                text     = adapterPath.substringAfterLast('/'),
                 color    = ARIAColors.TextMuted,
                 fontSize = 11.sp,
                 maxLines = 1,
