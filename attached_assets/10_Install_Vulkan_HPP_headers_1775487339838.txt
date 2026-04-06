@@ -1,0 +1,99 @@
+﻿2026-04-06T14:49:53.7501684Z ##[group]Run sudo apt-get update -y -q
+2026-04-06T14:49:53.7502267Z [36;1msudo apt-get update -y -q[0m
+2026-04-06T14:49:53.7502828Z [36;1msudo apt-get install -y -q libvulkan-dev[0m
+2026-04-06T14:49:53.7503681Z [36;1mecho "vulkan.hpp path: $(find /usr/include -name 'vulkan.hpp' 2>/dev/null | head -1)"[0m
+2026-04-06T14:49:53.7536767Z shell: /usr/bin/bash -e {0}
+2026-04-06T14:49:53.7537165Z env:
+2026-04-06T14:49:53.7537671Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.18-8/x64
+2026-04-06T14:49:53.7538493Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.18-8/x64
+2026-04-06T14:49:53.7539159Z   ANDROID_HOME: /usr/local/lib/android/sdk
+2026-04-06T14:49:53.7539645Z   ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+2026-04-06T14:49:53.7540088Z ##[endgroup]
+2026-04-06T14:49:53.9272646Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+2026-04-06T14:49:53.9543158Z Hit:2 http://azure.archive.ubuntu.com/ubuntu noble InRelease
+2026-04-06T14:49:53.9549368Z Hit:6 https://packages.microsoft.com/repos/azure-cli noble InRelease
+2026-04-06T14:49:53.9553278Z Get:7 https://packages.microsoft.com/ubuntu/24.04/prod noble InRelease [3600 B]
+2026-04-06T14:49:53.9567458Z Get:3 http://azure.archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]
+2026-04-06T14:49:53.9599364Z Get:4 http://azure.archive.ubuntu.com/ubuntu noble-backports InRelease [126 kB]
+2026-04-06T14:49:53.9639958Z Get:5 http://azure.archive.ubuntu.com/ubuntu noble-security InRelease [126 kB]
+2026-04-06T14:49:54.1234304Z Get:8 https://packages.microsoft.com/ubuntu/24.04/prod noble/main amd64 Packages [113 kB]
+2026-04-06T14:49:54.1715760Z Get:9 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages [1875 kB]
+2026-04-06T14:49:54.1813157Z Get:10 http://azure.archive.ubuntu.com/ubuntu noble-updates/main Translation-en [342 kB]
+2026-04-06T14:49:54.1836595Z Get:11 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Components [177 kB]
+2026-04-06T14:49:54.1853006Z Get:12 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 c-n-f Metadata [16.9 kB]
+2026-04-06T14:49:54.1862373Z Get:13 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [1663 kB]
+2026-04-06T14:49:54.1955160Z Get:14 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe Translation-en [322 kB]
+2026-04-06T14:49:54.1978988Z Get:15 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Components [386 kB]
+2026-04-06T14:49:54.2005407Z Get:16 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 c-n-f Metadata [34.2 kB]
+2026-04-06T14:49:54.2017302Z Get:17 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Packages [2894 kB]
+2026-04-06T14:49:54.2172416Z Get:18 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted Translation-en [671 kB]
+2026-04-06T14:49:54.2630602Z Get:19 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Components [212 B]
+2026-04-06T14:49:54.2637025Z Get:20 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Components [940 B]
+2026-04-06T14:49:54.2662069Z Get:21 http://azure.archive.ubuntu.com/ubuntu noble-backports/main amd64 Components [7384 B]
+2026-04-06T14:49:54.2663472Z Get:22 http://azure.archive.ubuntu.com/ubuntu noble-backports/universe amd64 Components [13.1 kB]
+2026-04-06T14:49:54.2671394Z Get:23 http://azure.archive.ubuntu.com/ubuntu noble-backports/restricted amd64 Components [216 B]
+2026-04-06T14:49:54.2678910Z Get:24 http://azure.archive.ubuntu.com/ubuntu noble-backports/multiverse amd64 Components [212 B]
+2026-04-06T14:49:54.2839716Z Get:25 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Packages [1576 kB]
+2026-04-06T14:49:54.2914598Z Get:26 http://azure.archive.ubuntu.com/ubuntu noble-security/main Translation-en [252 kB]
+2026-04-06T14:49:54.2933641Z Get:27 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Components [21.5 kB]
+2026-04-06T14:49:54.2941696Z Get:28 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 c-n-f Metadata [10.7 kB]
+2026-04-06T14:49:54.2951465Z Get:29 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Packages [1167 kB]
+2026-04-06T14:49:54.3008672Z Get:30 http://azure.archive.ubuntu.com/ubuntu noble-security/universe Translation-en [225 kB]
+2026-04-06T14:49:54.3026030Z Get:31 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Components [74.2 kB]
+2026-04-06T14:49:54.3037669Z Get:32 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 c-n-f Metadata [22.8 kB]
+2026-04-06T14:49:54.3372849Z Get:37 https://packages.microsoft.com/ubuntu/24.04/prod noble/main arm64 Packages [89.7 kB]
+2026-04-06T14:49:54.3398431Z Get:38 https://packages.microsoft.com/ubuntu/24.04/prod noble/main armhf Packages [11.4 kB]
+2026-04-06T14:49:54.3468029Z Get:33 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted amd64 Packages [2757 kB]
+2026-04-06T14:49:54.3606506Z Get:34 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted Translation-en [642 kB]
+2026-04-06T14:49:54.3641727Z Get:35 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted amd64 Components [212 B]
+2026-04-06T14:49:54.3648224Z Get:36 http://azure.archive.ubuntu.com/ubuntu noble-security/multiverse amd64 Components [212 B]
+2026-04-06T14:50:03.4741222Z Fetched 15.7 MB in 2s (8844 kB/s)
+2026-04-06T14:50:04.2599960Z Reading package lists...
+2026-04-06T14:50:04.2904473Z Reading package lists...
+2026-04-06T14:50:04.4692078Z Building dependency tree...
+2026-04-06T14:50:04.4699851Z Reading state information...
+2026-04-06T14:50:04.6470673Z The following NEW packages will be installed:
+2026-04-06T14:50:04.6471941Z   libvulkan-dev
+2026-04-06T14:50:04.6644481Z 0 upgraded, 1 newly installed, 0 to remove and 82 not upgraded.
+2026-04-06T14:50:04.6645324Z Need to get 1239 kB of archives.
+2026-04-06T14:50:04.6646094Z After this operation, 26.5 MB of additional disk space will be used.
+2026-04-06T14:50:04.6646959Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+2026-04-06T14:50:04.7122620Z Get:2 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 libvulkan-dev amd64 1.3.275.0-1build1 [1239 kB]
+2026-04-06T14:50:04.9713225Z Fetched 1239 kB in 0s (17.5 MB/s)
+2026-04-06T14:50:04.9921197Z Selecting previously unselected package libvulkan-dev:amd64.
+2026-04-06T14:50:05.0217865Z (Reading database ... 
+2026-04-06T14:50:05.0219180Z (Reading database ... 5%
+2026-04-06T14:50:05.0219752Z (Reading database ... 10%
+2026-04-06T14:50:05.0220242Z (Reading database ... 15%
+2026-04-06T14:50:05.0220821Z (Reading database ... 20%
+2026-04-06T14:50:05.0221079Z (Reading database ... 25%
+2026-04-06T14:50:05.0221331Z (Reading database ... 30%
+2026-04-06T14:50:05.0223508Z (Reading database ... 35%
+2026-04-06T14:50:05.0223998Z (Reading database ... 40%
+2026-04-06T14:50:05.0224546Z (Reading database ... 45%
+2026-04-06T14:50:05.0225160Z (Reading database ... 50%
+2026-04-06T14:50:05.0310209Z (Reading database ... 55%
+2026-04-06T14:50:05.1922707Z (Reading database ... 60%
+2026-04-06T14:50:05.3412927Z (Reading database ... 65%
+2026-04-06T14:50:05.5310113Z (Reading database ... 70%
+2026-04-06T14:50:05.7032751Z (Reading database ... 75%
+2026-04-06T14:50:05.8798181Z (Reading database ... 80%
+2026-04-06T14:50:06.0996855Z (Reading database ... 85%
+2026-04-06T14:50:06.2816032Z (Reading database ... 90%
+2026-04-06T14:50:06.4449511Z (Reading database ... 95%
+2026-04-06T14:50:06.4450184Z (Reading database ... 100%
+2026-04-06T14:50:06.4451070Z (Reading database ... 220446 files and directories currently installed.)
+2026-04-06T14:50:06.4500804Z Preparing to unpack .../libvulkan-dev_1.3.275.0-1build1_amd64.deb ...
+2026-04-06T14:50:06.4525203Z Unpacking libvulkan-dev:amd64 (1.3.275.0-1build1) ...
+2026-04-06T14:50:06.5681280Z Setting up libvulkan-dev:amd64 (1.3.275.0-1build1) ...
+2026-04-06T14:50:07.1795260Z 
+2026-04-06T14:50:07.1796020Z Running kernel seems to be up-to-date.
+2026-04-06T14:50:07.1796360Z 
+2026-04-06T14:50:07.1797000Z No services need to be restarted.
+2026-04-06T14:50:07.1797270Z 
+2026-04-06T14:50:07.1797452Z No containers need to be restarted.
+2026-04-06T14:50:07.1797889Z 
+2026-04-06T14:50:07.1798118Z No user sessions are running outdated binaries.
+2026-04-06T14:50:07.1812471Z 
+2026-04-06T14:50:07.1812894Z No VM guests are running outdated hypervisor (qemu) binaries on this host.
+2026-04-06T14:50:08.6369414Z vulkan.hpp path: /usr/include/vulkan/vulkan.hpp
