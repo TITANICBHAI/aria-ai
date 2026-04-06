@@ -1,0 +1,27 @@
+﻿2026-04-06T15:20:47.9367985Z ##[group]Run actions/cache@v4
+2026-04-06T15:20:47.9368263Z with:
+2026-04-06T15:20:47.9368465Z   path: ~/.gradle/caches
+~/.gradle/wrapper
+
+2026-04-06T15:20:47.9368926Z   key: gradle-Linux-3ff3208225d68aac84af35012b9109a501b6a7ba07bf8be4cf773e4dc8ddaafa
+2026-04-06T15:20:47.9369383Z   restore-keys: gradle-Linux-
+
+2026-04-06T15:20:47.9369640Z   enableCrossOsArchive: false
+2026-04-06T15:20:47.9369881Z   fail-on-cache-miss: false
+2026-04-06T15:20:47.9370102Z   lookup-only: false
+2026-04-06T15:20:47.9370304Z   save-always: false
+2026-04-06T15:20:47.9370488Z env:
+2026-04-06T15:20:47.9370774Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.18-8/x64
+2026-04-06T15:20:47.9371253Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.18-8/x64
+2026-04-06T15:20:47.9371660Z   ANDROID_HOME: /usr/local/lib/android/sdk
+2026-04-06T15:20:47.9371950Z   ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+2026-04-06T15:20:47.9372239Z ##[endgroup]
+2026-04-06T15:20:48.1707524Z Cache hit for: gradle-Linux-3ff3208225d68aac84af35012b9109a501b6a7ba07bf8be4cf773e4dc8ddaafa
+2026-04-06T15:20:49.2064958Z Received 243269632 of 881136613 (27.6%), 231.1 MBs/sec
+2026-04-06T15:20:50.2068104Z Received 536870912 of 881136613 (60.9%), 255.5 MBs/sec
+2026-04-06T15:20:51.2435083Z Received 805306368 of 881136613 (91.4%), 252.7 MBs/sec
+2026-04-06T15:20:51.5277704Z Received 881136613 of 881136613 (100.0%), 252.7 MBs/sec
+2026-04-06T15:20:51.5280247Z Cache Size: ~840 MB (881136613 B)
+2026-04-06T15:20:51.5408260Z [command]/usr/bin/tar -xf /home/runner/work/_temp/b29cf716-5e95-4dc9-88f2-e30e1266ab4c/cache.tzst -P -C /home/runner/work/Ai-android/Ai-android --use-compress-program unzstd
+2026-04-06T15:20:57.0585077Z Cache restored successfully
+2026-04-06T15:20:57.1038688Z Cache restored from key: gradle-Linux-3ff3208225d68aac84af35012b9109a501b6a7ba07bf8be4cf773e4dc8ddaafa

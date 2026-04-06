@@ -212,6 +212,7 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeRunInference(
     jlong   ctx_handle,
     jstring prompt_jstr,
     jint    max_tokens,
+    jfloat  temperature,
     jobject token_callback
 ) {
     auto* ctx   = reinterpret_cast<llama_context*>(ctx_handle);
@@ -267,7 +268,7 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeRunInference(
 
     llama_sampler* sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(sampler, llama_sampler_init_top_p(0.9f, 1));
-    llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.7f));
+    llama_sampler_chain_add(sampler, llama_sampler_init_temp(temperature));
     llama_sampler_chain_add(sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
     auto t_start = std::chrono::high_resolution_clock::now();

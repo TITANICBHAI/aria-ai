@@ -1795,8 +1795,13 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                 val prompt = "$systemCtx${historyBlock}\nUser: $text\nARIA:"
 
                 val t0  = System.currentTimeMillis()
+                val cfg = config.value
                 val raw = withTimeout(120_000L) {
-                    LlamaEngine.infer(prompt, maxTokens = 512)
+                    LlamaEngine.infer(
+                        prompt,
+                        maxTokens   = cfg.maxTokensPerTurn,
+                        temperature = cfg.temperatureX100 / 100f
+                    )
                 }
                 val elapsed = (System.currentTimeMillis() - t0) / 1000.0
                 val wordCount = raw.trim().split(Regex("\\s+")).size

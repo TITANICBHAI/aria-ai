@@ -1,0 +1,9 @@
+﻿2026-04-06T15:20:47.5807309Z ##[group]Run echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+2026-04-06T15:20:47.5807838Z [36;1mecho "sdk.dir=$ANDROID_SDK_ROOT" > local.properties[0m
+2026-04-06T15:20:47.5835587Z shell: /usr/bin/bash -e {0}
+2026-04-06T15:20:47.5835825Z env:
+2026-04-06T15:20:47.5836126Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.18-8/x64
+2026-04-06T15:20:47.5836604Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.18-8/x64
+2026-04-06T15:20:47.5836984Z   ANDROID_HOME: /usr/local/lib/android/sdk
+2026-04-06T15:20:47.5837270Z   ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+2026-04-06T15:20:47.5837692Z ##[endgroup]

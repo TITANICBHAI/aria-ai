@@ -1,0 +1,22 @@
+﻿2026-04-06T15:20:58.6034682Z ##[group]Run actions/cache@v4
+2026-04-06T15:20:58.6035221Z with:
+2026-04-06T15:20:58.6035540Z   path: app/.cxx
+2026-04-06T15:20:58.6036199Z   key: ndk-Linux-96daee82ad82df98b5b910d25bfbe6739c5fd6309554f9351f8d5173457f7011
+2026-04-06T15:20:58.6037026Z   restore-keys: ndk-Linux-
+
+2026-04-06T15:20:58.6037449Z   enableCrossOsArchive: false
+2026-04-06T15:20:58.6037888Z   fail-on-cache-miss: false
+2026-04-06T15:20:58.6038299Z   lookup-only: false
+2026-04-06T15:20:58.6038668Z   save-always: false
+2026-04-06T15:20:58.6039019Z env:
+2026-04-06T15:20:58.6039540Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.18-8/x64
+2026-04-06T15:20:58.6040411Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.18-8/x64
+2026-04-06T15:20:58.6041127Z   ANDROID_HOME: /usr/local/lib/android/sdk
+2026-04-06T15:20:58.6041656Z   ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+2026-04-06T15:20:58.6042145Z ##[endgroup]
+2026-04-06T15:20:58.8139186Z Cache hit for restore-key: ndk-Linux-42959eae9abc0cff4d482699d78a855e93f17fb2666e0db168d1277ed1cd5345
+2026-04-06T15:20:59.3580685Z Received 93279061 of 93279061 (100.0%), 183.8 MBs/sec
+2026-04-06T15:20:59.3582209Z Cache Size: ~89 MB (93279061 B)
+2026-04-06T15:20:59.3612913Z [command]/usr/bin/tar -xf /home/runner/work/_temp/3c148de7-cb30-425c-a7e9-e7738d6f74cb/cache.tzst -P -C /home/runner/work/Ai-android/Ai-android --use-compress-program unzstd
+2026-04-06T15:21:00.1966597Z Cache restored successfully
+2026-04-06T15:21:00.2085608Z Cache restored from key: ndk-Linux-42959eae9abc0cff4d482699d78a855e93f17fb2666e0db168d1277ed1cd5345
