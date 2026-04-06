@@ -45,9 +45,14 @@ object DreamEngine {
         }
 
         val store = ExperienceStore.getInstance(context)
+        // Seeds come from the GLOBAL used_for_training flag (not per-model).
+        // This is intentional: DreamEngine processes experiences for augmentation,
+        // independent of which model they were LoRA-trained by. LoraTrainer always
+        // calls markAsTrained() (global) immediately after markAsTrainedFor() (per-model),
+        // so these seeds are guaranteed to be fresh and not re-processed every cycle.
         val seeds = store.getUntrainedSuccesses(limit = MAX_DREAMS)
         if (seeds.isEmpty()) {
-            Log.i(TAG, "No seeds for dreaming")
+            Log.i(TAG, "No seeds for dreaming — all experiences already processed")
             return@withContext 0
         }
 

@@ -121,8 +121,16 @@ class LearningScheduler(private val context: Context) {
                 // Re-score experience tuples using the loaded LlamaEngine so LoRA
                 // training gets continuous quality weights instead of binary ±1.
                 // Skipped automatically when LlamaEngine is not loaded (RAM conflict).
+                //
+                // IMPORTANT: resolve modelPath and modelId BEFORE enrichment so the
+                // enrichment query reads from the SAME per-model experience set that
+                // LoraTrainer.train() will later consume. Using the global flag here
+                // would score a different (possibly disjoint) set of experiences,
+                // making enriched quality weights useless for the actual training batch.
+                val modelPath  = ModelManager.modelPath(context).absolutePath
+                val enrichModelId = LoraTrainer.modelId(modelPath)
                 val enrichedRewards = try {
-                    LlmRewardEnricher.enrich(store.getUntrainedSuccesses(limit = 20))
+                    LlmRewardEnricher.enrich(store.getUntrainedSuccessesFor(enrichModelId, limit = 20))
                 } catch (e: Exception) {
                     Log.w(TAG, "LLM reward enrichment failed: ${e.message}")
                     emptyMap<String, Double>()
@@ -136,7 +144,6 @@ class LearningScheduler(private val context: Context) {
                 // Both ExperienceStore (agent-generated) and ObjectLabelStore
                 // (human-annotated, 3× weight) are passed so the trainer uses
                 // all available signal — not just agent experiences.
-                val modelPath  = ModelManager.modelPath(context).absolutePath
                 val labelStore = ObjectLabelStore.getInstance(context)
                 val loraResult = LoraTrainer.train(context, store, modelPath,
                     labelStore      = labelStore,

@@ -122,7 +122,18 @@ object ConfigStore {
         maxTokensPerTurn = prefs[KEY_MAX_TOKENS]    ?: 512,
         temperatureX100  = prefs[KEY_TEMP_X100]     ?: 70,
         nGpuLayers       = prefs[KEY_N_GPU_LAYERS]  ?: 0,
-        loraAdapterPath  = prefs[KEY_LORA_PATH]     ?: (LoraTrainer.latestAdapterPath(context) ?: ""),
+        // Prefer the adapter trained for the currently saved model.
+        // Falls back to the globally latest adapter (highest version across all model dirs)
+        // only when no model path is saved yet (e.g. very first launch).
+        loraAdapterPath  = prefs[KEY_LORA_PATH] ?: run {
+            val savedModelPath = prefs[KEY_MODEL_PATH] ?: ""
+            if (savedModelPath.isNotEmpty()) {
+                val mId = LoraTrainer.modelId(savedModelPath)
+                LoraTrainer.latestAdapterPath(context, mId) ?: ""
+            } else {
+                LoraTrainer.latestAdapterPath(context) ?: ""
+            }
+        },
         rlEnabled        = prefs[KEY_RL_ENABLED]    ?: true,
         learningRate     = prefs[KEY_LEARNING_RATE] ?: 1e-4,
     )

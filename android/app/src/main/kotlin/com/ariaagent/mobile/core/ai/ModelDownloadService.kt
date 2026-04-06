@@ -25,10 +25,11 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
 /**
- * ModelDownloadService — foreground service that downloads a VLM model.
+ * ModelDownloadService — foreground service that downloads any catalog model.
  *
- * All 4 catalog models are multimodal, so this service downloads TWO files
- * for each model: the base GGUF and the vision mmproj GGUF.
+ * Multimodal catalog entries (mmprojFilename != null) download TWO files:
+ * the base GGUF and the vision mmproj GGUF. Text-only entries (mmprojFilename == null)
+ * download only the base GGUF and skip the mmproj step entirely.
  *
  * Reliability features
  * ────────────────────

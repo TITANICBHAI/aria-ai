@@ -1387,8 +1387,10 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                 //   load in unified mode.  Otherwise text-only load().
                 //
                 // Catalog model (downloaded via ARIA):
-                //   Every catalog entry is a VLM with a known mmproj filename.
-                //   If the mmproj file is fully on disk, unified mode is used automatically.
+                //   Multimodal entries (mmprojFilename != null) load in unified mode when
+                //   the mmproj file is fully on disk. Text-only entries (mmprojFilename == null)
+                //   use LlamaEngine.load() — screen reading is handled by SmolVLM helper or
+                //   falls back to accessibility tree + OCR.
 
                 val isCustomPath = ModelManager.customModelPath(context) != null
                 val mmProjPath: String? = if (isCustomPath) {
@@ -2067,13 +2069,33 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshLoraHistory() {
         viewModelScope.launch(Dispatchers.IO) {
-            val loraDir = java.io.File(context.filesDir, "lora").also { it.mkdirs() }
-                .let { i -> if (i.canWrite()) i else (context.getExternalFilesDir("lora") ?: i).also { it.mkdirs() } }
-            if (!loraDir.exists()) { _loraHistory.value = emptyList(); return@launch }
-            val currentVer = LoraTrainer.currentVersion(context)
-            val checkpoints = loraDir.listFiles()
-                ?.filter { it.extension == "gguf" || it.extension == "bin" }
-                ?.mapNotNull { f ->
+            // Resolve the base lora directory the same way LoraTrainer does.
+            // Adapters now live in model subdirectories: lora/<modelId>/adapter_vN.gguf
+            // We must recurse into subdirs — listFiles() on the base dir only returns
+            // directory entries, not the adapter files inside them.
+            val loraBase = java.io.File(context.filesDir, "lora")
+                .let { i -> if (i.canWrite()) i else (context.getExternalFilesDir("lora") ?: i) }
+            if (!loraBase.exists()) { _loraHistory.value = emptyList(); return@launch }
+
+            val globalLatest = LoraTrainer.latestAdapterPath(context)
+            val adapterFiles = mutableListOf<java.io.File>()
+
+            // ── Collect from per-model subdirectories (current structure) ─────
+            loraBase.listFiles()
+                ?.filter { it.isDirectory }
+                ?.forEach { modelDir ->
+                    modelDir.listFiles()
+                        ?.filter { it.isFile && (it.extension == "gguf" || it.extension == "bin") }
+                        ?.let { adapterFiles.addAll(it) }
+                }
+
+            // ── Collect legacy flat adapters (pre-model-aware builds) ─────────
+            loraBase.listFiles()
+                ?.filter { it.isFile && (it.extension == "gguf" || it.extension == "bin") }
+                ?.let { adapterFiles.addAll(it) }
+
+            val checkpoints = adapterFiles
+                .mapNotNull { f ->
                     val ver = Regex("adapter_v(\\d+)").find(f.name)
                         ?.groupValues?.get(1)?.toIntOrNull() ?: return@mapNotNull null
                     LoraCheckpointItem(
@@ -2081,11 +2103,11 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                         adapterPath = f.absolutePath,
                         sizeKb      = f.length() / 1024L,
                         createdAt   = f.lastModified(),
-                        isLatest    = ver == currentVer,
+                        // isLatest = this file IS the globally newest adapter
+                        isLatest    = f.absolutePath == globalLatest,
                     )
                 }
-                ?.sortedByDescending { it.version }
-                ?: emptyList()
+                .sortedByDescending { it.version }
             _loraHistory.value = checkpoints
         }
     }

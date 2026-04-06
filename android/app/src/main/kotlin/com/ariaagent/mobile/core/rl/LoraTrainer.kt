@@ -146,10 +146,19 @@ object LoraTrainer {
                 Log.i(TAG, "[$mId] LoRA JNI training complete → adapter_v$nextVersion (${experiences.size} exp + ${labels.size} labels)")
             }
 
-            // Mark agent experiences as trained for this specific model.
-            // Labels are re-usable across models — don't mark them.
+            // Per-model tracking: records which experiences THIS model has already trained on.
+            // Prevents the same experience being fed to the same model twice across training cycles.
             // Other models' untrained counts are completely unaffected.
-            store.markAsTrainedFor(experiences.map { it.id }, mId)
+            val trainedIds = experiences.map { it.id }
+            store.markAsTrainedFor(trainedIds, mId)
+
+            // Global flag: keeps DreamEngine, EmbeddingEngine, and LlmRewardEnricher in sync.
+            // These subsystems use getUntrainedSuccesses() (global) to decide which experiences
+            // to process. Without this call they would re-process the same experiences on every
+            // idle cycle, filling the database with duplicate synthetic rows and wasting compute.
+            // Labels are re-usable across models — their global flag is never touched.
+            store.markAsTrained(trainedIds)
+
             writeVersionFile(context, nextVersion, mId)
 
             TrainingResult(
