@@ -4,6 +4,7 @@
 #include <vector>
 #include <chrono>
 #include <atomic>
+#include <sys/stat.h>
 
 #include "llama.h"
 // common.h is in the include path via CMakeLists.txt target_include_directories.
@@ -59,13 +60,38 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeLoadModel(
 
     llama_model_params mparams = llama_model_default_params();
     mparams.n_gpu_layers = n_gpu_layers;
-    mparams.use_mmap     = true;
-    // mlock=true pins model pages in RAM so the OS cannot evict them between inference
-    // calls. Without this, each call causes hundreds of random page faults re-reading
-    // 870MB from eMMC, turning a ~30s inference into 25+ minutes. The 1B Q4_K_M model
-    // (~870MB locked) is safe on M31's 6GB — system RAM + OS + foreground service
-    // overhead leaves ~2.5–3GB free, well above the lock requirement.
-    mparams.use_mlock    = true;
+
+    // ── mmap vs heap decision ─────────────────────────────────────────────────
+    // Android's kernel can silently reclaim file-backed mmap pages under any
+    // memory pressure even while the app is in the foreground (file-backed pages
+    // are cheap to evict — the kernel just re-reads them on next access).
+    // When that happens EVERY weight access faults back to eMMC random I/O,
+    // turning a <2 min inference into 20+ minutes.  mlock() requires CAP_IPC_LOCK
+    // which regular Android apps don't hold, so it fails silently (EPERM).
+    //
+    // Fix: for models ≤ 2 GB load into the process heap (use_mmap = false).
+    //   • Heap pages (anonymous memory) cannot be reclaimed without OOM-killing
+    //     the whole process — inference speed is consistent at all times.
+    //   • Slightly slower first load (~870 MB reads from eMMC once at startup),
+    //     but all subsequent inference calls run at full RAM speed.
+    //
+    // For models > 2 GB (e.g. MiniCPM-V 2.6 @ 4.5 GB + mmproj) we fall back to
+    // mmap because loading 4.5 GB into heap on a 6 GB phone causes OOM. We also
+    // attempt mlock — it may partially succeed on some OEM kernels.
+    {
+        struct stat st;
+        const bool large_model =
+            (stat(path, &st) == 0) && (st.st_size > 2LL * 1024 * 1024 * 1024);
+        if (large_model) {
+            mparams.use_mmap  = true;
+            mparams.use_mlock = true;   // attempt mlock; may fail with EPERM on non-root
+            LOGI("Large model (>2 GB) — using mmap + mlock attempt");
+        } else {
+            mparams.use_mmap  = false;  // load fully into heap — immune to page eviction
+            mparams.use_mlock = false;  // not needed when not using mmap
+            LOGI("Small/medium model (≤2 GB) — loading into heap for consistent inference speed");
+        }
+    }
 
     // ── Backend device selection ──────────────────────────────────────────────
     // Both Vulkan and OpenCL are registered in GGML's backend registry when both
@@ -145,6 +171,15 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeCreateContext(
 
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx           = (uint32_t)n_ctx;
+    // n_batch = n_ctx allows the prefill (prompt evaluation) to process the entire
+    // prompt in one llama_decode call.  Without this the default n_batch (512) splits
+    // a 2048-token prompt into 4 sequential chunks, each requiring a full weight
+    // sweep — multiplying prefill time by 4 on CPU paths.
+    cparams.n_batch         = (uint32_t)n_ctx;
+    // n_ubatch: micro-batch size used for GPU dispatch.  512 is the sweet spot for
+    // Mali-G72 MP3 — large enough to fill the GPU pipeline, small enough to avoid
+    // VRAM pressure.  n_ubatch <= n_batch is required.
+    cparams.n_ubatch        = 512;
     // 6 threads: 4 big Cortex-A73 + 2 Cortex-A53 LITTLE cores.
     // Inference is memory-bandwidth-bound so LITTLE cores still contribute.
     // Using 8 can cause thermal throttling; 6 is the stable balance on the M31.
@@ -161,7 +196,8 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeCreateContext(
     }
 
     g_ctx = ctx;  // cache for LoRA cleanup in nativeFreeModel
-    LOGI("Context created — n_ctx=%d n_threads=6 n_threads_batch=8 mlock=true", (int)n_ctx);
+    LOGI("Context created — n_ctx=%d n_batch=%d n_ubatch=512 n_threads=6 n_threads_batch=8",
+         (int)n_ctx, (int)n_ctx);
     return reinterpret_cast<jlong>(ctx);
 }
 

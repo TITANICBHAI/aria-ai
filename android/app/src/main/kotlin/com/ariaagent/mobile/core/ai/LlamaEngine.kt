@@ -17,14 +17,16 @@ import kotlinx.coroutines.sync.withLock
  * Hardware target: Samsung Galaxy M31 (Exynos 9611)
  *   - Mali-G72 MP3 → Vulkan/OpenCL → n_gpu_layers = 32 (all layers offloaded when GPU active)
  *   - Cortex-A73 big cores + A53 LITTLE → n_threads = 6 (decode), n_threads_batch = 8 (prefill)
- *   - mmap = true  → keeps RSS ~1400MB instead of ~2.5GB
- *   - mlock = true → pins model pages in RAM, prevents eMMC page-fault thrashing
- *                    (this was the primary cause of 25-minute inference times)
+ *   - n_batch = n_ctx (2048) → prefill processes full prompt in one pass (no redundant sweeps)
+ *   - Models ≤ 2 GB: mmap = false → loaded fully into heap; Android cannot page-evict heap
+ *     memory without OOM-killing the process, so inference speed is stable at all times.
+ *     mlock is NOT used (requires CAP_IPC_LOCK; fails silently with EPERM on non-rooted Android).
+ *   - Models > 2 GB: mmap = true + mlock attempt (necessary to fit 6 GB device RAM budget)
  *
  * Model: Llama-3.2-1B-Instruct-Q4_K_M.gguf
- *   - Disk: ~870MB (locked in RAM after first load)
- *   - RAM (RSS): ~1200–1500MB with mmap + 2048 ctx (was ~1900MB at 4096 ctx)
- *   - Speed (CPU-only): ~2–5 tok/s with mlock; ~8–15 tok/s with GPU offload enabled
+ *   - Disk: ~870MB → loaded entirely into heap on first launch (~5 s one-time cost)
+ *   - RAM (RSS): ~1400MB (heap) + 2048 ctx KV-cache overhead
+ *   - Speed (CPU-only): ~2–5 tok/s; ~8–15 tok/s with Vulkan GPU offload
  *
  * Token callback interface (streamed to ChatScreen / AgentViewModel):
  *   interface TokenCallback { fun onToken(token: String) }
