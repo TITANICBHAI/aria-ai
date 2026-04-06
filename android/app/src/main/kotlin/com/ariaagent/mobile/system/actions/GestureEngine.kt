@@ -5,7 +5,9 @@ import android.graphics.Rect
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import com.ariaagent.mobile.system.accessibility.AgentAccessibilityService
+import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONObject
+import kotlin.coroutines.resume
 
 /**
  * GestureEngine — executes LLM action decisions as physical gestures.
@@ -86,30 +88,36 @@ object GestureEngine {
 
     /**
      * Tap the center of the element with the given semantic ID.
+     *
+     * Bug #10 fix: dispatchGesture() is asynchronous — the callback fires on the
+     * main thread AFTER this call returns. Using suspendCancellableCoroutine
+     * parks the coroutine until onCompleted/onCancelled is actually delivered,
+     * so the returned Boolean is truthful instead of always false.
      */
-    fun tap(nodeId: String): Boolean {
+    suspend fun tap(nodeId: String): Boolean {
         val node = AgentAccessibilityService.getNodeById(nodeId) ?: return false
         val rect = Rect()
         node.getBoundsInScreen(rect)
         val cx = rect.centerX().toFloat()
         val cy = rect.centerY().toFloat()
-
-        var dispatched = false
-        AgentAccessibilityService.dispatchTap(cx, cy, object : GestureResultCallback() {
-            override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription) {
-                dispatched = true
-            }
-            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription) {
-                Log.w("GestureEngine", "tap cancelled by OS for node $nodeId — possible popup or screen transition")
-            }
-        })
-        return dispatched
+        return suspendCancellableCoroutine { cont ->
+            AgentAccessibilityService.dispatchTap(cx, cy, object : GestureResultCallback() {
+                override fun onCompleted(g: android.accessibilityservice.GestureDescription) {
+                    cont.resume(true)
+                }
+                override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
+                    Log.w("GestureEngine", "tap cancelled by OS for node $nodeId — possible popup or screen transition")
+                    cont.resume(false)
+                }
+            })
+        }
     }
 
     /**
      * Swipe within a scrollable node.
+     * Bug #10 fix: suspendCancellableCoroutine awaits the async gesture callback.
      */
-    fun swipe(nodeId: String, direction: String): Boolean {
+    suspend fun swipe(nodeId: String, direction: String): Boolean {
         val node = AgentAccessibilityService.getNodeById(nodeId) ?: return false
         val rect = Rect()
         node.getBoundsInScreen(rect)
@@ -126,20 +134,22 @@ object GestureEngine {
             else -> return false
         }
 
-        var dispatched = false
-        AgentAccessibilityService.dispatchSwipe(x1, y1, x2, y2, object : GestureResultCallback() {
-            override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription) {
-                dispatched = true
-            }
-            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription) {
-                Log.w("GestureEngine", "swipe cancelled by OS for node $nodeId direction=$direction")
-            }
-        })
-        return dispatched
+        return suspendCancellableCoroutine { cont ->
+            AgentAccessibilityService.dispatchSwipe(x1, y1, x2, y2, object : GestureResultCallback() {
+                override fun onCompleted(g: android.accessibilityservice.GestureDescription) {
+                    cont.resume(true)
+                }
+                override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
+                    Log.w("GestureEngine", "swipe cancelled by OS for node $nodeId direction=$direction")
+                    cont.resume(false)
+                }
+            })
+        }
     }
 
     /**
      * Type text into an editable node using ACTION_SET_TEXT.
+     * Synchronous accessibility action — no callback, return value is direct.
      */
     fun type(nodeId: String, text: String): Boolean {
         val node = AgentAccessibilityService.getNodeById(nodeId) ?: return false
@@ -152,6 +162,7 @@ object GestureEngine {
 
     /**
      * Scroll a node using accessibility actions (no gesture needed).
+     * Synchronous accessibility action — no callback, return value is direct.
      */
     fun scroll(nodeId: String, direction: String): Boolean {
         val node = AgentAccessibilityService.getNodeById(nodeId) ?: return false
@@ -164,23 +175,30 @@ object GestureEngine {
 
     /**
      * Long press to trigger context menus.
+     *
+     * Bug #10 fix: suspendCancellableCoroutine awaits the async gesture callback.
+     * Bug #11 fix: uses dispatchLongPress (500 ms stroke) instead of dispatchTap
+     *   (50 ms stroke). A 50 ms touch is a tap; the OS requires ≥ 400 ms to
+     *   recognise a long press and open the context menu.
      */
-    fun longPress(nodeId: String): Boolean {
+    suspend fun longPress(nodeId: String): Boolean {
         val node = AgentAccessibilityService.getNodeById(nodeId) ?: return false
         val rect = Rect()
         node.getBoundsInScreen(rect)
-
-        var dispatched = false
-        AgentAccessibilityService.dispatchTap(
-            rect.centerX().toFloat(), rect.centerY().toFloat(),
-            object : GestureResultCallback() {
-                override fun onCompleted(g: android.accessibilityservice.GestureDescription) { dispatched = true }
-                override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
-                    Log.w("GestureEngine", "longPress cancelled by OS for node $nodeId")
+        return suspendCancellableCoroutine { cont ->
+            AgentAccessibilityService.dispatchLongPress(
+                rect.centerX().toFloat(), rect.centerY().toFloat(),
+                object : GestureResultCallback() {
+                    override fun onCompleted(g: android.accessibilityservice.GestureDescription) {
+                        cont.resume(true)
+                    }
+                    override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
+                        Log.w("GestureEngine", "longPress cancelled by OS for node $nodeId")
+                        cont.resume(false)
+                    }
                 }
-            }
-        )
-        return dispatched
+            )
+        }
     }
 
     // ── XY coordinate actions (vision-only / SAM fallback) ────────────────────
@@ -191,21 +209,26 @@ object GestureEngine {
      * Used when the LLM produces TapXY from [SAM REGIONS] or [VISION DESCRIPTION]
      * because no accessibility node IDs are available (game / Flutter / Unity screens).
      *
+     * Bug #10 fix: suspendCancellableCoroutine awaits the async gesture callback.
+     *
      * @param normX  Normalised X [0.0–1.0] (0 = left edge, 1 = right edge)
      * @param normY  Normalised Y [0.0–1.0] (0 = top edge, 1 = bottom edge)
      */
-    fun tapXY(normX: Float, normY: Float): Boolean {
+    suspend fun tapXY(normX: Float, normY: Float): Boolean {
         val (w, h) = AgentAccessibilityService.getScreenSize()
         val px = normX * w
         val py = normY * h
-        var dispatched = false
-        AgentAccessibilityService.dispatchTap(px, py, object : GestureResultCallback() {
-            override fun onCompleted(g: android.accessibilityservice.GestureDescription) { dispatched = true }
-            override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
-                Log.w("GestureEngine", "tapXY cancelled by OS at norm(%.2f, %.2f)".format(normX, normY))
-            }
-        })
-        return dispatched
+        return suspendCancellableCoroutine { cont ->
+            AgentAccessibilityService.dispatchTap(px, py, object : GestureResultCallback() {
+                override fun onCompleted(g: android.accessibilityservice.GestureDescription) {
+                    cont.resume(true)
+                }
+                override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
+                    Log.w("GestureEngine", "tapXY cancelled by OS at norm(%.2f, %.2f)".format(normX, normY))
+                    cont.resume(false)
+                }
+            })
+        }
     }
 
     /**
@@ -213,21 +236,26 @@ object GestureEngine {
      *
      * Used for drag-scroll or swipe-to-dismiss in game/Flutter screens
      * where no accessibility node IDs are available.
+     *
+     * Bug #10 fix: suspendCancellableCoroutine awaits the async gesture callback.
      */
-    fun swipeXY(normX1: Float, normY1: Float, normX2: Float, normY2: Float): Boolean {
+    suspend fun swipeXY(normX1: Float, normY1: Float, normX2: Float, normY2: Float): Boolean {
         val (w, h) = AgentAccessibilityService.getScreenSize()
         val x1 = normX1 * w
         val y1 = normY1 * h
         val x2 = normX2 * w
         val y2 = normY2 * h
-        var dispatched = false
-        AgentAccessibilityService.dispatchSwipe(x1, y1, x2, y2, object : GestureResultCallback() {
-            override fun onCompleted(g: android.accessibilityservice.GestureDescription) { dispatched = true }
-            override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
-                Log.w("GestureEngine", "swipeXY cancelled by OS from norm(%.2f,%.2f) to norm(%.2f,%.2f)".format(normX1, normY1, normX2, normY2))
-            }
-        })
-        return dispatched
+        return suspendCancellableCoroutine { cont ->
+            AgentAccessibilityService.dispatchSwipe(x1, y1, x2, y2, object : GestureResultCallback() {
+                override fun onCompleted(g: android.accessibilityservice.GestureDescription) {
+                    cont.resume(true)
+                }
+                override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
+                    Log.w("GestureEngine", "swipeXY cancelled by OS from norm(%.2f,%.2f) to norm(%.2f,%.2f)".format(normX1, normY1, normX2, normY2))
+                    cont.resume(false)
+                }
+            })
+        }
     }
 
     private operator fun FloatArray.component1() = this[0]

@@ -98,6 +98,10 @@ class AgentAccessibilityService : AccessibilityService() {
             instance?.dispatchSwipeGesture(x1, y1, x2, y2, callback)
         }
 
+        fun dispatchLongPress(x: Float, y: Float, callback: GestureResultCallback) {
+            instance?.dispatchLongPressAt(x, y, callback)
+        }
+
         fun performBack() {
             instance?.performGlobalAction(GLOBAL_ACTION_BACK)
         }
@@ -325,6 +329,13 @@ class AgentAccessibilityService : AccessibilityService() {
     private fun dispatchTapAt(x: Float, y: Float, callback: GestureResultCallback) {
         val path    = Path().apply { moveTo(x, y) }
         val stroke  = GestureDescription.StrokeDescription(path, 0, 50)
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        dispatchGesture(gesture, callback, null)
+    }
+
+    private fun dispatchLongPressAt(x: Float, y: Float, callback: GestureResultCallback) {
+        val path    = Path().apply { moveTo(x, y) }
+        val stroke  = GestureDescription.StrokeDescription(path, 0, 500)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
         dispatchGesture(gesture, callback, null)
     }
