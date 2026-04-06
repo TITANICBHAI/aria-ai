@@ -145,7 +145,7 @@ object VisionEngine {
             visionModelPath = visionModelPath(context).absolutePath,
             mmProjPath      = mmProjPath(context).absolutePath,
             contextSize     = 2048,
-            nGpuLayers      = 0    // CPU-only — Mali-G72 + mtmd is unstable with GPU layers
+            nGpuLayers      = 32   // OpenCL enabled — offload all CLIP encoder layers to Mali-G72
         )
         Log.i(TAG, if (ok) "Vision loaded OK" else "Vision load FAILED")
         return ok

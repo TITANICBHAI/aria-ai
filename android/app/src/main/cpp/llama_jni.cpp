@@ -337,8 +337,8 @@ Java_com_ariaagent_mobile_core_ai_LlamaEngine_nativeInitVision(
     const char* path = env->GetStringUTFChars(mmproj_path_jstr, nullptr);
 
     mtmd_context_params vparams  = mtmd_context_params_default();
-    vparams.use_gpu              = false;  // Vulkan disabled — CPU only
-    vparams.n_threads            = 4;      // Cortex-A73 big cores
+    vparams.use_gpu              = true;   // OpenCL enabled — offload CLIP encoder to Mali-G72
+    vparams.n_threads            = 6;      // Cortex-A73 big + 2 A53 LITTLE cores
     vparams.print_timings        = false;
     vparams.flash_attn_type      = LLAMA_FLASH_ATTN_TYPE_DISABLED;
     vparams.warmup               = false;  // skip warmup pass to save cold-start time

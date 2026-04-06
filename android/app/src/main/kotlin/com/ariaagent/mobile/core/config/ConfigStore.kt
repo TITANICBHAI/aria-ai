@@ -46,7 +46,7 @@ data class AriaConfig(
     val contextWindow: Int      = 2048,
     val maxTokensPerTurn: Int   = 512,
     val temperatureX100: Int    = 70,
-    val nGpuLayers: Int         = 0,
+    val nGpuLayers: Int         = 32,
     val loraAdapterPath: String = "",
     val rlEnabled: Boolean      = true,
     val learningRate: Double    = 1e-4,
@@ -107,10 +107,10 @@ object ConfigStore {
         save(context, AriaConfig(
             modelPath        = legacy.getString("modelPath", ModelManager.modelPath(context).absolutePath) ?: "",
             quantization     = legacy.getString("quantization", "Q4_K_M") ?: "Q4_K_M",
-            contextWindow    = legacy.getInt("contextWindow", 4096),
+            contextWindow    = legacy.getInt("contextWindow", 2048),
             maxTokensPerTurn = legacy.getInt("maxTokensPerTurn", 512),
             temperatureX100  = legacy.getInt("temperatureX100", 70),
-            nGpuLayers       = legacy.getInt("nGpuLayers", 0),
+            nGpuLayers       = legacy.getInt("nGpuLayers", 32),
             loraAdapterPath  = legacy.getString("loraAdapterPath", LoraTrainer.latestAdapterPath(context) ?: "") ?: "",
             rlEnabled        = legacy.getBoolean("rlEnabled", true),
             learningRate     = legacy.getFloat("learningRate", 1e-4.toFloat()).toDouble(),
@@ -122,10 +122,10 @@ object ConfigStore {
     private fun fromPrefs(context: Context, prefs: Preferences) = AriaConfig(
         modelPath        = prefs[KEY_MODEL_PATH]    ?: ModelManager.modelPath(context).absolutePath,
         quantization     = prefs[KEY_QUANTIZATION]  ?: "Q4_K_M",
-        contextWindow    = prefs[KEY_CTX_WINDOW]    ?: 4096,
+        contextWindow    = prefs[KEY_CTX_WINDOW]    ?: 2048,
         maxTokensPerTurn = prefs[KEY_MAX_TOKENS]    ?: 512,
         temperatureX100  = prefs[KEY_TEMP_X100]     ?: 70,
-        nGpuLayers       = prefs[KEY_N_GPU_LAYERS]  ?: 0,
+        nGpuLayers       = prefs[KEY_N_GPU_LAYERS]  ?: 32,
         // Prefer the adapter trained for the currently saved model.
         // Falls back to the globally latest adapter (highest version across all model dirs)
         // only when no model path is saved yet (e.g. very first launch).
