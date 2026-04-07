@@ -1,0 +1,134 @@
+name: Build ARIA Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    name: Compile NDK + assemble debug APK
+    runs-on: ubuntu-24.04
+
+    steps:
+      # ── 1. Checkout with submodules ──────────────────────────────────────────
+      # llama.cpp lives at android/app/src/main/cpp/llama.cpp as a submodule.
+      # Without --recurse-submodules the NDK build fails immediately at
+      # add_subdirectory(${LLAMA_DIR} llama_build).
+      - name: Checkout repository (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      # ── 2. JDK 17 ─────────────────────────────────────────────────────────────
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # ── 3. NDK 27.1.12297006 ──────────────────────────────────────────────────
+      # actions/setup-android-ndk is not available; the NDK must be installed via
+      # sdkmanager, which ships with the ubuntu-24.04 runner.
+      - name: Install NDK 27.1.12297006
+        run: |
+          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
+            "ndk;27.1.12297006" \
+            "cmake;3.22.1" \
+            --sdk_root="$ANDROID_SDK_ROOT" 2>/dev/null
+
+      # ── 4. Host build-time dependencies ───────────────────────────────────────
+      # libvulkan-dev: provides glslc via shaderc — required to compile the
+      #   GLSL shaders for ggml-vulkan.cpp at build time.
+      # python3: required by GGML_OPENCL_EMBED_KERNELS=ON to embed .cl kernel
+      #   sources as C string literals (so no runtime file I/O on Android).
+      - name: Install build-time dependencies (glslc + Python3)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libvulkan-dev \
+            glslc \
+            python3
+
+      # ── 5. Add glslc to PATH ───────────────────────────────────────────────────
+      # glslc ships with the NDK and also with the shaderc package. We prefer
+      # the NDK's own glslc so it exactly matches the NDK ABI.
+      - name: Add NDK glslc to PATH
+        run: |
+          NDK_DIR="$ANDROID_SDK_ROOT/ndk/27.1.12297006"
+          GLSLC_PATH="$NDK_DIR/shader-tools/linux-x86_64"
+          if [ -d "$GLSLC_PATH" ]; then
+            echo "$GLSLC_PATH" >> $GITHUB_PATH
+            echo "Using NDK glslc from $GLSLC_PATH"
+          else
+            echo "NDK glslc not found at $GLSLC_PATH — falling back to system glslc"
+          fi
+          which glslc || true
+          glslc --version || true
+
+      # ── 6. Gradle cache ───────────────────────────────────────────────────────
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      # ── 7. NDK build output cache (.cxx) ─────────────────────────────────────
+      # The llama.cpp NDK build (arm64-v8a) takes ~15 min on a cold runner.
+      # Caching the Gradle CMake output directory cuts rebuilds to ~3 min for
+      # source-only changes (only the changed translation units are recompiled).
+      - name: Cache NDK .cxx build output
+        uses: actions/cache@v4
+        with:
+          path: android/app/.cxx
+          key: ndk-cxx-${{ runner.os }}-${{ hashFiles('android/app/src/main/cpp/**', 'android/app/src/main/cpp/llama.cpp/src/**', 'android/app/src/main/cpp/llama.cpp/ggml/src/**') }}
+          restore-keys: ndk-cxx-${{ runner.os }}-
+
+      # ── 8. Make Gradle wrapper executable ─────────────────────────────────────
+      - name: Make Gradle wrapper executable
+        run: chmod +x android/gradlew
+
+      # ── 9. Build debug APK ────────────────────────────────────────────────────
+      # NATIVE_ONLY mode: no node_modules → settings.gradle auto-disables RN.
+      # -Pandroid.native-only=true is a belt-and-suspenders signal to skip RN.
+      # Gradle is invoked from the android/ subdirectory (not the repo root).
+      - name: Assemble debug APK
+        working-directory: android
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.1.12297006
+          # Force CMake to find the llama.cpp submodule even if .gitmodules has
+          # a different relative path on the runner.
+          LLAMA_SUBMODULE_PATH: app/src/main/cpp/llama.cpp
+        run: |
+          ./gradlew assembleDebug \
+            --no-daemon \
+            --stacktrace \
+            -Pandroid.native-only=true \
+            -Pndk.path="$ANDROID_NDK_HOME"
+
+      # ── 10. Upload APK artifact ────────────────────────────────────────────────
+      # Download from: Actions tab → latest workflow run → Artifacts section.
+      # Install on device: adb install -r aria-debug.apk
+      #                    or copy to phone and open with Files app.
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      # ── 11. Upload build logs on failure ──────────────────────────────────────
+      - name: Upload CMake / NDK logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            android/app/.cxx/
+            android/app/build/intermediates/cmake/
+          retention-days: 7
